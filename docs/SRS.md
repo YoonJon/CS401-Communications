@@ -100,7 +100,7 @@ The collection of all registered users within the organization, searchable by au
 ## 1.3. References
 [Use Case Specification document](#use-case-specification)
 
-Use Cases Diagram
+[Use Cases Diagram](#use-case-diagram)
 
 ## 1.4. Overview
 This project involves the development of a distributed internal communications platform designed for use within a large organization. 
@@ -939,3 +939,6 @@ User directory data not found
 
 ### Related Use Cases:
 1, 2, 3, 4, 5, 6, 7, 9
+
+# Use Case Diagram
+![alt text](<Use Case Diagram.png>)
