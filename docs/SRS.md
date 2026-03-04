@@ -539,19 +539,34 @@ User credentials data not found
 ### Use Case Name: Send a Message to a conversation
 ### Relevant Requirements: 
 3.1.1.8
+
 3.1.1.9
+
 3.1.2.8
+
 3.1.2.9
+
 3.1.2.10
+
 3.1.3.7
+
 3.1.3.9
+
 3.1.3.10
+
 3.1.3.14
+
 3.1.3.15
+
 4.1.9
+
 4.3.2
+
 4.3.6
-### Primary Actor: User
+
+### Primary Actor:
+User
+
 ### Pre-conditions: 
 User is logged in
 User has at least one existing conversation
@@ -620,198 +635,307 @@ Unable to establish TCP connection
 Conversation history data not found
 Related Use Cases: 1,2,3,6,7,8,9,11
 
-Use Case ID: UC-06
-Use Case Name: View a conversation
-Relevant Requirements: 
+## Use Case ID: UC-06
+### Use Case Name: View a conversation
+### Relevant Requirements: 
 3.1.2.13
-3.1.2.14
-3.1.3.7
-3.1.3.12
-3.1.3.15
-4.3.3
-Primary Actor: User
-Pre-conditions:
-User logged in
-User is a participant of a conversation
-Post-conditions: 
-The client GUI displays the message history of the selected conversation.
-Unread messages are indicated when viewing a conversation for the first time since changes were made to the conversation.
-Basic Flow or Main Scenario: 
-User selects a conversation
-The client GUI displays the message history of the selected conversation.
-If the conversation is too large to be displayed in the GUI, the user should be able to scroll up or down to view more of the conversation history.
-Extensions or Alternate Flows:
-None
-Exceptions: 
-Unable to establish TCP connection
-Conversation history data not found
-Related Use Cases: 1,2,3,5,7,8,9,11
 
-Use Case ID: UC-07
-Use Case Name: Create a New Conversation
-Relevant Requirements: 
-3.1.2.16
-3.1.2.17
-3.1.3.6
-3.1.3.11.3
+3.1.2.14
+
+3.1.3.7
+
+3.1.3.12
+
 3.1.3.15
+
+4.3.3
+
+### Primary Actor:
+User
+### Pre-conditions:
+User logged in
+
+User is a participant of a conversation
+### Post-conditions: 
+
+The client GUI displays the message history of the selected conversation.
+
+Unread messages are indicated when viewing a conversation for the first time since changes were made to the conversation.
+
+### Basic Flow or Main Scenario: 
+1. User selects a conversation
+2. The client GUI displays the message history of the selected conversation.
+3. If the conversation is too large to be displayed in the GUI, the user should be able to scroll up or down to view more of the conversation history.
+
+### Extensions or Alternate Flows:
+None
+### Exceptions: 
+
+Unable to establish TCP connection
+
+Conversation history data not found
+### Related Use Cases:
+1, 2, 3, 5, 7, 8, 9, 11
+
+## Use Case ID: UC-07
+### Use Case Name: Create a New Conversation
+### Relevant Requirements: 
+3.1.2.16
+
+3.1.2.17
+
+3.1.3.6
+
+3.1.3.11.3
+
+3.1.3.15
+
 3.1.1.6
 4.1.5
-Primary Actor: User
-Pre-conditions: 
+### Primary Actor:
+User
+
+### Pre-conditions: 
 Client GUI is working
+
 User is logged in and connected to the server
+
 User exists in the system
+
 At least one valid user is available to select
-Post-conditions: 
+
+### Post-conditions: 
 New conversation is created
+
 Conversation stored on the server with a unique conversation ID
+
 The participant is updated 
-Basic Flow or Main Scenario: 
-User selects a user to create a conversation
-System checks if the conversation already exists
-If not, the system create the new conversation with the user
-The system assigns a unique conversation ID
-The system stores the conversations
-GUI created conversation box for each user
-Extensions or Alternate Flows:
+
+### Basic Flow or Main Scenario: 
+1. User selects a user to create a conversation
+2. System checks if the conversation already exists
+3. If not, the system create the new conversation with the user
+4. The system assigns a unique conversation ID
+5. The system stores the conversations
+6. GUI created conversation box for each user
+### Extensions or Alternate Flows:
  Create multi-user conversation from scratch
 1. User selects multiple users.
 2. User use the create group function
 3. Sever creates new group conversation 
 4. Server assigns a unique conversation id
 5. Serve stores the conversation with participants list
-6. GUI created	
-Exceptions: 
+6. GUI created
+
+### Exceptions: 
+
 User is not found
+
 The same conversation group exists
-Unable to establish TCP connection
-User directory data not found
-User conversation history data not found
-Related Use Cases: 1,2,3,5,6,8,9,11
 
-Use Case ID: UC-08
-Use Case Name: Add user to existing group conversation
-Relevant Requirements: 
+Unable to establish TCP connection
+
+User directory data not found
+
+User conversation history data not found
+
+### Related Use Cases:
+1, 2, 3, 5, 6, 8, 9, 11
+
+## Use Case ID: UC-08
+### Use Case Name: Add user to existing group conversation
+### Relevant Requirements: 
 3.1.2.18
+
 3.1.3.6
+
 3.1.3.11.2
+
 3.1.3.15
+
 4.1.5
-Primary Actor: User 
-Pre-conditions: 
+### Primary Actor:
+User 
+
+### Pre-conditions: 
 User is logged in
+
 The group conversation exists
+
 User is a participant in the conversation
+
 The added user isn’t a participant in the conversation
-Post-conditions: 
+
+### Post-conditions: 
+
 The new user has a new conversation.
+
 The system added the user to the existing conversation.
+
 Conversation remains a part of the new user’s conversation history.
-Basic Flow or Main Scenario: 
-User selects a group conversation
-User selects the “add participant” search box.
-User enters the name of the desired participant.
-The system adds the user to the conversation.
-GUI displays the conversation for the added user.
-Extensions or Alternate Flows: 
-None.
-Exceptions: 
+
+### Basic Flow or Main Scenario: 
+1. User selects a group conversation
+2. User selects the “add participant” search box.
+3. User enters the name of the desired participant.
+4. The system adds the user to the conversation.
+5. GUI displays the conversation for the added user.
+
+### Extensions or Alternate Flows: 
+None
+### Exceptions: 
 No group conversation under the user’s conversation history.
+
 Unable to establish TCP connection
+
 User directory data not found
+
 User conversation history not found
-Related Use Cases: 1,2,3,5,6,7,9,11
 
-Use Case ID: UC-09
-Use Case Name: Leave a Conversation
-Relevant Requirements: 
+### Related Use Cases:
+1, 2, 3, 5, 6, 7, 9, 11
+
+## Use Case ID: UC-09
+### Use Case Name: Leave a Conversation
+### Relevant Requirements: 
 3.1.2.19
+
 3.1.3.6
+
 3.1.3.11
+
 3.1.3.15
+
 4.1.5
-Primary Actor: User
-Pre-conditions: 
+
+### Primary Actor:
+User
+
+### Pre-conditions: 
 User logged in
+
 User is a participant in the conversation
-Post-conditions: 
+
+### Post-conditions: 
 User is not a participant of the conversation.
+
 The conversation is no longer displayed on the client GUI for the user that left.
-Basic Flow or Main Scenario:
-User selects the conversation
-User clicks the “leave conversation” button.
-The system removes the user from the conversation
 
-Extensions or Alternate Flows:
-None.
-Exceptions: 
-None.
+### Basic Flow or Main Scenario:
+1. User selects the conversation
+2. User clicks the “leave conversation” button.
+3. The system removes the user from the conversation
+
+### Extensions or Alternate Flows:
+None
+
+### Exceptions: 
 Unable to establish TCP connection
-Related Use Cases: 1,2,3,5,6,7,11
 
-Use Case ID: UC-10
-Use Case Name: Log Out from Client Application
-Relevant Requirements: 
+### Related Use Cases:
+1, 2, 3, 5, 6, 7, 11
+
+## Use Case ID: UC-10
+### Use Case Name: Log Out from Client Application
+### Relevant Requirements: 
 3.1.2.6
-3.1.3.4
-3.1.3.5
-4.1.6
-Primary Actor: User
-Pre-conditions:
-User has logged in status.
-User has an active session.
-Post-conditions: 
-The session is terminated
-The user’s status is set to offline.
-The client GUI displays the login prompt screen.
-Basic Flow or Main Scenario: 
-User clicks the “Log Out” button.
-The GUI displays login screen.
-Extensions or Alternate Flows: 
-Case 1: Client application inactivity
-Client application does not detect user input for a certain time threshold.
-Client application automatically logs the user out.
-The client GUI displays the login prompt screen
-Case 2: Networking issues
-The client loses connection to the server
-The server detects the lost connection.
-The server terminates the active session associated with the user.
-The system set the user’s status to “offline.”
-The server logs the user out.
-The client GUI displays the login prompt screen.
-Exceptions: 
-Unable to establish TCP connection
-Related Use Cases:1,2
 
-Use Case ID: UC-11
-Use Case Name: Join a Conversation
-Relevant Requirements: 
-3.1.1.10
-3.1.2.21
-3.1.3.6
-3.1.3.11
-3.1.3.13
-3.1.3.17
-4.1.4
-4.1.5
-4.1.8
-Primary Actor: Admin
-Pre-conditions: 
-Admin user logged in
-Conversation exists
+3.1.3.4
+
+3.1.3.5
+
+4.1.6
+
+### Primary Actor:
+User
+
+### Pre-conditions:
+User has logged in status.
+
+User has an active session.
+
 Post-conditions: 
-Admin is a participant in the conversation.
-The conversation is displayed in the Admin user’s conversation history.
-Basic Flow or Main Scenario: 
-Admin types the name of the user whom he wants to search for in the conversation searching box.
-Admin GUI displays the list of conversations, which contains the user sorted first by number of participants, and then by alphabetical order of participants.
-Admin selects the conversation.
-The server adds the admin to the participant list.
-The system displays the conversation messages.
-Extensions or Alternate Flows: 
-Exceptions: 
+
+The session is terminated
+
+The user’s status is set to offline.
+
+The client GUI displays the login prompt screen.
+
+### Basic Flow or Main Scenario: 
+1. User clicks the “Log Out” button.
+2. The GUI displays login screen.
+
+### Extensions or Alternate Flows: 
+Case 1: Client application inactivity
+1. Client application does not detect user input for a certain time threshold.
+2. Client application automatically logs the user out.
+3. The client GUI displays the login prompt screen
+
+Case 2: Networking issues
+1. The client loses connection to the server
+2. The server detects the lost connection.
+3. The server terminates the active session associated with the user.
+4. The system set the user’s status to “offline.”
+5. The server logs the user out.
+6. The client GUI displays the login prompt screen.
+
+### Exceptions: 
 Unable to establish TCP connection
+
+### Related Use Cases:
+1, 2
+
+## Use Case ID: UC-11
+### Use Case Name: Join a Conversation
+### Relevant Requirements: 
+3.1.1.10
+
+3.1.2.21
+
+3.1.3.6
+
+3.1.3.11
+
+3.1.3.13
+
+3.1.3.17
+
+4.1.4
+
+4.1.5
+
+4.1.8
+
+### Primary Actor:
+Admin
+
+### Pre-conditions: 
+Admin user logged in
+
+Conversation exists
+
+### Post-conditions: 
+Admin is a participant in the conversation.
+
+The conversation is displayed in the Admin user’s conversation history.
+
+### Basic Flow or Main Scenario: 
+1. Admin types the name of the user whom he wants to search for in the conversation searching box.
+2. Admin GUI displays the list of conversations, which contains the user sorted first by number of participants, and then by alphabetical order of participants.
+3. Admin selects the conversation.
+4. The server adds the admin to the participant list.
+5. The system displays the conversation messages.
+
+### Extensions or Alternate Flows: 
+None
+
+### Exceptions: 
+Unable to establish TCP connection
+
 User conversation history data not found
+
 User directory data not found
-Related Use Cases: 1,2,3,4,5,6,7,9
+
+### Related Use Cases:
+1, 2, 3, 4, 5, 6, 7, 9
