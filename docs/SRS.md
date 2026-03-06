@@ -524,6 +524,7 @@ Conversation history imported from the server
 2. Clients sends request to server
 3. The server verifies the username and password.
 4. The system displays the main conversation interface
+
 ### Extensions or Alternate Flows: 
 None.
 ### Exceptions: 
@@ -572,71 +573,114 @@ User
 
 ### Pre-conditions: 
 User is logged in
+
 User has at least one existing conversation
+
+User is viewing the conversation
+
 ### Post-conditions: 
 Conversation is updated on the client and server.
+
 ### Basic Flow or Main Scenario: 
-User selects an existing conversation
-System displays recent messages.
-User enters text.
-User presses the send button
+1. User selects an existing conversation
+2. System displays recent messages.
+3. User enters text.
+4. User presses the send button
 ### Extensions or Alternate Flows:
+
 None
+
 ### Exceptions: 
 Empty message
-Unable to establish TCP connection
-Conversation history data not found
-### Related Use Cases: 1,2,6,7,11
 
-Use Case ID: UC-04
-Use Case Name: Browse User Directory
-Relevant Requirements: 
+Unable to establish TCP connection
+
+Conversation history data not found
+
+### Related Use Cases: 
+1, 2, 6, 7, 11
+
+## Use Case ID: UC-04
+### Use Case Name: Browse User Directory
+### Relevant Requirements: 
 3.1.2.15
-3.1.3.8
-3.1.3.13
-4.3.4
-Primary Actor: User
-Pre-conditions: 
-User logged in
-Post-conditions: 
-The client GUI displays matching user or “no result found” if there is no matching user
-Basic Flow or Main Scenario:
-Select the directory search box
-Enter the name of the desired employee
-The system returns the result
-Extensions or Alternate Flows: 
-Select the “add to conversation” option in a conversation window
-Enter the name of the desired employee
-Exceptions:
-Unable to establish TCP connection.
-Directory data not found
-Related Use Cases: 1,2,7,8,11
 
-Use Case ID: UC-05
-Use Case Name: Browse Conversation History
-Relevant Requirements: 
-3.1.2.11
-3.1.2.12
-3.1.2.13
 3.1.3.8
+
 3.1.3.13
+
 4.3.4
-Primary Actor: User
-Pre-conditions: 
+
+## Primary Actor:
+User
+
+## Pre-conditions: 
 User logged in
-Post-conditions: 
-Results are displayed by order of most recent activity. 
-User is not a participant of any conversation, the GUI displays an empty conversation history.
+
+## Post-conditions: 
+The client GUI displays matching user or “no result found” if there is no matching user
+
 Basic Flow or Main Scenario:
-User enters the name in the conversation history search box
-Client GUI displays conversations involving the searched user.
-User selects the desired conversation for viewing
-Extensions or Alternate Flows: 
+
+Select the directory search box
+
+Enter the name of the desired employee
+
+## The system returns the result
+## Extensions or Alternate Flows: 
+Select the “add to conversation” option in a conversation window
+
+Enter the name of the desired employee
+
+## Exceptions:
+Unable to establish TCP connection.
+
+Directory data not found
+
+### Related Use Cases: 1,2,7,8,11
+
+## Use Case ID: UC-05
+## Use Case Name: Browse Conversation History
+## Relevant Requirements: 
+3.1.2.11
+
+3.1.2.12
+
+3.1.2.13
+
+3.1.3.8
+
+3.1.3.13
+
+4.3.4
+
+## Primary Actor: 
+User
+## Pre-conditions: 
+User logged in
+
+## Post-conditions: 
+Results are displayed by order of most recent activity. 
+
+User is not a participant of any conversation, the GUI displays an 
+
+empty conversation history.
+
+## Basic Flow or Main Scenario:
+1. User enters the name in the conversation history search box
+2. Client GUI displays conversations involving the searched user.
+3. User selects the desired conversation for viewing
+
+## Extensions or Alternate Flows: 
 None	
-Exceptions:
+
+## Exceptions:
 Unable to establish TCP connection
+
 Conversation history data not found
-Related Use Cases: 1,2,3,6,7,8,9,11
+
+## Related Use Cases: 
+1, 2, 3, 6, 7, 8, 9, 11
 
 ## Use Case ID: UC-06
 ### Use Case Name: View a conversation
