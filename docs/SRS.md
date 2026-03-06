@@ -2,11 +2,13 @@
 
 # Revision History
 ## Date | Version | Description | Author
-- 02/13/2026 | 1.0 | Initiate the document | Quan Pham
-- 02/15/2026 | 2.0 | Initiate the document | Quan Pham
+- 02/13/2026 | 1.0 | Initiate the document                       | Quan Pham
+- 02/15/2026 | 2.0 | Initiate the document                       | Quan Pham
 - 02/14/2026 | 2.1 | Modified Section 1, 2, 3 and 4 the document | Quan Pham
-- 02/27/2026 | 3.0 | Added Use Case Diagram | Harumi Ueda
-- 03/05/2026 | 4.0 | Added Class Candidate Diagram, Added UC-02 Diagram, Added sequence_daigrams folder | Jon Yoon
+- 02/27/2026 | 3.0 | Added Use Case Diagram                                                             | Harumi Ueda
+- 03/05/2026 | 4.0 | Added Class Candidate Diagram, Added UC-02 Diagram, Added sequence_diagrams folder | Jon Yoon
+- 03/05/2026 | 4.1 | Modified UC-03 specification                                                       | Harumi Ueda
+
 
 # Table of Contents
 
