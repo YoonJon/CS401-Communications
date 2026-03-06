@@ -2,11 +2,12 @@
 
 # Revision History
 ## Date | Version | Description | Author
-- 02/13/2026 | 1.0 | Initiate the document | Quan Pham
-- 02/15/2026 | 2.0 | Initiate the document | Quan Pham
+- 02/13/2026 | 1.0 | Initiate the document                       | Quan Pham
+- 02/15/2026 | 2.0 | Initiate the document                       | Quan Pham
 - 02/14/2026 | 2.1 | Modified Section 1, 2, 3 and 4 the document | Quan Pham
-- 02/27/2026 | 3.0 | Added Use Case Diagram | Harumi Ueda
-- 03/03/2026 | 4.0 | Added Class Candidate Diagram | Jon Yoon
+- 02/27/2026 | 3.0 | Added Use Case Diagram                      | Harumi Ueda
+- 03/03/2026 | 4.0 | Added Class Candidate Diagram               | Jon Yoon
+- 03/05/2026 | 4.1 | Added UC-03                                 | Jon Yoon
 
 # Table of Contents
 
