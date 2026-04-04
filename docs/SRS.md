@@ -2,13 +2,13 @@
 
 # Revision History
 ## Date | Version | Description | Author
-- 02/13/2026 | 1.0 | Initiate the document                       | Quan Pham
-- 02/15/2026 | 2.0 | Initiate the document                       | Quan Pham
-- 02/14/2026 | 2.1 | Modified Section 1, 2, 3 and 4 the document | Quan Pham
+- 02/13/2026 | 1.0 | Initiate the document                                                              | Quan Pham
+- 02/15/2026 | 2.0 | Initiate the document                                                              | Quan Pham
+- 02/14/2026 | 2.1 | Modified Section 1, 2, 3 and 4 the document                                        | Quan Pham
 - 02/27/2026 | 3.0 | Added Use Case Diagram                                                             | Harumi Ueda
 - 03/05/2026 | 4.0 | Added Class Candidate Diagram, Added UC-02 Diagram, Added sequence_diagrams folder | Jon Yoon
 - 03/05/2026 | 4.1 | Modified UC-03 specification                                                       | Harumi Ueda
-
+- 04/04/2026 | 5.0 | Added 3.1.3.18 and modified precondition of UC01, 02, and 08                       | Jon Yoon
 
 # Table of Contents
 
@@ -336,6 +336,8 @@ Client-side storage shall be runtime-only; the client shall not persist user, co
 
 3.1.3.17 The Server shall not include a runtime GUI and shall be configured and launched using predefined configuration files or startup parameters.
 
+3.1.3.18 The Server shall enforce the uniqueness of private conversations
+
 ## 3.2. External Interface Requirements
 3.2.1 The system shall provide a network interface using TCP/IP socket communication between the Client and Server modules.
 
@@ -451,8 +453,6 @@ Client-side storage shall be runtime-only; the client shall not persist user, co
 ### Primary Actor:
 User
 ### Pre-conditions: 
-Client is connected to the server
-
 User has a valid Employee ID already issued
 
 ### Post-conditions:
@@ -469,7 +469,7 @@ A new user account is created
 None. 
 
 ### Exceptions: 
-User enters an invalid real name or employeeID
+User enters an invalid real name or employee ID
 
 User enters an existing username
 Unable to establish TCP connection
@@ -510,7 +510,6 @@ User
 
 ### Pre-conditions: 
 User has an existing registered account
-Client connects to the server
 
 There is no existing active session associated with the user’s ID
 
@@ -814,6 +813,9 @@ The group conversation exists
 User is a participant in the conversation
 
 The added user isn’t a participant in the conversation
+
+The user has selected and is viewing the desired conversation
+
 
 ### Post-conditions: 
 
