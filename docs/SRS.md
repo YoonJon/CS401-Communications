@@ -2,13 +2,14 @@
 
 # Revision History
 ## Date | Version | Description | Author
-- 02/13/2026 | 1.0 | Initiate the document                                                              | Quan Pham
-- 02/15/2026 | 2.0 | Initiate the document                                                              | Quan Pham
-- 02/14/2026 | 2.1 | Modified Section 1, 2, 3 and 4 the document                                        | Quan Pham
-- 02/27/2026 | 3.0 | Added Use Case Diagram                                                             | Harumi Ueda
-- 03/05/2026 | 4.0 | Added Class Candidate Diagram, Added UC-02 Diagram, Added sequence_diagrams folder | Jon Yoon
-- 03/05/2026 | 4.1 | Modified UC-03 specification                                                       | Harumi Ueda
-- 04/04/2026 | 5.0 | Added 3.1.3.18 and modified precondition of UC01, 02, and 08                       | Jon Yoon
+- 02/13/2026 | 1.0 | Initial Version                                                                       | Quan
+- 02/15/2026 | 2.0 | Add Section 1,2,3, and 4                                                              | Quan
+- 02/21/2026 | 2.1 | Modified Section 1,2,3 and 4                                                          | Quan
+- 02/27/2026 | 3.0 | Add Use Case Diagram                                                                   | Harumi Ueda
+- 03/03/2026 | 4.0 | Added Class Candidate Diagram                                                          | Jon Yoon
+- 03/05/2026 | 4.1 | Modified UC-03                                                                         | Harumi Ueda
+- 04/04/2026 | 5.1 | Added 3.1.3.18 and modified UC-01, 02, 07, and 08                                     | Jon Yoon
+- 04/09/2026 | 5.2 | Modified 2.5, removed 4.1.8, fixed minor spelling mistakes                            | Jon Yoon
 
 # Table of Contents
 
@@ -35,8 +36,18 @@
 - [4.2 Environmental Requirements](#42-environmental-requirements)
 - [4.3 Performance Requirements](#43-performance-requirements)
 
+[5. System Architecture](#5-system-architecture)
+- [5.1 Classes Diagram](#51-classes-diagram)
+- [5.2 Classes](#52-classes)
+- [5.3 Use Case Specification](#53-use-case-specification)
+- [5.4 Use Case Diagrams](#54-use-case-diagrams)
+- [5.5 Sequence Diagrams](#55-sequence-diagrams)
+
 
 # 1. Purpose
+
+This document outlines the requirements for the Communication System Application (CSA).
+
 ## 1.1. Scope
 This project encompasses the design and implementation of a Java-based client–server internal messaging system operating over TCP/IP.
 
@@ -59,7 +70,7 @@ The Java-based graphical user interface (GUI) program used by employees to acces
 
 ### Server Application
 The centralized Java application responsible for managing user authentication, message storage, synchronization, session tracking, and persistent logging.  
-It acts as the system’s authoritative source of truth.
+It acts as the system's authoritative source of truth.
 
 ### GUI (Graphical User Interface)
 The visual interface through which users interact with the client application, including login screens, conversation views, and message input fields.
@@ -86,7 +97,7 @@ An authenticated connection between a client application and the server represen
 The process of permanently storing system data (e.g., users, messages, conversations) in text-based files on the server.
 
 ### Source of Truth
-The server’s authoritative role in maintaining and validating all official system data, including user credentials, conversation records, and login states.
+The server's authoritative role in maintaining and validating all official system data, including user credentials, conversation records, and login states.
 
 ### Immutable Data
 Data that cannot be modified after creation. In this system, once a message is sent and logged, it cannot be edited or deleted.
@@ -102,10 +113,15 @@ A Java networking endpoint used to establish TCP/IP communication between the cl
 
 ### Directory
 The collection of all registered users within the organization, searchable by authorized users.
-## 1.3. References
-[Use Case Specification document](#use-case-specification)
 
-[Use Cases Diagram](#use-case-diagram)
+## 1.3. References
+[Use Case Specification document](#53-use-case-specification)
+
+[Use Cases Diagram](#54-use-case-diagrams)
+
+[UML Class Candidates Diagram](#51-classes-diagram)
+
+[UML Sequence Diagrams](#55-sequence-diagrams)
 
 ## 1.4. Overview
 This project involves the development of a distributed internal communications platform designed for use within a large organization. 
@@ -133,6 +149,7 @@ The system does not integrate with external databases, third-party services, web
 All data storage is performed through structured text-based files managed by the server. Administrators are granted elevated privileges that allow oversight access to all communications, aligning with the requirement to minimize privacy within the organizational environment. 
 
 Overall, the product is designed as a self-contained enterprise messaging solution that emphasizes centralized control, persistent logging, structured communication, and strict adherence to implementation constraints defined in the project scope.
+
 ## 2.2. Product Architecture
 The system will be organized into **two major modules**: the **Client module** and the **Server module**.
 
@@ -147,8 +164,8 @@ The architecture follows standard object-oriented design principles, ensuring cl
 ### Client-Side Features
 - User account creation using Employee ID
 - Verification of Employee ID ownership through name confirmation
-- Unique username and password selection during registration
-- User login with username and password
+- Unique login name and password selection during registration
+- User login with login name and password
 - User logout
 - TCP/IP connection to centralized server (company network or Wi-Fi)
 - Receive synchronized data from server in text form
@@ -169,10 +186,11 @@ The architecture follows standard object-oriented design principles, ensuring cl
 - GUI-based interaction interface
 - Distinct GUI interface for administrative users
 - Conversations private by default
+
 ### Server-Side Features
 - Creation and storage of user objects
-- Enforcement of unique Employee ID and username
-- Authentication of login username and password
+- Enforcement of unique Employee ID and login name
+- Authentication of login name and password
 - Tracking of active user sessions
 - Enforcement of single active login session per user
 - Logout handling (user-initiated or server-initiated)
@@ -200,7 +218,7 @@ The architecture follows standard object-oriented design principles, ensuring cl
 - The system shall use a TCP/IP socket-based client–server architecture; communication shall not rely on HTTP, web services, or browser-based technologies.
 - The client application shall provide access through a desktop GUI only; command-line-only interaction is not permitted for normal use.
 - The client shall maintain only one active message input buffer at any time, ensuring that only one unsent text field is editable concurrently.
-Client-side storage shall be runtime-only; the client shall not persist user, conversation, or message records beyond program execution.
+- Client-side storage shall be runtime-only; the client shall not persist user, conversation, or message records beyond program execution.
 - Server-stored communication data (e.g., messages and logs) shall be immutable once recorded, meaning sent messages cannot be edited or deleted.
 - The server shall be the authoritative source of truth for all user identity data, session state, and message synchronization; the client shall not make independent state decisions.
 - The system shall support role-based interfaces, requiring a distinct GUI experience for administrative users versus standard users.
@@ -211,15 +229,16 @@ Client-side storage shall be runtime-only; the client shall not persist user, co
 ## 2.5. Assumptions and Dependencies
 ### Assumptions
 - The organization issues unique Employee IDs in advance; Employee ID values required for account creation are available to the server for verification.
-- Username and Employee ID uniqueness will be enforced by the server at account-creation time.
+- Login name and Employee ID uniqueness will be enforced by the server at account-creation time.
 - The target deployment is a single authoritative server (host device) on the organizational network; the server machine provides sufficient CPU, memory, and disk resources for the expected load.
 - Typical message payloads are text-only. The system will not be required to support file attachments, images, or multimedia.
 - Network connectivity between clients and the server is reliable LAN/Wi-Fi with low latency for synchronous delivery; occasional disconnections are expected and handled via server-side buffering for offline delivery.
-- There will be one active session per user enforced by the server (concurrent logins from multiple devices are either rejected or will cause the earlier session to be invalidated).
-- Administrative users (IT) and the list of admin accounts are predetermined or authorized and available to the server for role assignment at account creation or initial configuration.
+- There will be one active session per user enforced by the server; concurrent logins from multiple devices are rejected.
+- Administrative users (IT) and the list of admin accounts are predetermined and available to the server for role assignment at account creation.
 - Clients are desktop machines capable of running a Java GUI and have a standard keyboard/mouse interface.
 - Timekeeping for timestamps uses the server clock as the authoritative time source; clients do not supply authoritative timestamps.
 - All persistent data required by the system (users, conversations, messages) will remain text-based files on the server filesystem; no external DBs or services will be used.
+
 ### Dependencies
 - Java SE Development Kit (JDK) — a specific supported version will be required on both server and client machines to compile and run the applications.
 - Standard Java runtime libraries only — the implementation depends exclusively on Java SE libraries (e.g., java.net, java.io, java.util, java.nio, Swing/JavaFX) and must not rely on third-party jars.
@@ -228,7 +247,7 @@ Client-side storage shall be runtime-only; the client shall not persist user, co
 - TCP/IP network stack — functioning network between clients and server (fixed IP or resolvable hostname) and the availability of a configurable TCP port for server socket binding.
 - Version control — a Git-compatible environment for source control and submission (the project deliverable assumes a Git repository).
 - No external persistence services — the system must not depend on external databases, cloud services, or third-party authentication providers.
-- Administrator provisioning mechanism — a simple configuration file or server-side list used to define accounts that are granted administrative privileges at initialization or account creation
+- Administrator provisioning mechanism — a simple configuration file or server-side list used to define accounts that are granted administrative privileges at account creation.
 
 
 # 3. Specific Requirements
@@ -246,7 +265,7 @@ Client-side storage shall be runtime-only; the client shall not persist user, co
 
 3.1.1.6 All internal entities (users, conversations) shall use unique numeric identifiers generated by the Server.
 
-3.1.1.7 Employee ID and username values shall be unique within the system.
+3.1.1.7 Employee ID and login name values shall be unique within the system.
 
 3.1.1.8 Once a message is sent and stored by the Server, it shall be immutable.
 
@@ -263,9 +282,9 @@ Client-side storage shall be runtime-only; the client shall not persist user, co
 
 3.1.2.3 The Client shall allow verification of Employee ID ownership through name confirmation.
 
-3.1.2.4 The Client shall allow the user to select a unique username and password during registration.
+3.1.2.4 The Client shall allow the user to select a unique login name and password during registration.
 
-3.1.2.5 The Client shall allow login using username and password.
+3.1.2.5 The Client shall allow login using login name and password.
 
 3.1.2.6 The Client shall allow users to log out of the system.
 
@@ -302,7 +321,7 @@ Client-side storage shall be runtime-only; the client shall not persist user, co
 
 3.1.3.2 The Server shall create, store, and manage User accounts, including role assignment (User or Administrator).
 
-3.1.3.3 The Server shall verify Employee ID ownership during account creation and enforce uniqueness of username.
+3.1.3.3 The Server shall verify Employee ID ownership during account creation and enforce uniqueness of login name.
 
 3.1.3.4 The Server shall track and manage active user sessions, enforcing a single active session per non-administrative user.
 
@@ -345,7 +364,7 @@ Client-side storage shall be runtime-only; the client shall not persist user, co
 
 3.2.3 The Client shall establish a socket connection to the Server using a specified IP address (or hostname) and port number.
 
-3.2.4 The system shall interface with the host operating system’s file system to persist user data, conversation records, and message logs in structured text files.
+3.2.4 The system shall interface with the host operating system's file system to persist user data, conversation records, and message logs in structured text files.
 
 3.2.5 The system shall operate within a Java SE runtime environment and shall not interface with external databases, third-party APIs, or enterprise systems.
 
@@ -363,9 +382,9 @@ Client-side storage shall be runtime-only; the client shall not persist user, co
 
 # 4. Non-Functional Requirements
 ## 4.1. Security and Privacy Requirements
-4.1.1 The system shall require user authentication(Login) before granting access to messaging features.
+4.1.1 The system shall require user authentication (Login) before granting access to messaging features.
 
-4.1.2 The system shall enforce uniqueness of Employee ID and username during account creation.
+4.1.2 The system shall enforce uniqueness of Employee ID and login name during account creation.
 
 4.1.3 The system shall securely store user passwords.
 
@@ -377,13 +396,11 @@ Client-side storage shall be runtime-only; the client shall not persist user, co
 
 4.1.7 The system shall validate all client requests before processing them.
 
-4.1.8 The system shall log administrative access to conversations for audit purposes.
+4.1.8 The system shall ensure that stored messages are immutable and cannot be modified or deleted.
 
-4.1.9 The system shall ensure that stored messages are immutable and cannot be modified or deleted after persistence.
+4.1.9 The system shall maintain data integrity during concurrent access and file storage operations.
 
-4.1.10 The system shall maintain data integrity during concurrent access and file storage operations.
-
-4.1.11 The system shall ensure that only authenticated clients may establish active messaging sessions with the Server.
+4.1.10 The system shall ensure that only authenticated clients may establish active messaging sessions with the Server.
 
 ## 4.2. Environmental Requirements
 4.2.1 The system shall operate in environments that support Java SE (compatible JDK installed on both Client and Server machines).
@@ -402,8 +419,8 @@ Client-side storage shall be runtime-only; the client shall not persist user, co
 
 4.2.8 The system shall not depend on cloud infrastructure or external enterprise services.
 
-## 4.3. Performance Requirements.
-4.3.1. The system shall support at least 1000 concurrent active client connections without performance degradation under standard deployment conditions.
+## 4.3. Performance Requirements
+4.3.1 The system shall handle concurrent active client connections while maintaining system stability, responsiveness, and reliable message delivery under standard operational conditions.
 
 4.3.2 The Server shall guarantee data persistence without incurring noticeable service slowdown.
 
@@ -428,11 +445,521 @@ Client-side storage shall be runtime-only; the client shall not persist user, co
 4.3.12 The Client shall clear all temporary session data from memory after logout or session termination.
 
 
-# Use Case Specification
-## Use Case ID: UC-01
-### Use Case Name: Create an Account
+# 5. System Architecture
+## 5.1. Classes Diagram
 
-### Relevant Requirements: 
+### System Diagram
+![System diagram](Class%20Diagram/System%20diagram.png)
+
+### GUI Diagram
+![GUI diagram](Class%20Diagram/GUI%20diagram.png)
+
+### Networking Diagram
+![Networking diagram](Class%20Diagram/Networking%20diagram.png)
+
+## 5.2. Classes
+
+### Enums
+
+```java
+enum UserType
+    USER,
+    ADMIN
+
+enum ConversationType
+    PRIVATE,
+    GROUP
+
+enum RequestType
+    MESSAGE,
+    UPDATE_READ,
+    REGISTER,
+    LOGIN,
+    LOGOUT,
+    SEARCH_DIRECTORY,
+    CREATE_CONVERSATION,
+    ADD_PARTICIPANT,
+    LEAVE_CONVERSATION,
+    JOIN_CONVERSATION,
+    ADMIN_CONVERSATION_QUERY,
+    PING
+
+enum ResponseType
+    MESSAGE
+    READ_UPDATED
+    REGISTER_RESULT
+    LOGIN_RESULT
+    LOGOUT_RESULT
+    DIRECTORY_RESULT
+    CONVERSATION
+    CONVERSATION_METADATA
+    LEAVE_RESULT
+    PONG
+    CONNECTED
+
+enum RegisterStatus
+    SUCCESS,
+    USER_ID_TAKEN,
+    USER_ID_INVALID,
+    LOGIN_NAME_TAKEN,
+    LOGIN_NAME_INVALID
+
+enum LoginStatus
+    SUCCESS,
+    INVALID_CREDENTIALS,
+    NO_ACCOUNT_EXISTS,
+    DUPLICATE_SESSION
+
+enum ConnectionStatus
+    CONNECTED,
+    NOT_CONNECTED,
+    CONNECTING
+```
+
+### Client-side Classes
+
+```
+class ClientUI
+
+- controller: ClientController
+- frame: JFrame
+- cards: ScreenCards
+- registerView: RegisterView
+- loginView: LoginView
+- chatView: ConversationView
+- userDirectory: DirectoryView
+- conversationList: ConversationListView
+- createConversationWindow: CreateConversationWindow
+- adminConversationSearchWindow: AdminConversationSearchWindow
+- creatingConversation: bool
+- adminSearchingConversation: bool
+
++ ClientUI(controller: ClientController)
++ showLoginView(): void
++ showRegisterView(): void
++ showMainView(): void
++ showRegisterError(registerStatus: RegisterStatus): void
++ showLoginError(loginStatus: LoginStatus): void
++ showCreateConversationWindow(): void
++ showAdminConversationSearchWindow(): void
++ chooseMainView(): void
++ chooseLoginView(): void
++ chooseRegisterView(): void
++ getDirectoryViewModel(): DefaultListModel
++ getConversationViewModel(): DefaultListModel
++ getConversationListViewModel(): DefaultListModel
++ getCreateConversationWindowModel(): DefaultListModel
++ getAdminConversationSearchWindowModel(): DefaultListModel
++ setDirectoryQuery(query: String): void
++ getDirectoryQuery(): String
++ setConversationQuery(query: String): void
++ getConversationQuery(): String
++ setAdminConversationQuery(q: String): void
++ getAdminConversationQuery(): String
++ isCreatingConversation(): bool
++ isAdminSearchingConversation(): bool
+
+  <<nested>> class ScreenCards extends CardLayout
+  - main: MainView
+  - login: LoginView
+  - register: RegisterView
+  + ScreenCards()
+
+  <<nested>> class RegisterView extends JFrame
+  + RegisterView()
+
+  <<nested>> class LoginView extends JFrame
+  + LoginView()
+
+  <<nested>> class MainView extends JFrame
+  - conversationView: ConversationView
+  - directoryView: DirectoryView
+  - conversationListView: ConversationListView
+  + MainView()
+
+  <<nested>> class ConversationView extends JFrame
+  - currentConversation: Conversation
+  - model: DefaultListModel
+  + ConversationView()
+
+  <<nested>> class DirectoryView extends JFrame
+  - query: String
+  - model: DefaultListModel
+  + DirectoryView()
+  - setQuery(s: String): void
+  - getQuery(s: String): void
+
+  <<nested>> class ConversationListView extends JFrame
+  - query: String
+  - model: DefaultListModel
+  + ConversationListView()
+  - setQuery(s: String): void
+  - getQuery(s: String): void
+
+  <<nested>> class CreateConversationWindow extends JFrame
+  - model: DefaultListModel
+  + CreateConversationWindow()
+
+  <<nested>> class AdminConversationSearchWindow extends JFrame
+  - query: String
+  - model: DefaultListModel
+  + AdminConversationSearchWindow()
+  - setQuery(s: String): void
+  - getQuery(s: String): void
+
+
+class ClientController
+
+- gui: ClientUI
+- connectionStatus: ConnectionStatus
+- requestQueue: Deque<Request>
+- loggedIn: boolean
+- currentUser: UserInfo
+- hostIp: String
+- hostPort: int
+- socket: Socket
+- conversations: ArrayList<Conversation>
+- currentConversationID: String
+- currentDirectory: ArrayList<UserInfo>
+- currentConversationList: ArrayList<Conversation>
+- currentAdminConversationSearch: ArrayList<Conversation>
+- responseListenerThread: Thread
+- inactivityDetectorThread: Thread
+
++ main(args: String[]): void
++ ClientController(hostIp: String, hostPort: int)
++ close(): void
+- processResponse(response: Response): void
+- ensureConnected(): void
++ register(userId: String, realName: String, loginName: String, password: String): void
++ login(loginName: String, password: String): void
++ logout(): void
++ sendMessage(cId: String, m: String): void
++ searchDirectory(query: String): void
++ searchConversationList(query: String): void
++ adminConversationSearch(query: String): void
++ createConversation(p: ArrayList<UserInfo>): void
++ addToConversation(p: ArrayList<UserInfo>, c_id: String): void
++ leaveConversation(cId: String): void
++ adminGetUserConversations(userID: String): void
++ joinConversation(c_Id: String): void
++ getCurrentUserInfo(): UserInfo
++ getFilteredDirectory(query: String): ArrayList<UserInfo>
++ getFilteredConversationList(query: String): ArrayList<Conversation>
++ getFilteredAdminConversationSearch(q: String): ArrayList<Conversation>
++ setCurrentConversationID(c_id: String): void
++ getCurrentConversationID(): String
++ getCurrentConversation(): Conversation
+- sendRequest(r: Request): void
+- enqueueRequest(r: Request): void
+
+  <<nested>> class ResponseListener implements Runnable
+  + run(): void
+  + ResponseListener()
+
+  <<nested>> class InactivityDetector implements Runnable
+  + run(): void
+  + InactivityDetector()
+
+  <<nested>> class UserInfo
+  - name: String
+  - userId: String
+  - userType: UserType
+  - lastRead: Map<c_id: String, sequenceNumber: long>
+  - UserInfo()
+  + getName(): String
+  + getUserId(): String
+  + getUserType(): UserType
+  + getLastRead(c_id: String): long
+  + setLastRead(c_id: String, sequenceNumber: long): void
+```
+
+### Server-side Classes
+
+```
+class ServerController
+
+- dataFilePath: String
+- activeSessions: Map<String, ConnectionHandler>
+- dataManager: DataManager
+- connectionListener: ConnectionListener
+
++ main(args: String[]): void
++ close(): void
++ ServerController(dataFilePath: String, port: int)
++ processRequest(request: Request): Response
+- distributeResponse(r: Response, Set<userID: String>): void
+- hasActiveSession(userId: String): boolean
+- removeSession(userId: String): void
+- addSession(userId: String, handler: ConnectionHandler): void
+
+
+class DataManager
+
+- usersByUserID: Map<String, User>
+- usersByLoginName: Map<String, User>
+- conversationsIDsByUserID: Map<String, Set<String>>
+- userIDsByConversationID: Map<String, Set<String>>
+- conversationsByConversationID: Map<String, Conversation>
+- authorizedUsers: Map<String, String>
+- authorizedAdminIds: List<String>
+- dataFilePath: String
+
++ DataManager(dataFilePath: String)
++ close(): void
++ handleRegister(rc: RegisterCredentials): RegisterResult
++ handleLogin(lc: LoginCredentials): LoginResult
++ handleLogout(): void
++ handleSendMessage(rm: RawMessage): Message
++ handleUpdateReadMessages(u: UpdateReadMessages)
++ handleSearchDirectory(query: DirectoryQuery): DirectoryResult
++ handleCreateConversation(cc: CreateConversationPayload): Conversation
++ handleAddToConversation(atc: AddToConversationPayload): Conversation
++ handleLeaveConversation(lc: LeaveConversationPayload): LeaveResult
++ handleAdminConversationQuery(q: AdminConversationQuery): AdminConversationResult
++ handleJoinConversation(jc: JoinConversationPayload): Conversation
++ getParticipantList(c_id: String): ArrayList<UserInfo>
+
+
+class User
+
+- userId: String
+- name: String
+- loginName: String
+- password: String
+- userType: UserType
+- lastRead: Map<c_id: String, sequenceNumber: long>
+
++ User(id: String, n: String, ln: String, p: String)
++ getUserId(): String
++ getName(): String
++ getLoginName(): String
++ getPassword(): String
++ getUserType(): UserType
++ getUserInfo(): UserInfo
++ getLastRead(): long
++ setLastRead(c_id: String, sequenceNumber: long): void
++ fromFile(f: File): User
+```
+
+### Shared / Networking Components
+
+```
+class ConnectionListener
+
+- threadPool: ExecutorService
+- hostPort: int
+- serverController: ServerController
+
++ ConnectionListener(hostPort: int, serverController: ServerController)
++ listen(): void
++ close(): void
+
+
+class ConnectionHandler implements Runnable
+
+- userInfo: UserInfo
+- authenticated: boolean
+- socket: Socket
+- serverController: ServerController
+- responseQueue: Queue<Response>
+- requestThread: Thread
+- responseThread: Thread
+- lastPingReceived: long
+
++ ConnectionHandler(socket: Socket, serverController: ServerController)
++ run(): void
++ close(): void
++ sendResponse(res: Response): void
++ getUserInfo(): UserInfo
++ isAuthenticated(): boolean
+
+  <<nested>> class RequestListener implements Runnable
+  + run(): void
+  + RequestListener()
+
+  <<nested>> class ResponseSender implements Runnable
+  + run(): void
+```
+
+### Requests & Responses
+
+```
+class Request implements Serializable
+
+- type: RequestType
+- payload: Payload
+
++ Request(t: RequestType, p: Payload)
++ getType(): RequestType
++ getPayload(): Payload
+
+
+class Response implements Serializable
+
+- type: ResponseType
+- payload: Payload
+
++ Response(t: ResponseType, p: Payload)
++ getType(): ResponseType
++ getPayload(): Payload
+```
+
+### Payloads
+
+```
+interface Payload
+```
+
+#### Request Payloads
+
+```
+class RawMessage implements Payload
+- text: String
+- targetConversationId: String
++ RawMessage(t: String, c_id: String)
++ getText(): String
++ getTargetConversationId(): String
+
+class ReadMessagesUpdated implements Payload
+
+class LoginCredentials implements Payload
+- loginName: String
+- password: String
++ LoginCredentials(ln: String, p: String)
++ getLoginName(): String
++ getPassword(): String
+
+class RegisterCredentials implements Payload
+- userId: String
+- loginName: String
+- password: String
+- name: String
++ RegisterCredentials(id: String, ln: String, p: String, n: String)
++ getUserId(): String
++ getLoginName(): String
++ getPassword(): String
++ getName(): String
+
+class DirectoryQuery implements Payload
+- query: String
++ DirectoryQuery(q: String)
++ getQuery(): String
+
+class CreateConversationPayload implements Payload
+- participants: ArrayList<UserInfo>
++ CreateConversationPayload(p: ArrayList<UserInfo>)
++ getParticipants(): ArrayList<UserInfo>
+
+class AddToConversationPayload implements Payload
+- participants: ArrayList<UserInfo>
+- targetConversationId: String
++ AddToConversationPayload(p: ArrayList<UserInfo>, t: String)
++ getParticipants(): ArrayList<UserInfo>
++ getTargetConversationId(): String
+
+class LeaveConversationPayload implements Payload
+- targetConversationId: String
++ LeaveConversationPayload(t: String)
++ getTargetConversationId(): String
+
+class JoinConversationPayload implements Payload
+- targetConversationId: String
++ JoinConversationPayload(t: String)
++ getTargetConversationId(): String
+
+class AdminConversationQuery implements Payload
+- conversationQuery: String
++ AdminConversationQuery(c_id: String)
++ getQuery(): String
+```
+
+#### Response Payloads
+
+```
+class Conversation implements Payload
+- conversationId: String
+- messages: ArrayList<Message>
+- participants: ArrayList<UserInfo>
+- historicalParticipants: ArrayList<UserInfo>
+- type: ConversationType
++ Conversation(c_id: String, t: ConversationType)
++ getConversationId(): String
++ getMessages(): ArrayList<Message>
++ getParticipants(): ArrayList<UserInfo>
++ getHistoricalParticipants(): ArrayList<UserInfo>
++ setConversationMetadata(cm: ConversationMetadata): void
++ getConversationMetadata(): ConversationMetadata
++ getType(): ConversationType
++ fromFile(f: File): Conversation
++ append(m: Message): void
+
+class ConversationMetadata implements Payload
+- conversationId: String
+- participants: ArrayList<UserInfo>
+- historicalParticipants: ArrayList<UserInfo>
+- type: ConversationType
++ ConversationMetadata(c_id: String, p: ArrayList<UserInfo>, hp: ArrayList<UserInfo>, t: ConversationType)
++ getConversationId(): String
++ getParticipants(): ArrayList<UserInfo>
++ getHistoricalParticipants(): ArrayList<UserInfo>
++ getType(): ConversationType
+
+class AdminConversationResult implements Payload
+- result: ArrayList<ConversationMetadata>
++ AdminConversationResult(cm: ArrayList<ConversationMetadata>)
++ getConversations(): ArrayList<ConversationMetadata>
+
+class Message implements Payload
+- text: String
+- sequenceNumberCounter: long
+- sequenceNumber: long
+- timestamp: Date
+- senderId: String
+- conversationId: String
++ Message(t: String, sn: long, time: Date, senderID: String, c_id: String)
++ getText(): String
++ getConversationId(): String
++ getSenderId(): String
++ getSequenceNumber(): long
++ getTimestamp(): Date
+
+class UpdateReadMessages implements Payload
+- conversationID: String
++ UpdateReadMessages(c_id: String)
++ getConversationID(): String
+
+class RegisterResult implements Payload
+- result: RegisterStatus
++ RegisterResult(r: RegisterStatus)
++ getRegisterStatus(): RegisterStatus
+
+class LoginResult implements Payload
+- result: LoginStatus
+- userInfo: UserInfo
+- conversationList: ArrayList<Conversation>
++ LoginResult(r: LoginStatus, cl: ArrayList<Conversation>)
++ getLoginStatus(): LoginStatus
++ getUserInfo(): UserInfo
++ getConversationList(): ArrayList<Conversation>
+
+class DirectoryResult implements Payload
+- result: ArrayList<UserInfo>
++ DirectoryResult(r: ArrayList<UserInfo>)
++ getDirectoryResult(): ArrayList<UserInfo>
+
+class LeaveResult implements Payload
+- c_id: String
++ LeaveResult(c_id: String)
++ getLeftConversationID(): String
+```
+
+## 5.3. Use Case Specification
+
+### Use Case ID: UC-01
+#### Use Case Name: Create an Account
+
+#### Relevant Requirements:
 3.1.1.4
 
 3.1.1.5
@@ -443,44 +970,52 @@ Client-side storage shall be runtime-only; the client shall not persist user, co
 
 3.1.1.10
 
-3.1.2.2.
+3.1.2.2
 
 3.1.2.3
 
 3.1.2.4
 
-3.1.3.2 
-### Primary Actor:
+3.1.3.2
+
+#### Primary Actor:
 User
-### Pre-conditions: 
+
+#### Pre-conditions:
 User has a valid Employee ID already issued
 
-### Post-conditions:
+#### Post-conditions:
 A new user account is created
 
-### Basic Flow or Main Scenario: 
+#### Basic Flow or Main Scenario:
 1. User enters the correct real name and employee ID
-2. Server verified that Employee ID exists and matches the name. If not, repeat step 1.
-3. User enters a username and password.
-4. Server checks that the username is unique. If not unique, repeat step 4 with a new username
-5. The system creates the account with the username and password
-6. The system assigns the role based on the information
-### Extensions or Alternate Flows:
-None. 
+2. Server verifies that Employee ID exists and matches the name. If not, repeat step 1.
+3. User enters a login name and password.
+4. Server checks that the login name is unique. If not unique, repeat step 3 with a new login name.
+5. The system creates the account with the login name and password.
+6. The system assigns the role based on the information.
 
-### Exceptions: 
+#### Extensions or Alternate Flows:
+None.
+
+#### Exceptions:
 User enters an invalid real name or employee ID
 
-User enters an existing username
+User enters an existing login name
+
 Unable to establish TCP connection
 
 User credentials data not found
-### Related Use Cases:
+
+#### Related Use Cases:
 None
 
-## Use Case ID: UC-02
-### Use Case Name: Log in to the System
-### Relevant Requirements:
+---
+
+### Use Case ID: UC-02
+#### Use Case Name: Log in to the System
+
+#### Relevant Requirements:
 3.1.1.4
 
 3.1.1.9
@@ -505,44 +1040,48 @@ None
 
 4.3.1
 
-### Primary Actor:
+#### Primary Actor:
 User
 
-### Pre-conditions: 
+#### Pre-conditions:
 User has an existing registered account
 
-There is no existing active session associated with the user’s ID
+There is no existing active session associated with the user's ID
 
-### Post-conditions: 
-
+#### Post-conditions:
 User has an online status.
 
 A session is created on the server.
+
 Conversation history imported from the server
 
-### Basic Flow or Main Scenario: 
-1. User enters a valid username and password
-2. Clients sends request to server
-3. The server verifies the username and password.
-4. The system displays the main conversation interface
+#### Basic Flow or Main Scenario:
+1. User enters a valid login name and password.
+2. Client sends request to server.
+3. The server verifies the login name and password.
+4. The system displays the main conversation interface.
 
-### Extensions or Alternate Flows: 
+#### Extensions or Alternate Flows:
 None.
-### Exceptions: 
-User enters an invalid username or password
 
-There is a preexisting active session associated with the user’s ID
+#### Exceptions:
+User enters an invalid login name or password
+
+There is a preexisting active session associated with the user's ID
 
 Unable to establish TCP connection
 
 User credentials data not found
 
-### Related Use Cases: 
+#### Related Use Cases:
 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
 
-## Use Case ID: UC-03
-### Use Case Name: Send a Message to a conversation
-### Relevant Requirements: 
+---
+
+### Use Case ID: UC-03
+#### Use Case Name: Send a Message to a Conversation
+
+#### Relevant Requirements:
 3.1.1.8
 
 3.1.1.9
@@ -569,41 +1108,44 @@ User credentials data not found
 
 4.3.6
 
-### Primary Actor:
+#### Primary Actor:
 User
 
-### Pre-conditions: 
+#### Pre-conditions:
 User is logged in
 
 User has at least one existing conversation
 
 User is viewing the conversation
 
-### Post-conditions: 
+#### Post-conditions:
 Conversation is updated on the client and server.
 
-### Basic Flow or Main Scenario: 
-1. User selects an existing conversation
+#### Basic Flow or Main Scenario:
+1. User selects an existing conversation.
 2. System displays recent messages.
 3. User enters text.
-4. User presses the send button
-### Extensions or Alternate Flows:
+4. User presses the send button.
 
+#### Extensions or Alternate Flows:
 None
 
-### Exceptions: 
+#### Exceptions:
 Empty message
 
 Unable to establish TCP connection
 
 Conversation history data not found
 
-### Related Use Cases: 
+#### Related Use Cases:
 1, 2, 6, 7, 11
 
-## Use Case ID: UC-04
-### Use Case Name: Browse User Directory
-### Relevant Requirements: 
+---
+
+### Use Case ID: UC-04
+#### Use Case Name: Browse User Directory
+
+#### Relevant Requirements:
 3.1.2.15
 
 3.1.3.8
@@ -612,37 +1154,37 @@ Conversation history data not found
 
 4.3.4
 
-## Primary Actor:
+#### Primary Actor:
 User
 
-## Pre-conditions: 
+#### Pre-conditions:
 User logged in
 
-## Post-conditions: 
-The client GUI displays matching user or “no result found” if there is no matching user
+#### Post-conditions:
+The client GUI displays matching user or "no result found" if there is no matching user
 
-Basic Flow or Main Scenario:
+#### Basic Flow or Main Scenario:
+1. Select the directory search box.
+2. Enter the name of the desired employee.
+3. The system returns the result.
 
-Select the directory search box
+#### Extensions or Alternate Flows:
+None
 
-Enter the name of the desired employee
-
-## The system returns the result
-## Extensions or Alternate Flows: 
-Select the “add to conversation” option in a conversation window
-
-Enter the name of the desired employee
-
-## Exceptions:
+#### Exceptions:
 Unable to establish TCP connection.
 
 Directory data not found
 
-### Related Use Cases: 1,2,7,8,11
+#### Related Use Cases:
+1, 2, 7, 8, 11
 
-## Use Case ID: UC-05
-## Use Case Name: Browse Conversation History
-## Relevant Requirements: 
+---
+
+### Use Case ID: UC-05
+#### Use Case Name: Browse Conversation History
+
+#### Relevant Requirements:
 3.1.2.11
 
 3.1.2.12
@@ -655,37 +1197,39 @@ Directory data not found
 
 4.3.4
 
-## Primary Actor: 
+#### Primary Actor:
 User
-## Pre-conditions: 
+
+#### Pre-conditions:
 User logged in
 
-## Post-conditions: 
-Results are displayed by order of most recent activity. 
+#### Post-conditions:
+Results are displayed by order of most recent activity.
 
-User is not a participant of any conversation, the GUI displays an 
+If user is not a participant of any conversation, the GUI displays an empty conversation history.
 
-empty conversation history.
-
-## Basic Flow or Main Scenario:
-1. User enters the name in the conversation history search box
+#### Basic Flow or Main Scenario:
+1. User enters the name in the conversation history search box.
 2. Client GUI displays conversations involving the searched user.
-3. User selects the desired conversation for viewing
+3. User selects the desired conversation for viewing.
 
-## Extensions or Alternate Flows: 
-None	
+#### Extensions or Alternate Flows:
+None
 
-## Exceptions:
+#### Exceptions:
 Unable to establish TCP connection
 
 Conversation history data not found
 
-## Related Use Cases: 
+#### Related Use Cases:
 1, 2, 3, 6, 7, 8, 9, 11
 
-## Use Case ID: UC-06
-### Use Case Name: View a conversation
-### Relevant Requirements: 
+---
+
+### Use Case ID: UC-06
+#### Use Case Name: View a Conversation
+
+#### Relevant Requirements:
 3.1.2.13
 
 3.1.2.14
@@ -698,36 +1242,41 @@ Conversation history data not found
 
 4.3.3
 
-### Primary Actor:
+#### Primary Actor:
 User
-### Pre-conditions:
+
+#### Pre-conditions:
 User logged in
 
 User is a participant of a conversation
-### Post-conditions: 
 
+#### Post-conditions:
 The client GUI displays the message history of the selected conversation.
 
 Unread messages are indicated when viewing a conversation for the first time since changes were made to the conversation.
 
-### Basic Flow or Main Scenario: 
-1. User selects a conversation
+#### Basic Flow or Main Scenario:
+1. User selects a conversation.
 2. The client GUI displays the message history of the selected conversation.
 3. If the conversation is too large to be displayed in the GUI, the user should be able to scroll up or down to view more of the conversation history.
 
-### Extensions or Alternate Flows:
+#### Extensions or Alternate Flows:
 None
-### Exceptions: 
 
+#### Exceptions:
 Unable to establish TCP connection
 
 Conversation history data not found
-### Related Use Cases:
+
+#### Related Use Cases:
 1, 2, 3, 5, 7, 8, 9, 11
 
-## Use Case ID: UC-07
-### Use Case Name: Create a New Conversation
-### Relevant Requirements: 
+---
+
+### Use Case ID: UC-07
+#### Use Case Name: Create a New Conversation
+
+#### Relevant Requirements:
 3.1.2.16
 
 3.1.2.17
@@ -739,11 +1288,13 @@ Conversation history data not found
 3.1.3.15
 
 3.1.1.6
+
 4.1.5
-### Primary Actor:
+
+#### Primary Actor:
 User
 
-### Pre-conditions: 
+#### Pre-conditions:
 Client GUI is working
 
 User is logged in and connected to the server
@@ -752,47 +1303,49 @@ User exists in the system
 
 At least one valid user is available to select
 
-### Post-conditions: 
+#### Post-conditions:
 New conversation is created
 
 Conversation stored on the server with a unique conversation ID
 
-The participant is updated 
+The participant list is updated
 
-### Basic Flow or Main Scenario: 
-1. User selects a user to create a conversation
-2. System checks if the conversation already exists
-3. If not, the system create the new conversation with the user
-4. The system assigns a unique conversation ID
-5. The system stores the conversations
-6. GUI created conversation box for each user
-### Extensions or Alternate Flows:
- Create multi-user conversation from scratch
-1. User selects multiple users.
-2. User use the create group function
-3. Sever creates new group conversation 
-4. Server assigns a unique conversation id
-5. Serve stores the conversation with participants list
-6. GUI created
+#### Basic Flow or Main Scenario:
+Create private conversation:
+1. User selects another user to create a private conversation by clicking on the desired user in the directory.
+2. System checks if the private conversation already exists.
+3. If not, the system creates a new private conversation with the user.
+4. The system assigns a unique conversation ID.
+5. The system stores the conversation.
+6. GUI creates conversation box for each user.
 
-### Exceptions: 
+#### Extensions or Alternate Flows:
+Create multi-user conversation from scratch:
+1. User clicks "New Group Conversation" button.
+2. GUI displays "Create Group Conversation" window.
+3. User selects desired participants by clicking on desired users in the directory.
+4. User confirms selection by clicking OK button.
+5. Server creates new group conversation.
+6. Server assigns a unique conversation ID.
+7. Server stores the conversation with participant list.
+8. A new conversation is added to the user's conversation history, and the GUI displays the new conversation.
 
-User is not found
-
-The same conversation group exists
-
+#### Exceptions:
 Unable to establish TCP connection
 
 User directory data not found
 
 User conversation history data not found
 
-### Related Use Cases:
+#### Related Use Cases:
 1, 2, 3, 5, 6, 8, 9, 11
 
-## Use Case ID: UC-08
-### Use Case Name: Add user to existing group conversation
-### Relevant Requirements: 
+---
+
+### Use Case ID: UC-08
+#### Use Case Name: Add User to Existing Group Conversation
+
+#### Relevant Requirements:
 3.1.2.18
 
 3.1.3.6
@@ -802,40 +1355,40 @@ User conversation history data not found
 3.1.3.15
 
 4.1.5
-### Primary Actor:
-User 
 
-### Pre-conditions: 
+#### Primary Actor:
+User
+
+#### Pre-conditions:
 User is logged in
 
 The group conversation exists
 
 User is a participant in the conversation
 
-The added user isn’t a participant in the conversation
+The added user isn't a participant in the conversation
 
 The user has selected and is viewing the desired conversation
 
-
-### Post-conditions: 
-
+#### Post-conditions:
 The new user has a new conversation.
 
 The system added the user to the existing conversation.
 
-Conversation remains a part of the new user’s conversation history.
+Conversation remains a part of the new user's conversation history.
 
-### Basic Flow or Main Scenario: 
-1. User selects a group conversation
-2. User selects the “add participant” search box.
+#### Basic Flow or Main Scenario:
+1. User selects a group conversation.
+2. User selects the "add participant" search box.
 3. User enters the name of the desired participant.
 4. The system adds the user to the conversation.
 5. GUI displays the conversation for the added user.
 
-### Extensions or Alternate Flows: 
-None
-### Exceptions: 
-No group conversation under the user’s conversation history.
+#### Extensions or Alternate Flows:
+None.
+
+#### Exceptions:
+No group conversation under the user's conversation history.
 
 Unable to establish TCP connection
 
@@ -843,12 +1396,15 @@ User directory data not found
 
 User conversation history not found
 
-### Related Use Cases:
+#### Related Use Cases:
 1, 2, 3, 5, 6, 7, 9, 11
 
-## Use Case ID: UC-09
-### Use Case Name: Leave a Conversation
-### Relevant Requirements: 
+---
+
+### Use Case ID: UC-09
+#### Use Case Name: Leave a Conversation
+
+#### Relevant Requirements:
 3.1.2.19
 
 3.1.3.6
@@ -859,36 +1415,41 @@ User conversation history not found
 
 4.1.5
 
-### Primary Actor:
+#### Primary Actor:
 User
 
-### Pre-conditions: 
+#### Pre-conditions:
 User logged in
 
 User is a participant in the conversation
 
-### Post-conditions: 
+User is currently viewing the desired conversation
+
+#### Post-conditions:
 User is not a participant of the conversation.
 
 The conversation is no longer displayed on the client GUI for the user that left.
 
-### Basic Flow or Main Scenario:
-1. User selects the conversation
-2. User clicks the “leave conversation” button.
-3. The system removes the user from the conversation
+#### Basic Flow or Main Scenario:
+1. User selects the conversation.
+2. User clicks the "leave conversation" button.
+3. The system removes the user from the conversation.
 
-### Extensions or Alternate Flows:
-None
+#### Extensions or Alternate Flows:
+None.
 
-### Exceptions: 
+#### Exceptions:
 Unable to establish TCP connection
 
-### Related Use Cases:
+#### Related Use Cases:
 1, 2, 3, 5, 6, 7, 11
 
-## Use Case ID: UC-10
-### Use Case Name: Log Out from Client Application
-### Relevant Requirements: 
+---
+
+### Use Case ID: UC-10
+#### Use Case Name: Log Out from Client Application
+
+#### Relevant Requirements:
 3.1.2.6
 
 3.1.3.4
@@ -897,49 +1458,51 @@ Unable to establish TCP connection
 
 4.1.6
 
-### Primary Actor:
+#### Primary Actor:
 User
 
-### Pre-conditions:
+#### Pre-conditions:
 User has logged in status.
 
 User has an active session.
 
-Post-conditions: 
+#### Post-conditions:
+The session is terminated.
 
-The session is terminated
-
-The user’s status is set to offline.
+The user's status is set to offline.
 
 The client GUI displays the login prompt screen.
 
-### Basic Flow or Main Scenario: 
-1. User clicks the “Log Out” button.
+#### Basic Flow or Main Scenario:
+1. User clicks the "Log Out" button.
 2. The GUI displays login screen.
 
-### Extensions or Alternate Flows: 
+#### Extensions or Alternate Flows:
 Case 1: Client application inactivity
 1. Client application does not detect user input for a certain time threshold.
 2. Client application automatically logs the user out.
-3. The client GUI displays the login prompt screen
+3. The client GUI displays the login prompt screen.
 
 Case 2: Networking issues
-1. The client loses connection to the server
+1. The client loses connection to the server.
 2. The server detects the lost connection.
 3. The server terminates the active session associated with the user.
-4. The system set the user’s status to “offline.”
+4. The system sets the user's status to "offline."
 5. The server logs the user out.
 6. The client GUI displays the login prompt screen.
 
-### Exceptions: 
+#### Exceptions:
 Unable to establish TCP connection
 
-### Related Use Cases:
+#### Related Use Cases:
 1, 2
 
-## Use Case ID: UC-11
-### Use Case Name: Join a Conversation
-### Relevant Requirements: 
+---
+
+### Use Case ID: UC-11
+#### Use Case Name: Join a Conversation
+
+#### Relevant Requirements:
 3.1.1.10
 
 3.1.2.21
@@ -958,44 +1521,74 @@ Unable to establish TCP connection
 
 4.1.8
 
-### Primary Actor:
+#### Primary Actor:
 Admin
 
-### Pre-conditions: 
+#### Pre-conditions:
 Admin user logged in
 
 Conversation exists
 
-### Post-conditions: 
+#### Post-conditions:
 Admin is a participant in the conversation.
 
-The conversation is displayed in the Admin user’s conversation history.
+The conversation is displayed in the Admin user's conversation history.
 
-### Basic Flow or Main Scenario: 
-1. Admin types the name of the user whom he wants to search for in the conversation searching box.
-2. Admin GUI displays the list of conversations, which contains the user sorted first by number of participants, and then by alphabetical order of participants.
+#### Basic Flow or Main Scenario:
+1. Admin types the name of the user whom they want to search for in the conversation searching box.
+2. Admin GUI displays the list of conversations sorted by conversation ID.
 3. Admin selects the conversation.
 4. The server adds the admin to the participant list.
 5. The system displays the conversation messages.
 
-### Extensions or Alternate Flows: 
+#### Extensions or Alternate Flows:
 None
 
-### Exceptions: 
+#### Exceptions:
 Unable to establish TCP connection
 
 User conversation history data not found
 
 User directory data not found
 
-### Related Use Cases:
+#### Related Use Cases:
 1, 2, 3, 4, 5, 6, 7, 9
 
-# Use Case Diagram
-![alt text](<Use Case Diagram.png>)
+## 5.4. Use Case Diagrams
 
-# UC-02 Sequence Diagram
-![alt text](<sequence_diagrams/use_case_02_sequence.drawio.png>)
+![Use Case Diagram](Use%20Case%20Diagram/Use%20Case%20Diagram.png)
 
-# Class Candidates Diagram
-![alt text](<Communications Class Candidates UML.png>)
+## 5.5. Sequence Diagrams
+
+### UC-01 Create Account
+![UC-01 Create Account](Sequence%20diagrams/UC-01%20Create%20Account.png)
+
+### UC-02 Log in to the System
+![UC-02 Log in to the system](Sequence%20diagrams/UC-02%20Log%20in%20to%20the%20system.png)
+
+### UC-03 Send a Message
+![UC-03 Send a message](Sequence%20diagrams/UC-03%20Send%20a%20message.png)
+
+### UC-04 Browse User Directory
+![UC-04 Browse User Directory](Sequence%20diagrams/UC-04%20Browse%20User%20Directory.png)
+
+### UC-05 Browse Conversation History
+![UC-05 Browse conversation history](Sequence%20diagrams/UC-05%20Browse%20conversation%20history.png)
+
+### UC-06 View a Conversation
+![UC-06 View a Conversation](Sequence%20diagrams/UC-06%20View%20a%20Conversation.png)
+
+### UC-07 Create a New Conversation
+![UC-07 Create a new conversation](Sequence%20diagrams/UC-07%20Create%20a%20new%20conversation.png)
+
+### UC-08 Add Users to Existing Group Conversation
+![UC-08 Add users to existing group conversation](Sequence%20diagrams/UC-08%20Add%20users%20to%20existing%20group%20conversation.png)
+
+### UC-09 Leave a Conversation
+![UC-09 Leave a conversation](Sequence%20diagrams/UC-09%20Leave%20a%20conversation.png)
+
+### UC-10 Log Out from Client Application
+![UC-10 Log out from client application](Sequence%20diagrams/UC-10%20Log%20out%20from%20client%20application.png)
+
+### UC-11 Join a Conversation
+![UC-11 Join a Conversation](Sequence%20diagrams/UC-11%20Join%20a%20Conversation.png)
