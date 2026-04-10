@@ -10,6 +10,7 @@
 - 03/05/2026 | 4.1 | Modified UC-03                                                                        | Harumi Ueda
 - 04/04/2026 | 5.1 | Added 3.1.3.18 and modified UC-01, 02, 07, and 08                                     | Jon Yoon
 - 04/09/2026 | 5.2 | Modified 2.5, removed 4.1.8, fixed minor spelling mistakes                            | Jon Yoon
+- 04/09/2026 | 5.3 | Modified clientUI class, View components, UC-07, 08, and 11                           | Harumi Ueda
 
 # Table of Contents
 
