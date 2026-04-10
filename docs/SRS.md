@@ -1576,11 +1576,13 @@ Admin is a participant in the conversation.
 The conversation is displayed in the Admin user's conversation history.
 
 #### Basic Flow or Main Scenario:
-1. Admin types the name of the user whom they want to search for in the conversation searching box.
-2. Admin GUI displays the list of conversations sorted by conversation ID.
-3. Admin selects the conversation.
-4. The server adds the admin to the participant list.
-5. The system displays the conversation messages.
+1. Admin clicks “Admin” button in the Directory.
+2. AdminConversationWindow is showing up.
+3. Admin types the name of the user whom he wants to search for in the conversation searching box in the AdminConversationWindow.
+4. Admin GUI displays the list of conversations sorted by conversation ID in AdminConversationWindow.
+5. Admin selects the conversation.
+6. The server adds the admin to the participant list.
+7. The system displays the conversation messages.
 
 #### Extensions or Alternate Flows:
 None
