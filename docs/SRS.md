@@ -5,9 +5,9 @@
 - 02/13/2026 | 1.0 | Initial Version                                                                       | Quan
 - 02/15/2026 | 2.0 | Add Section 1,2,3, and 4                                                              | Quan
 - 02/21/2026 | 2.1 | Modified Section 1,2,3 and 4                                                          | Quan
-- 02/27/2026 | 3.0 | Add Use Case Diagram                                                                   | Harumi Ueda
-- 03/03/2026 | 4.0 | Added Class Candidate Diagram                                                          | Jon Yoon
-- 03/05/2026 | 4.1 | Modified UC-03                                                                         | Harumi Ueda
+- 02/27/2026 | 3.0 | Add Use Case Diagram                                                                  | Harumi Ueda
+- 03/03/2026 | 4.0 | Added Class Candidate Diagram                                                         | Jon Yoon
+- 03/05/2026 | 4.1 | Modified UC-03                                                                        | Harumi Ueda
 - 04/04/2026 | 5.1 | Added 3.1.3.18 and modified UC-01, 02, 07, and 08                                     | Jon Yoon
 - 04/09/2026 | 5.2 | Modified 2.5, removed 4.1.8, fixed minor spelling mistakes                            | Jon Yoon
 
@@ -61,7 +61,7 @@ The client application provides a graphical interface for authentication and mes
 
 The project deliverables include complete Java source code, JUnit-based unit testing, formal documentation, version-controlled repository management, and a structured project presentation.
  
-## 1.2. Definition, Acronyms, Abbreviations
+## 1.2. Definitions, Acronyms, Abbreviations
 ### TCP/IP (Transmission Control Protocol / Internet Protocol)
 A standardized suite of communication protocols used to establish reliable network communication between client and server applications.
 
@@ -529,7 +529,7 @@ class ClientUI
 - chatView: ConversationView
 - userDirectory: DirectoryView
 - conversationList: ConversationListView
-- createConversationWindow: CreateConversationWindow
+- selectUserWindow: selectUserWindow
 - adminConversationSearchWindow: AdminConversationSearchWindow
 - creatingConversation: bool
 - adminSearchingConversation: bool
@@ -548,7 +548,7 @@ class ClientUI
 + getDirectoryViewModel(): DefaultListModel
 + getConversationViewModel(): DefaultListModel
 + getConversationListViewModel(): DefaultListModel
-+ getCreateConversationWindowModel(): DefaultListModel
++ getSelectUserWindowModel(): DefaultListModel
 + getAdminConversationSearchWindowModel(): DefaultListModel
 + setDirectoryQuery(query: String): void
 + getDirectoryQuery(): String
@@ -559,53 +559,91 @@ class ClientUI
 + isCreatingConversation(): bool
 + isAdminSearchingConversation(): bool
 
-  <<nested>> class ScreenCards extends CardLayout
-  - main: MainView
+  <<nested>> class ScreenCards extends JPanel
+  - layout: CardLayout
   - login: LoginView
   - register: RegisterView
   + ScreenCards()
 
-  <<nested>> class RegisterView extends JFrame
+  <<nested>> class RegisterView extends JPanel
+  - userId: JTextField
+  - loginName: JTextField
+  - password: JPasswordField
+  - passwordAgain: JPasswordField
+  - name: JTextField
+  - createButton: JButton
+  - backButton: JButton
+  
   + RegisterView()
 
-  <<nested>> class LoginView extends JFrame
+  <<nested>> class LoginView extends JPanel
+  - login_idField: JTextField
+  - passwordField: JPasswordField
+  - loginButton: JButton
+  - createButton: JButton
+  
   + LoginView()
 
-  <<nested>> class MainView extends JFrame
+  <<nested>> class MainView extends JPanel
   - conversationView: ConversationView
   - directoryView: DirectoryView
   - conversationListView: ConversationListView
+  
   + MainView()
 
-  <<nested>> class ConversationView extends JFrame
-  - currentConversation: Conversation
-  - model: DefaultListModel
+  <<nested>> class ConversationView extends JPanel
+  - participantsLabel: JLable
+  - listModel: DefaultListModel
+  - list: JList<>(listModel)
+  - addButton: JButton
+  - leaveButton: JButton
+  - text: JTextField
+  - sendButton: JButton
+
   + ConversationView()
 
-  <<nested>> class DirectoryView extends JFrame
-  - query: String
-  - model: DefaultListModel
-  + DirectoryView()
-  - setQuery(s: String): void
-  - getQuery(s: String): void
+  <<nested>> class DirectoryView extends JPanel
+  - userLabel: JLabel
+  - searchField: JTextField
+  - listModel: DefaultListModel<>
+  - list: JList<>(listModel)
+  - logoutButton: JButton
+  - createConversationButton: JButton
+  - adminButton: JButton
+  - searchBar: JTextField
 
-  <<nested>> class ConversationListView extends JFrame
-  - query: String
-  - model: DefaultListModel
+  + DirectoryView(): void
+
+  <<nested>> class ConversationListView extends JPanel
+  - participantsLabel: JLable
+  - messageModel: DefaulListModel<>
+  - list: JList<>(messageModel)
+  - addButton: JButton
+  - leaveButton: JButton
+  - text: JTextField
+  - sendButton: JButton
+  
   + ConversationListView()
-  - setQuery(s: String): void
-  - getQuery(s: String): void
+  
 
-  <<nested>> class CreateConversationWindow extends JFrame
-  - model: DefaultListModel
-  + CreateConversationWindow()
+  <<nested>> class SelectUserWindow extends JPanel
+  - model: DefaultListModel<>
+  - list: JList<>(model)
+  - removeButton: JButton
+  - okButton: JButton
+  - cancelButton: JButton
+  
+  + SelectUserWindow()
 
-  <<nested>> class AdminConversationSearchWindow extends JFrame
-  - query: String
+  <<nested>> class AdminConversationSearchWindow extends JPanel
+  - searchField: JTextField
   - model: DefaultListModel
+  - list: JList<>(model)
+  - okButton: JButton
+  - cancelButton: JButton
+  
   + AdminConversationSearchWindow()
-  - setQuery(s: String): void
-  - getQuery(s: String): void
+
 
 
 class ClientController
