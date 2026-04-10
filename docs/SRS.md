@@ -531,7 +531,7 @@ class ClientUI
 - conversationList: ConversationListView
 - selectUserWindow: selectUserWindow
 - adminConversationSearchWindow: AdminConversationSearchWindow
-- creatingConversation: bool
+- selectingUser: bool
 - adminSearchingConversation: bool
 
 + ClientUI(controller: ClientController)
@@ -1359,8 +1359,8 @@ Create private conversation:
 
 #### Extensions or Alternate Flows:
 Create multi-user conversation from scratch:
-1. User clicks "New Group Conversation" button.
-2. GUI displays "Create Group Conversation" window.
+1. User clicks "Create Conversation" button.
+2. GUI displays "Selecting users" window.
 3. User selects desired participants by clicking on desired users in the directory.
 4. User confirms selection by clicking OK button.
 5. Server creates new group conversation.
@@ -1417,10 +1417,13 @@ Conversation remains a part of the new user's conversation history.
 
 #### Basic Flow or Main Scenario:
 1. User selects a group conversation.
-2. User selects the "add participant" search box.
-3. User enters the name of the desired participant.
-4. The system adds the user to the conversation.
-5. GUI displays the conversation for the added user.
+2. User selects the “add” on ConversationView.
+3. The system shows SelectUserView.
+4. User searches the name of the desired participant in the DirectoryView.
+5. The user selects the user, and the system shows the addition of participants on SelectUserView.
+6. User confirms selection by clicking OK button on SelectUserView.
+7. The system adds the user to the conversation.
+8. GUI displays the conversation for the added user.
 
 #### Extensions or Alternate Flows:
 None.
