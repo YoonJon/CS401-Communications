@@ -1,0 +1,15 @@
+package shared.enums;
+
+public enum ResponseType {
+    MESSAGE,
+    READ_UPDATED,
+    REGISTER_RESULT,
+    LOGIN_RESULT,
+    LOGOUT_RESULT,
+    DIRECTORY_RESULT,
+    CONVERSATION,
+    CONVERSATION_METADATA,
+    LEAVE_RESULT,
+    PONG,
+    CONNECTED
+}

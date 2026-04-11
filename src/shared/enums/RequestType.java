@@ -1,0 +1,16 @@
+package shared.enums;
+
+public enum RequestType {
+    MESSAGE,
+    UPDATE_READ,
+    REGISTER,
+    LOGIN,
+    LOGOUT,
+    SEARCH_DIRECTORY,
+    CREATE_CONVERSATION,
+    ADD_PARTICIPANT,
+    LEAVE_CONVERSATION,
+    JOIN_CONVERSATION,
+    ADMIN_CONVERSATION_QUERY,
+    PING
+}
