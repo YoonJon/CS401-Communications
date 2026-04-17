@@ -1,7 +1,7 @@
 package shared.payload;
 
-import shared.enums.LoginStatus;
 import java.util.ArrayList;
+import shared.enums.LoginStatus;
 
 public class LoginResult implements Payload {
     private LoginStatus result;

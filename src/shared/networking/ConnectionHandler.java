@@ -1,12 +1,5 @@
 package shared.networking;
 
-import server.ServerController;
-import shared.enums.LoginStatus;
-import shared.enums.RequestType;
-import shared.enums.ResponseType;
-import shared.payload.LoginResult;
-import shared.payload.UserInfo;
-
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.ObjectInputStream;
@@ -17,6 +10,12 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Logger;
+import server.ServerController;
+import shared.enums.LoginStatus;
+import shared.enums.RequestType;
+import shared.enums.ResponseType;
+import shared.payload.LoginResult;
+import shared.payload.UserInfo;
 
 /**
  * Manages the full lifecycle of one client connection.

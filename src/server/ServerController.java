@@ -1,9 +1,8 @@
 package server;
 
-import shared.networking.*;
-import shared.payload.UserInfo;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import shared.networking.*;
 
 public class ServerController {
     private String dataFilePath;
