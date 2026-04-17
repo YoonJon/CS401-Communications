@@ -14,6 +14,13 @@ public class UserInfo implements Payload {
         this.lastRead = new HashMap<>();
     }
 
+    public UserInfo(String userId, String name, UserType userType) {
+        this.userId = userId;
+        this.name = name;
+        this.userType = userType;
+        this.lastRead = new HashMap<>();
+    }
+
     public String getName() { return name; }
     public String getUserId() { return userId; }
     public UserType getUserType() { return userType; }

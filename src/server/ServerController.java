@@ -3,6 +3,7 @@ package server;
 import shared.networking.*;
 import shared.payload.UserInfo;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class ServerController {
     private String dataFilePath;
@@ -16,7 +17,7 @@ public class ServerController {
 
     public ServerController(String dataFilePath, int port) {
         this.dataFilePath = dataFilePath;
-        this.activeSessions = new HashMap<>();
+        this.activeSessions = new ConcurrentHashMap<>();
         this.dataManager = new DataManager(dataFilePath);
         this.connectionListener = new ConnectionListener(port, this);
         // TODO: start listening
