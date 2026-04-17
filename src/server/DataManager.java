@@ -1,116 +1,102 @@
 package server;
 
-import java.io.File;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.io.*;
+import java.util.*;
+import java.util.concurrent.*;
+import shared.networking.Request;
+import shared.payload.*;
 
-import shared.payload.AddToConversationPayload;
-import shared.payload.AdminConversationQuery;
-import shared.payload.AdminConversationResult;
-import shared.payload.Conversation;
-import shared.payload.CreateConversationPayload;
-import shared.payload.DirectoryQuery;
-import shared.payload.DirectoryResult;
-import shared.payload.JoinConversationPayload;
-import shared.payload.LeaveConversationPayload;
-import shared.payload.LeaveResult;
-import shared.payload.LoginCredentials;
-import shared.payload.LoginResult;
-import shared.payload.Message;
-import shared.payload.RawMessage;
-import shared.payload.RegisterCredentials;
-import shared.payload.RegisterResult;
-import shared.payload.UpdateReadMessages;
-import shared.payload.UserInfo;
 
 public class DataManager {
-    private Map<String, User> usersByUserID;
-    private Map<String, User> usersByLoginName;
-    private Map<String, Set<String>> conversationIDsByUserID;
-    private Map<String, Set<String>> userIDsByConversationID;
-    private Map<String, Conversation> conversationsByConversationID;
-    private Map<String, String> authorizedUsers;
-    private List<String> authorizedAdminIds;
+    private ConcurrentMap<String, User> usersByUserID;
+    private ConcurrentMap<String, User> usersByLoginName;
+    private ConcurrentMap<String, Set<String>> conversationIDsByUserID;
+    private ConcurrentMap<String, Set<String>> userIDsByConversationID;
+    private ConcurrentMap<String, Conversation> conversationsByConversationID;
+    private ConcurrentMap<String, String> authorizedUsers;
+    private CopyOnWriteArrayList<String> authorizedAdminIds;
     private String dataFilePath;
 
     public DataManager(String dataFilePath) {
     	// FIXME: remove filepath hardcoding
         this.dataFilePath = "data";
-        this.usersByUserID = new HashMap<>();
-        this.usersByLoginName = new HashMap<>();
-        this.conversationIDsByUserID = new HashMap<>();
-        this.userIDsByConversationID = new HashMap<>();
-        this.conversationsByConversationID = new HashMap<>();
-        this.authorizedUsers = new HashMap<>();
-        this.authorizedAdminIds = new ArrayList<>();
+        this.usersByUserID = new ConcurrentHashMap<>();
+        this.usersByLoginName = new ConcurrentHashMap<>();
+        this.conversationIDsByUserID = new ConcurrentHashMap<>();
+        this.userIDsByConversationID = new ConcurrentHashMap<>();
+        this.conversationsByConversationID = new ConcurrentHashMap<>();
+        this.authorizedUsers = new ConcurrentHashMap<>();
+        this.authorizedAdminIds = new CopyOnWriteArrayList<>();
         
         // TODO: load persisted data from dataFilePath
+    }
+
+    private Set<String> newConcurrentStringSet() {
+        return ConcurrentHashMap.newKeySet();
     }
 
     public void close() {
         // TODO: persist data to disk
     }
 
-    public RegisterResult handleRegister(RegisterCredentials rc) {
+    public RegisterResult handleRegister(Request request) {
         // TODO
         return null;
     }
 
-    public LoginResult handleLogin(LoginCredentials lc) {
+    public LoginResult handleLogin(Request request) {
         // TODO
         return null;
     }
 
-    public void handleLogout() {
+    public void handleLogout(Request request) {
         // TODO
     }
 
-    public Message handleSendMessage(RawMessage rm) {
+    public Message handleSendMessage(Request request) {
         // TODO
         return null;
     }
 
-    public void handleUpdateReadMessages(UpdateReadMessages u) {
+    public void handleUpdateReadMessages(Request request) {
         // TODO
     }
 
-    public DirectoryResult handleSearchDirectory(DirectoryQuery query) {
+    public DirectoryResult handleSearchDirectory(Request request) {
         // TODO
         return null;
     }
 
-    public Conversation handleCreateConversation(CreateConversationPayload cc) {
+    public Conversation handleCreateConversation(Request request) {
         // TODO
         return null;
     }
 
-    public Conversation handleAddToConversation(AddToConversationPayload atc) {
+    public Conversation handleAddToConversation(Request request) {
         // TODO
         return null;
     }
 
-    public LeaveResult handleLeaveConversation(LeaveConversationPayload lc) {
+    public LeaveResult handleLeaveConversation(Request request) {
         // TODO
         return null;
     }
 
-    public AdminConversationResult handleAdminConversationQuery(AdminConversationQuery q) {
+    public AdminConversationResult handleAdminConversationQuery(Request request) {
         // TODO
         return null;
     }
 
-    public Conversation handleJoinConversation(JoinConversationPayload jc) {
-        // TODO
+    public Conversation handleJoinConversation(Request request) {
         return null;
     }
 
     public ArrayList<UserInfo> getParticipantList(String c_id) {
-        // TODO
-        return null;
+        Conversation c = conversationsByConversationID.get(c_id);   //get the conversation by ID
+        if (c == null) {
+            return new ArrayList<>();
+        }
+        return c.getParticipants();
     }
     
     /*
@@ -151,8 +137,57 @@ public class DataManager {
         } catch (IOException e) {
             e.printStackTrace();
         }
-        // TODO: use file handles to rehydrate data
-        // TODO: mock data generation script
+        
+        // rehydrate Conversations
+        File[]listOfConversationFiles = conversationData.listFiles();
+        if (listOfConversationFiles == null) {
+            listOfConversationFiles = new File[0];
+        }
+        ObjectInputStream in = null;
+        try {
+	        for(File f:listOfConversationFiles) {
+	        	FileInputStream fs = new FileInputStream(f);
+	        	in = new ObjectInputStream(fs);
+	        	Conversation newConversation = (Conversation) in.readObject();
+	        	conversationsByConversationID.put(newConversation.getConversationId(),newConversation);
+	        	ArrayList<UserInfo> participantList = newConversation.getParticipants();
+	        	Set<String> participantIds = userIDsByConversationID.computeIfAbsent(
+	        	    newConversation.getConversationId(),
+	        	    ignored -> newConcurrentStringSet()
+	        	);
+	        	// Rebuild both sides of user/conversation relationships.
+                // for each user in the conversation, add the conversation ID to the user's conversation IDs
+	        	for(UserInfo userInfo:participantList) {
+	        		String userId = userInfo.getUserId();
+	        		conversationIDsByUserID.computeIfAbsent(userId, ignored -> newConcurrentStringSet())
+	        		    .add(newConversation.getConversationId());
+	        		participantIds.add(userId);
+	        	}
+	        }
+        }catch(IOException e) {
+        	e.printStackTrace();
+        }catch(ClassNotFoundException e) {
+        	e.printStackTrace();
+        }
+        
+        // rehydrate Users
+        File[]listOfUserFiles = userData.listFiles();
+        if (listOfUserFiles == null) {
+            listOfUserFiles = new File[0];
+        }
+        try {
+	        for(File f:listOfUserFiles) {
+	        	FileInputStream fs = new FileInputStream(f);
+	        	in = new ObjectInputStream(fs);
+	        	User u= (User) in.readObject();
+	        	usersByUserID.put(u.getUserId(),u);
+	        	usersByLoginName.put(u.getLoginName(), u);
+	        }
+        }catch(IOException e) {
+        	e.printStackTrace();
+        }catch(ClassNotFoundException e) {
+        	e.printStackTrace();
+        }
     }
 }
 

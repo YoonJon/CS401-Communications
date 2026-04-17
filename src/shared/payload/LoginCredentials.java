@@ -1,8 +1,8 @@
 package shared.payload;
 
-public class LoginCredentials implements Payload {
-    private String loginName;
-    private String password;
+public class LoginCredentials implements RequestPayload {
+    private final String loginName;
+    private final String password;
 
     public LoginCredentials(String ln, String p) {
         this.loginName = ln;

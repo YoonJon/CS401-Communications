@@ -1,8 +1,8 @@
 package shared.payload;
 
-public class RawMessage implements Payload {
-    private String text;
-    private String targetConversationId;
+public class RawMessage implements RequestPayload {
+    private final String text;
+    private final String targetConversationId;
 
     public RawMessage(String t, String c_id) {
         this.text = t;
