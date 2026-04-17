@@ -2,6 +2,10 @@ package shared.payload;
 
 import java.util.Date;
 
+/**
+ * A conversation message. The {@linkplain #getSequenceNumber() sequence number} is assigned by the server
+ * and is immutable for the lifetime of the object.
+ */
 public class Message implements ResponsePayload {
     private final String text;
     private final long sequenceNumber;
@@ -9,12 +13,12 @@ public class Message implements ResponsePayload {
     private final String senderId;
     private final String conversationId;
 
-    public Message(String t, long sn, Date time, String senderID, String c_id) {
-        this.text = t;
-        this.sequenceNumber = sn;
-        this.timestamp = time;
-        this.senderId = senderID;
-        this.conversationId = c_id;
+    public Message(String text, long sequenceNumber, Date timestamp, String senderId, String conversationId) {
+        this.text = text;
+        this.sequenceNumber = sequenceNumber;
+        this.timestamp = timestamp;
+        this.senderId = senderId;
+        this.conversationId = conversationId;
     }
 
     public String getText() { return text; }

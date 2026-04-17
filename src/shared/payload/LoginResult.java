@@ -8,10 +8,12 @@ public class LoginResult implements ResponsePayload {
     private final UserInfo userInfo;
     private final ArrayList<Conversation> conversationList;
 
-    public LoginResult(LoginStatus r, ArrayList<Conversation> cl) {
-        this(r, null, cl);
+    /** Failed (or otherwise non-success) login: no user or conversation payload. */
+    public LoginResult(LoginStatus r) {
+        this(r, null, null);
     }
 
+    /** Successful login: authenticated snapshot and the user's conversations. */
     public LoginResult(LoginStatus r, UserInfo ui, ArrayList<Conversation> cl) {
         this.result = r;
         this.userInfo = ui;
