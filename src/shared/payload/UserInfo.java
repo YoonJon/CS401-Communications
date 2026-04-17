@@ -1,8 +1,8 @@
 package shared.payload;
 
-import shared.enums.UserType;
 import java.util.HashMap;
 import java.util.Map;
+import shared.enums.UserType;
 
 public class UserInfo implements Payload {
     private String name;
