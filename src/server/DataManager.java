@@ -27,8 +27,8 @@ public class DataManager {
         this.conversationsByConversationID = new ConcurrentHashMap<>();
         this.authorizedUsers = new ConcurrentHashMap<>();
         this.authorizedAdminIds = new CopyOnWriteArrayList<>();
-        
-        // TODO: load persisted data from dataFilePath
+
+        loadData();
     }
 
     private Set<String> newConcurrentStringSet() {
@@ -106,7 +106,7 @@ public class DataManager {
      * 			/server_config.txt
      * 			/authorized_ids
      * 				/authorized_admins.txt
-     * 				/authorized_user.txt
+     * 				/authorized_users.txt
      * 		/conversation_data
      * 		/user_data
      */
@@ -115,15 +115,15 @@ public class DataManager {
         File dataDir = new File(dataFilePath);
         File serverData = new File(dataFilePath + File.separator + "server_data");
         File authorizedIds = new File(serverData + File.separator + "authorized_ids");
-        File authorizedAdmins = new File(authorizedIds + File.separator + "authorized_admins.txt");
-        File authorizedUsers = new File(authorizedIds + File.separator + "authorized_users.txt");
+        File authorizedAdminsFile = new File(authorizedIds + File.separator + "authorized_admins.txt");
+        File authorizedUsersFile = new File(authorizedIds + File.separator + "authorized_users.txt");
 
 
         if (!dataDir.exists()) System.err.println("WARNING: data directory not found");
         if (!serverData.exists()) System.err.println("WARNING: server_data directory not found");
         if (!authorizedIds.exists()) System.err.println("WARNING: authorized_ids directory not found");
-        if (!authorizedAdmins.exists()) System.err.println("WARNING: authorized_admins.txt not found");
-        if (!authorizedUsers.exists()) System.err.println("WARNING: authorized_users.txt not found");
+        if (!authorizedAdminsFile.exists()) System.err.println("WARNING: authorized_admins.txt not found");
+        if (!authorizedUsersFile.exists()) System.err.println("WARNING: authorized_users.txt not found");
 
         // these are not assumed to exist, create if missing
         File serverConfig = new File(serverData + File.separator + "server_config.txt");
@@ -134,6 +134,17 @@ public class DataManager {
             if (!serverConfig.exists()) serverConfig.createNewFile();
             if (!conversationData.exists()) conversationData.mkdirs();
             if (!userData.exists()) userData.mkdirs();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        try {
+            if (authorizedUsersFile.isFile()) {
+                loadAuthorizedUsersCsv(authorizedUsersFile);
+            }
+            if (authorizedAdminsFile.isFile()) {
+                loadAuthorizedAdminsCsv(authorizedAdminsFile);
+            }
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -187,6 +198,53 @@ public class DataManager {
         	e.printStackTrace();
         }catch(ClassNotFoundException e) {
         	e.printStackTrace();
+        }
+    }
+
+    /**
+     * CSV: one row per line, two columns {@code userId,name} (external supply).
+     * Blank lines and lines starting with {@code #} are ignored.
+     */
+    private void loadAuthorizedUsersCsv(File file) throws IOException {
+        authorizedUsers.clear();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(file), java.nio.charset.StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                line = line.trim();
+                if (line.isEmpty() || line.startsWith("#")) {
+                    continue;
+                }
+                String[] parts = line.split(",", 2);
+                if (parts.length < 2) {
+                    System.err.println("WARNING: skipping authorized_users line (expected userId,name): " + line);
+                    continue;
+                }
+                String userId = parts[0].trim();
+                String name = parts[1].trim();
+                if (!name.isEmpty() && !userId.isEmpty()) {
+                    authorizedUsers.put(userId, name);
+                }
+            }
+        }
+    }
+
+    /**
+     * Text file: one admin user id per line.
+     * Blank lines and lines starting with {@code #} are ignored.
+     */
+    private void loadAuthorizedAdminsCsv(File file) throws IOException {
+        authorizedAdminIds.clear();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(file), java.nio.charset.StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                line = line.trim();
+                if (line.isEmpty() || line.startsWith("#")) {
+                    continue;
+                }
+                if (!line.isEmpty()) {
+                    authorizedAdminIds.addIfAbsent(line);
+                }
+            }
         }
     }
 }
