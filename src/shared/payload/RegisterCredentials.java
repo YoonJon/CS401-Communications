@@ -1,10 +1,10 @@
 package shared.payload;
 
-public class RegisterCredentials implements Payload {
-    private String userId;
-    private String loginName;
-    private String password;
-    private String name;
+public class RegisterCredentials implements RequestPayload {
+    private final String userId;
+    private final String loginName;
+    private final String password;
+    private final String name;
 
     public RegisterCredentials(String id, String ln, String p, String n) {
         this.userId = id;

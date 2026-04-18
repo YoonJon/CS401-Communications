@@ -1,4 +1,4 @@
 package shared.payload;
 
-public class ReadMessagesUpdated implements Payload {
+public class ReadMessagesUpdated implements ResponsePayload {
 }

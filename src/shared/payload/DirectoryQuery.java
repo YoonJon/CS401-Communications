@@ -1,7 +1,7 @@
 package shared.payload;
 
-public class DirectoryQuery implements Payload {
-    private String query;
+public class DirectoryQuery implements RequestPayload {
+    private final String query;
 
     public DirectoryQuery(String q) {
         this.query = q;

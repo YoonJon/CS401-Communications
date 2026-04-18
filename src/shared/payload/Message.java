@@ -2,12 +2,12 @@ package shared.payload;
 
 import java.util.Date;
 
-public class Message implements Payload {
-    private String text;
-    private long sequenceNumber;
-    private Date timestamp;
-    private String senderId;
-    private String conversationId;
+public class Message implements ResponsePayload {
+    private final String text;
+    private final long sequenceNumber;
+    private final Date timestamp;
+    private final String senderId;
+    private final String conversationId;
 
     public Message(String t, long sn, Date time, String senderID, String c_id) {
         this.text = t;
