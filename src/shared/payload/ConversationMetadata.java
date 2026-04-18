@@ -1,5 +1,6 @@
 package shared.payload;
 
+import shared.networking.User.UserInfo;
 import shared.enums.ConversationType;
 import java.util.ArrayList;
 

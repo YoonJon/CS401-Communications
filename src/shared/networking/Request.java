@@ -5,24 +5,18 @@ import shared.payload.RequestPayload;
 import java.io.Serializable;
 
 public class Request implements Serializable {
+    private static final long serialVersionUID = 1L;
+
     private final RequestType type;
     private final RequestPayload payload;
     private final String senderId;
 
-    public Request(RequestType t) {
-        this(t, null, null);
-    }
-
+    /** Request with no payload (e.g. ping). {@code senderId} may be {@code null} before session bind. */
     public Request(RequestType t, String senderId) {
         this(t, null, senderId);
     }
 
-    public Request(RequestType t, RequestPayload p) {
-        this(t, p, null);
-    }
-
     public Request(RequestType t, RequestPayload p, String senderId) {
-        // Sentinel for invalid enum input: treat null type as a null-request.
         if (t == null) {
             this.type = null;
             this.payload = null;

@@ -15,7 +15,7 @@ import shared.enums.LoginStatus;
 import shared.enums.RequestType;
 import shared.enums.ResponseType;
 import shared.payload.LoginResult;
-import shared.payload.UserInfo;
+import shared.networking.User.UserInfo;
 
 /**
  * Manages the full lifecycle of one client connection.

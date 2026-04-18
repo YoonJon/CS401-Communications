@@ -9,6 +9,8 @@ import shared.enums.ConversationType;
 import shared.enums.ResponseType;
 import shared.networking.Request;
 import shared.networking.Response;
+import shared.networking.User;
+import shared.networking.User.UserInfo;
 import shared.payload.*;
 
 
