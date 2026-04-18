@@ -17,7 +17,7 @@ public class UserInfo implements Payload {
     private final String name;
     private final String userId;
     private final UserType userType;
-    private final Map<String, Long> lastRead;
+    private final Map<Long, Long> lastRead;
 
     public UserInfo() {
         this(null, null, null, new HashMap<>());
@@ -27,7 +27,7 @@ public class UserInfo implements Payload {
         this(name, userId, userType, new HashMap<>());
     }
 
-    public UserInfo(String name, String userId, UserType userType, Map<String, Long> lastRead) {
+    public UserInfo(String name, String userId, UserType userType, Map<Long, Long> lastRead) {
         this.name = name;
         this.userId = userId;
         this.userType = userType;
@@ -39,15 +39,15 @@ public class UserInfo implements Payload {
     public UserType getUserType() { return userType; }
 
     /** Unmodifiable view of conversation id → last read sequence number (for clients). */
-    public Map<String, Long> getLastReadMap() {
+    public Map<Long, Long> getLastReadMap() {
         return Collections.unmodifiableMap(lastRead);
     }
 
-    public long getLastRead(String c_id) {
-        return lastRead.getOrDefault(c_id, 0L);
+    public long getLastRead(long conversationId) {
+        return lastRead.getOrDefault(conversationId, 0L);
     }
 
-    public void setLastRead(String c_id, long sequenceNumber) {
-        lastRead.put(c_id, sequenceNumber);
+    public void setLastRead(long conversationId, long sequenceNumber) {
+        lastRead.put(conversationId, sequenceNumber);
     }
 }

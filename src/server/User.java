@@ -24,7 +24,7 @@ public class User implements Serializable {
      * {@link #getUserInfo()} can supply unread markers on login; clients may update their own UI
      * optimistically without waiting for the server. No concurrent-update guarantees.
      */
-    private Map<String, Long> lastRead;
+    private Map<Long, Long> lastRead;
 
     public User(String id, String n, String ln, String p) {
         this.userId = id;
@@ -45,12 +45,12 @@ public class User implements Serializable {
         return new UserInfo(name, userId, userType, new HashMap<>(lastRead));
     }
 
-    public long getLastRead(String c_id) {
-        return lastRead.getOrDefault(c_id, 0L);
+    public long getLastRead(long conversationId) {
+        return lastRead.getOrDefault(conversationId, 0L);
     }
 
-    public void setLastRead(String c_id, long sequenceNumber) {
-        lastRead.put(c_id, sequenceNumber);
+    public void setLastRead(long conversationId, long sequenceNumber) {
+        lastRead.put(conversationId, sequenceNumber);
     }
 
     public static User fromFile(File f) throws IOException, ClassNotFoundException {

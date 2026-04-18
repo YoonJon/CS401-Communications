@@ -11,9 +11,9 @@ public class Message implements ResponsePayload {
     private final long sequenceNumber;
     private final Date timestamp;
     private final String senderId;
-    private final String conversationId;
+    private final long conversationId;
 
-    public Message(String text, long sequenceNumber, Date timestamp, String senderId, String conversationId) {
+    public Message(String text, long sequenceNumber, Date timestamp, String senderId, long conversationId) {
         this.text = text;
         this.sequenceNumber = sequenceNumber;
         this.timestamp = timestamp;
@@ -22,7 +22,7 @@ public class Message implements ResponsePayload {
     }
 
     public String getText() { return text; }
-    public String getConversationId() { return conversationId; }
+    public long getConversationId() { return conversationId; }
     public String getSenderId() { return senderId; }
     public long getSequenceNumber() { return sequenceNumber; }
     public Date getTimestamp() { return timestamp; }

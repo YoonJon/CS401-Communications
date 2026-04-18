@@ -4,13 +4,13 @@ import java.util.ArrayList;
 
 public class AddToConversationPayload implements RequestPayload {
     private final ArrayList<UserInfo> participants;
-    private final String targetConversationId;
+    private final long targetConversationId;
 
-    public AddToConversationPayload(ArrayList<UserInfo> p, String t) {
+    public AddToConversationPayload(ArrayList<UserInfo> p, long targetConversationId) {
         this.participants = p;
-        this.targetConversationId = t;
+        this.targetConversationId = targetConversationId;
     }
 
     public ArrayList<UserInfo> getParticipants() { return participants; }
-    public String getTargetConversationId() { return targetConversationId; }
+    public long getTargetConversationId() { return targetConversationId; }
 }

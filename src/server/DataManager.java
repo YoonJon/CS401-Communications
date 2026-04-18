@@ -25,19 +25,31 @@ public class DataManager {
     private static final String USER_FILE_SUFFIX = ".user";
 
     /**
-     * Authoritative monotonic message sequence counter. Rehydrate from
-     * {@code server_data/server_config.txt} on load and persist on shutdown (TODO).
+     * Authoritative monotonic message sequence counter; persisted under
+     * {@value #SERVER_CONFIG_MESSAGE_SEQUENCE_KEY} in {@code server_data/server_config.txt}.
      */
     private static final AtomicLong messageSequenceCounter = new AtomicLong(0);
 
+    /**
+     * Monotonic numeric id assignment for new {@link Conversation} records; persisted under
+     * {@value #SERVER_CONFIG_CONVERSATION_ID_KEY} in {@code server_data/server_config.txt}.
+     */
+    private static final AtomicLong conversationIdCounter = new AtomicLong(0);
+
+    private static final String SERVER_CONFIG_MESSAGE_SEQUENCE_KEY = "messageSequenceCounter";
+    private static final String SERVER_CONFIG_CONVERSATION_ID_KEY = "conversationIdCounter";
+
     private ConcurrentMap<String, User> usersByUserID;
     private ConcurrentMap<String, User> usersByLoginName;
-    private ConcurrentMap<String, Set<String>> conversationIDsByUserID;
-    private ConcurrentMap<String, Set<String>> userIDsByConversationID;
-    private ConcurrentMap<String, Conversation> conversationsByConversationID;
+    /** User id → conversation ids that user belongs to. */
+    private ConcurrentMap<String, Set<Long>> conversationIDsByUserID;
+    /** Conversation id → user ids in that conversation. */
+    private ConcurrentMap<Long, Set<String>> userIDsByConversationID;
+    private ConcurrentMap<Long, Conversation> conversationsByConversationID;
     private ConcurrentMap<String, String> authorizedUsers;
     private CopyOnWriteArrayList<String> authorizedAdminIds;
     private String dataFilePath;
+    private File serverConfigFile;
 
     public DataManager(String dataFilePath) {
     	// FIXME: remove filepath hardcoding
@@ -57,6 +69,10 @@ public class DataManager {
         return ConcurrentHashMap.newKeySet();
     }
 
+    private Set<Long> newConcurrentLongSet() {
+        return ConcurrentHashMap.newKeySet();
+    }
+
     private boolean isValidUser(String userID, String userName) {
         return Objects.equals(authorizedUsers.get(userID), userName);
     }
@@ -68,13 +84,17 @@ public class DataManager {
             }
             for (Conversation c : conversationsByConversationID.values()) {
                 synchronized (c) {
-                    writeConversationToDisk(c);
+                    persistConversation(c);
                 }
             }
         } catch (IOException e) {
             e.printStackTrace();
         }
-        // TODO: persist messageSequenceCounter to dataFilePath/server_data/server_config.txt
+        try {
+            persistServerCounters();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     /**
@@ -82,6 +102,49 @@ public class DataManager {
      */
     static long nextMessageSequenceNumber() {
         return messageSequenceCounter.incrementAndGet();
+    }
+
+    /** Returns the next conversation id (monotonic long). Thread-safe. */
+    static long nextConversationId() {
+        return conversationIdCounter.incrementAndGet();
+    }
+
+    private void loadServerCounters() throws IOException {
+        if (serverConfigFile == null || !serverConfigFile.isFile() || serverConfigFile.length() == 0) {
+            return;
+        }
+        Properties props = new Properties();
+        try (InputStream in = new FileInputStream(serverConfigFile)) {
+            props.load(in);
+        }
+        String msg = props.getProperty(SERVER_CONFIG_MESSAGE_SEQUENCE_KEY);
+        if (msg != null && !msg.isBlank()) {
+            try {
+                messageSequenceCounter.set(Math.max(0L, Long.parseLong(msg.trim())));
+            } catch (NumberFormatException e) {
+                System.err.println("WARNING: invalid " + SERVER_CONFIG_MESSAGE_SEQUENCE_KEY + " in server_config.txt: " + msg);
+            }
+        }
+        String conv = props.getProperty(SERVER_CONFIG_CONVERSATION_ID_KEY);
+        if (conv != null && !conv.isBlank()) {
+            try {
+                conversationIdCounter.set(Math.max(0L, Long.parseLong(conv.trim())));
+            } catch (NumberFormatException e) {
+                System.err.println("WARNING: invalid " + SERVER_CONFIG_CONVERSATION_ID_KEY + " in server_config.txt: " + conv);
+            }
+        }
+    }
+
+    private void persistServerCounters() throws IOException {
+        if (serverConfigFile == null) {
+            return;
+        }
+        Properties props = new Properties();
+        props.setProperty(SERVER_CONFIG_MESSAGE_SEQUENCE_KEY, Long.toString(messageSequenceCounter.get()));
+        props.setProperty(SERVER_CONFIG_CONVERSATION_ID_KEY, Long.toString(conversationIdCounter.get()));
+        try (OutputStream out = new FileOutputStream(serverConfigFile)) {
+            props.store(out, "Server counters (message sequence and conversation id)");
+        }
     }
 
     private File conversationDataDirectory() {
@@ -103,7 +166,7 @@ public class DataManager {
         }
     }
 
-    private void writeConversationToDisk(Conversation conversation) throws IOException {
+    private void persistConversation(Conversation conversation) throws IOException {
         try (FileOutputStream fos = new FileOutputStream(conversationPersistenceFile(conversation.getConversationId()));
              ObjectOutputStream oos = new ObjectOutputStream(fos)) {
             oos.writeObject(conversation);
@@ -112,14 +175,14 @@ public class DataManager {
 
     /**
      * Persistence file for a conversation: Java-serialized {@link Conversation} at
-     * {@code conversation_data/<conversationId>.conversation}.
+     * {@code conversation_data/<id>.conversation} ({@code id} is the decimal string of the long id).
      */
-    private File conversationPersistenceFile(String conversationId) {
-        return new File(conversationDataDirectory(), conversationId + CONVERSATION_FILE_SUFFIX);
+    private File conversationPersistenceFile(long conversationId) {
+        return new File(conversationDataDirectory(), Long.toString(conversationId) + CONVERSATION_FILE_SUFFIX);
     }
 
     /**
-     * Appends {@code message} to its conversation in memory and rewrites that conversation's file on disk.
+     * Appends {@code message} to its conversation in memory and {@linkplain #persistConversation(Conversation) persists} it.
      */
     private void updateConversation(Message message) throws IOException {
         Conversation conversation = conversationsByConversationID.get(message.getConversationId());
@@ -128,7 +191,7 @@ public class DataManager {
         }
         synchronized (conversation) {
             conversation.append(message);
-            writeConversationToDisk(conversation);
+            persistConversation(conversation);
         }
     }
 
@@ -180,13 +243,13 @@ public class DataManager {
         // return the user's conversation list if the login is successful
         User user = usersByLoginName.get(loginName);
         String userID = user.getUserId();
-        Set<String> conversationIDs = conversationIDsByUserID.get(userID);
+        Set<Long> conversationIDs = conversationIDsByUserID.get(userID);
         if (conversationIDs == null) {
             conversationIDs = Collections.emptySet();
         }
         ArrayList<Conversation> conversationList = new ArrayList<>();
-        for (String conversationID : conversationIDs) {
-            conversationList.add(conversationsByConversationID.get(conversationID));
+        for (Long conversationId : conversationIDs) {
+            conversationList.add(conversationsByConversationID.get(conversationId));
         }
         return new Response(ResponseType.LOGIN_RESULT, new LoginResult(
             shared.enums.LoginStatus.SUCCESS,
@@ -205,7 +268,7 @@ public class DataManager {
         // 3. return the message to the controller for subsequent distribution
         RawMessage rawMessage = (RawMessage) request.getPayload();
         String text = rawMessage.getText();
-        String conversationId = rawMessage.getTargetConversationId();
+        long conversationId = rawMessage.getTargetConversationId();
         long sequenceNumber = nextMessageSequenceNumber();
         Date timestamp = new Date();
         Message message = new Message(text, sequenceNumber, timestamp, request.getSenderId(), conversationId);
@@ -229,7 +292,7 @@ public class DataManager {
      */
     public Response handleUpdateReadMessages(Request request) {
         UpdateReadMessages updateReadMessages = (UpdateReadMessages) request.getPayload();
-        String conversationID = updateReadMessages.getConversationID();
+        long conversationID = updateReadMessages.getConversationID();
         long lastSeenSequenceNumber = updateReadMessages.getLastSeenSequenceNumber();
         User user = usersByUserID.get(request.getSenderId());
         user.setLastRead(conversationID, lastSeenSequenceNumber);
@@ -241,14 +304,34 @@ public class DataManager {
         return new Response(ResponseType.READ_UPDATED, new ReadMessagesUpdated());
     }
 
-    public Response handleSearchDirectory(Request request) {
-        // TODO
-        return null;
-    }
-
     public Response handleCreateConversation(Request request) {
-        // TODO
-        return null;
+        CreateConversationPayload createConversationPayload = (CreateConversationPayload) request.getPayload();
+        ArrayList<UserInfo> participants = createConversationPayload.getParticipants();
+        // Caller must supply at least one participant; empty creates are rejected until error payloads exist.
+        if (participants == null || participants.isEmpty()) {
+            return null;
+        }
+        long conversationId = nextConversationId();
+        // Derives PRIVATE vs GROUP from participant count; seeds historicalParticipants from this list.
+        Conversation conversation = new Conversation(conversationId, participants);
+        conversationsByConversationID.put(conversationId, conversation);
+        // Per-conversation set of user ids (used when broadcasting to everyone in a thread).
+        Set<String> participantIds = userIDsByConversationID.computeIfAbsent(
+            conversationId, ignored -> newConcurrentStringSet());
+        // Mirror loadData(): each user gets this conversation id in their index; reverse map gets each user id.
+        for (UserInfo userInfo : conversation.getParticipants()) {
+            String userId = userInfo.getUserId();
+            conversationIDsByUserID.computeIfAbsent(userId, ignored -> newConcurrentLongSet())
+                .add(conversationId);
+            participantIds.add(userId);
+        }
+        try {
+            persistConversation(conversation);
+        } catch (IOException e) {
+            e.printStackTrace();
+            return null;
+        }
+        return new Response(ResponseType.CONVERSATION, conversation);
     }
 
     public Response handleAddToConversation(Request request) {
@@ -270,8 +353,8 @@ public class DataManager {
         return null;
     }
 
-    public ArrayList<UserInfo> getParticipantList(String c_id) {
-        Conversation c = conversationsByConversationID.get(c_id);   //get the conversation by ID
+    public ArrayList<UserInfo> getParticipantList(long conversationId) {
+        Conversation c = conversationsByConversationID.get(conversationId);
         if (c == null) {
             return new ArrayList<>();
         }
@@ -305,12 +388,12 @@ public class DataManager {
         if (!authorizedUsersFile.exists()) System.err.println("WARNING: authorized_users.txt not found");
 
         // these are not assumed to exist, create if missing
-        File serverConfig = new File(serverData, "server_config.txt");
+        serverConfigFile = new File(serverData, "server_config.txt");
         File conversationDataDir = conversationDataDirectory();
         File userDataDir = userDataDirectory();
 
         try {
-            if (!serverConfig.exists()) serverConfig.createNewFile();
+            if (!serverConfigFile.exists()) serverConfigFile.createNewFile();
             if (!conversationDataDir.exists()) conversationDataDir.mkdirs();
             if (!userDataDir.exists()) userDataDir.mkdirs();
         } catch (IOException e) {
@@ -346,12 +429,12 @@ public class DataManager {
 	        	Set<String> participantIds = userIDsByConversationID.computeIfAbsent(
 	        	    newConversation.getConversationId(),
 	        	    ignored -> newConcurrentStringSet()
-	        	);
+                );
 	        	// Rebuild both sides of user/conversation relationships.
                 // for each user in the conversation, add the conversation ID to the user's conversation IDs
 	        	for(UserInfo userInfo:participantList) {
 	        		String userId = userInfo.getUserId();
-	        		conversationIDsByUserID.computeIfAbsent(userId, ignored -> newConcurrentStringSet())
+	        		conversationIDsByUserID.computeIfAbsent(userId, ignored -> newConcurrentLongSet())
 	        		    .add(newConversation.getConversationId());
 	        		participantIds.add(userId);
 	        	}
@@ -382,7 +465,11 @@ public class DataManager {
             e.printStackTrace();
         }
 
-        // TODO: rehydrate messageSequenceCounter from serverConfig (source of truth on disk)
+        try {
+            loadServerCounters();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     /**

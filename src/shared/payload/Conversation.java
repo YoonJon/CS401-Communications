@@ -5,18 +5,25 @@ import java.io.File;
 import java.util.ArrayList;
 
 public class Conversation implements ResponsePayload {
-    private final String conversationId;
+    private final long conversationId;
     private final ArrayList<Message> messages;
     private final ArrayList<UserInfo> participants;
     private final ArrayList<UserInfo> historicalParticipants;
     private final ConversationType type;
 
-    public Conversation(String c_id, ConversationType t) {
-        this.conversationId = c_id;
-        this.type = t;
+    /**
+     * @param conversationId stable numeric id (from server counter)
+     * @param participants initial members; copied defensively. If the size is 2, {@link ConversationType#PRIVATE}
+     * is used; otherwise {@link ConversationType#GROUP}. The same initial snapshot is stored in
+     * {@linkplain #getHistoricalParticipants() historical participants} (add/remove of participants is not
+     * implemented yet; when it is, new additions should be reflected in historical participants, removals should not).
+     */
+    public Conversation(long conversationId, ArrayList<UserInfo> participants) {
+        this.conversationId = conversationId;
         this.messages = new ArrayList<>();
-        this.participants = new ArrayList<>();
-        this.historicalParticipants = new ArrayList<>();
+        this.participants = new ArrayList<>(participants != null ? participants : new ArrayList<>());
+        this.historicalParticipants = new ArrayList<>(this.participants);
+        this.type = this.participants.size() == 2 ? ConversationType.PRIVATE : ConversationType.GROUP;
     }
 
     /**
@@ -32,7 +39,7 @@ public class Conversation implements ResponsePayload {
         );
     }
 
-    public String getConversationId() { return conversationId; }
+    public long getConversationId() { return conversationId; }
     public ArrayList<Message> getMessages() { return messages; }
     public ArrayList<UserInfo> getParticipants() { return participants; }
     public ArrayList<UserInfo> getHistoricalParticipants() { return historicalParticipants; }

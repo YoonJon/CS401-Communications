@@ -1,11 +1,11 @@
 package shared.payload;
 
 public class JoinConversationPayload implements RequestPayload {
-    private final String targetConversationId;
+    private final long targetConversationId;
 
-    public JoinConversationPayload(String t) {
-        this.targetConversationId = t;
+    public JoinConversationPayload(long targetConversationId) {
+        this.targetConversationId = targetConversationId;
     }
 
-    public String getTargetConversationId() { return targetConversationId; }
+    public long getTargetConversationId() { return targetConversationId; }
 }
