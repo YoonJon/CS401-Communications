@@ -1,5 +1,6 @@
 package client;
 
+
 import shared.enums.*;
 import javax.swing.*;
 import java.awt.*;
@@ -8,10 +9,6 @@ public class ClientUI {
     private ClientController controller;
     private JFrame frame;
     private ScreenCards cards;
-    private RegisterView registerView;
-    private LoginView loginView;
-    private ConversationView chatView;
-    private DirectoryView userDirectory;
     private ConversationListView conversationList;
     private SelectUserWindow selectUserWindow;
     private AdminConversationSearchWindow adminConversationSearchWindow;
@@ -20,7 +17,14 @@ public class ClientUI {
 
     public ClientUI(ClientController controller) {
         this.controller = controller;
-        // TODO: build JFrame, initialize views, wire listeners
+        frame = new JFrame();
+        frame.setTitle("Communication Application");
+        frame.setSize(400, 300);
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        frame.setLocationRelativeTo(null);
+        cards = new ScreenCards();
+        frame.add(cards);
+        frame.setVisible(true);
     }
 
     public void showLoginView() { cards.layout.show(cards, "login"); }
@@ -95,7 +99,104 @@ public class ClientUI {
         JButton backButton;
 
         RegisterView() {
-            // TODO: lay out components
+        	setLayout(new BorderLayout());
+        	
+        	// initialize components
+        	JPanel inputPanel = new JPanel(new GridBagLayout());
+        	userId = new JTextField(15);
+        	name = new JTextField(15);
+        	loginName = new JTextField(15);
+        	password = new JPasswordField(15);
+        	passwordAgain = new JPasswordField(15);
+        	createButton = new JButton("Create Account");
+        	backButton = new JButton("Back");
+        	
+        	// layout for  the buttons
+            JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 0));
+            buttonPanel.add(createButton);
+            buttonPanel.add(backButton);  
+        	
+        	// use grid layout to put the parts
+        	GridBagConstraints gridConst = new GridBagConstraints();
+            gridConst.insets = new Insets(5, 5, 5, 5);
+            gridConst.fill = GridBagConstraints.HORIZONTAL;
+        	            
+            // put the label for User ID
+            gridConst.gridx = 0;
+            gridConst.gridy = 0;
+            inputPanel.add(new JLabel("User ID"), gridConst);
+            
+            // put the text field on the right side of the label
+            gridConst.gridx = 1;
+            gridConst.gridwidth = 2;
+            inputPanel.add(userId, gridConst);
+            
+            // put the label for user name below User ID
+            gridConst.gridx = 0;
+            gridConst.gridy = 1;
+            gridConst.gridwidth = 1;
+            inputPanel.add(new JLabel("User Name"), gridConst);
+            
+            // put the text field on the right side of the label
+            gridConst.gridx = 1;
+            inputPanel.add(name, gridConst);
+            
+            // put the label for user name below User ID
+            gridConst.gridx = 0;
+            gridConst.gridy = 2;
+            inputPanel.add(new JLabel("Login ID"), gridConst);
+            
+            // put the text field on the right side of the label
+            gridConst.gridx = 1;
+            inputPanel.add(loginName, gridConst);
+            
+            // put the label for password below login Name
+            gridConst.gridx = 0;
+            gridConst.gridy = 3;
+            inputPanel.add(new JLabel("Password"), gridConst);
+            
+            // put the password text field on the right side of the label
+            gridConst.gridx = 1;
+            inputPanel.add(password, gridConst);
+            
+            // put the label for the password (confirmation) 
+            gridConst.gridx = 0;
+            gridConst.gridy = 4;
+            inputPanel.add(new JLabel("Confirm Password"), gridConst);
+            
+            // put the password text field (confirmation) on the right side of the label
+            gridConst.gridx = 1;
+            inputPanel.add(passwordAgain, gridConst);
+            
+            // put the button layout below the fields
+            gridConst.gridx = 1;
+            gridConst.gridy = 5;
+            inputPanel.add(buttonPanel, gridConst);
+            
+            // locate these parts at the center of the window
+            add(inputPanel, BorderLayout.CENTER);
+            
+            // add an action when click "Create Account" button
+            createButton.addActionListener(e -> {
+            	char[] pwd1 = password.getPassword();
+            	char[] pwd2 = passwordAgain.getPassword();
+            	// if the passwords are the same, send the information to clientController
+            	if(java.util.Arrays.equals(pwd1, pwd2)) {
+            		controller.register(userId.getText(), name.getText(), loginName.getText(), password.getPassword());
+            	} else {
+            		// if not, show the error message
+            		JOptionPane.showMessageDialog(null, "Passwords don't match. Type them again.", "Error", JOptionPane.ERROR_MESSAGE);
+            	}
+            	// fill with 0 for secure reason
+            	java.util.Arrays.fill(pwd1, '0');
+                java.util.Arrays.fill(pwd2, '0');
+            });
+            
+            // add an action when click 
+            backButton.addActionListener(e -> {
+            	// go back to login window
+            	cards.layout.show(cards, "login");
+            });
         }
     }
 
@@ -107,7 +208,62 @@ public class ClientUI {
         JButton createButton;
 
         LoginView() {
-            // TODO: lay out components
+        	
+            setLayout(new BorderLayout());
+            
+            // initialize components
+            login_idField = new JTextField(15);
+            passwordField = new JPasswordField(15);
+            loginButton = new JButton("Login");
+            createButton = new JButton("Create Account");
+            JPanel inputPanel = new JPanel(new GridBagLayout());
+            GridBagConstraints gridConst = new GridBagConstraints();
+            gridConst.insets = new Insets(5, 5, 5, 5);
+            gridConst.fill = GridBagConstraints.HORIZONTAL;
+            
+            
+            // add label for login_id
+            gridConst.gridx = 0;
+            gridConst.gridy = 0;
+            inputPanel.add(new JLabel("Login ID"), gridConst);
+            // add text field on the right side of the label
+            gridConst.gridx = 1;            
+            inputPanel.add(login_idField, gridConst);
+            // add label for password below the login_id
+            gridConst.gridx = 0;
+            gridConst.gridy = 1;
+            inputPanel.add(new JLabel("Password"), gridConst);
+            // add text field on the right side of the label
+            gridConst.gridx = 1;
+            inputPanel.add(passwordField, gridConst);
+            // add login button next to the fields
+            gridConst.gridx = 2;
+            gridConst.gridy = 0;
+            gridConst.gridheight = 2;
+            inputPanel.add(loginButton, gridConst);
+            
+            // add create button below the text fields
+            gridConst.gridx = 1;
+            gridConst.gridy = 2;
+            gridConst.insets = new Insets(20, 5, 5, 5);
+                      
+            // wrap a layout with create button which can be located on the middle
+            JPanel createBtnPane = new JPanel();
+            createBtnPane.setLayout(new FlowLayout(FlowLayout.CENTER));
+            createBtnPane.add(createButton);
+            inputPanel.add(createBtnPane, gridConst);
+            
+            // add to loginView
+            add(inputPanel, BorderLayout.CENTER);
+            
+            
+            loginButton.addActionListener(e -> {
+            	controller.login(login_idField.getText(), passwordField.getPassword());
+            });
+            
+            createButton.addActionListener(e -> {
+            	cards.layout.show(cards, "register");
+            });
         }
     }
 
@@ -118,7 +274,18 @@ public class ClientUI {
         ConversationListView conversationListView;
 
         MainView() {
-            // TODO: lay out components
+        	frame.setSize(900,400);
+       
+        	conversationView = new ConversationView();
+            directoryView = new DirectoryView();
+            conversationListView = new ConversationListView();
+            
+            // define the panel and set the layout
+            setLayout(new BoxLayout(this, BoxLayout.X_AXIS));
+            add(directoryView);
+            add(conversationView);
+            add(conversationListView);
+
         }
     }
 
@@ -151,11 +318,23 @@ public class ClientUI {
         JTextField searchBar;
 
         DirectoryView() {
+        	userLabel = new JLabel("UserID \nRealName");
             listModel = new DefaultListModel();
             list = new JList(listModel);
             searchField = new JTextField();
             searchBar = new JTextField();
-            // TODO: lay out components
+            logoutButton = new JButton("Log Out");
+            createConversationButton = new JButton("Create Conversation");
+            adminButton = new JButton("Admin");
+            // user is admin
+            adminButton.setVisible(false);
+            
+            setLayout(new BorderLayout());
+            
+            JPanel userPane = new JPanel();
+            userPane.add(userLabel);
+            userPane.add(searchField);
+            add(userPane, BorderLayout.NORTH);
         }
     }
 
