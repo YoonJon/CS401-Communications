@@ -5,6 +5,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 
+import shared.enums.ConversationType;
 import shared.enums.ResponseType;
 import shared.networking.Request;
 import shared.networking.Response;
@@ -315,16 +316,7 @@ public class DataManager {
         // Derives PRIVATE vs GROUP from participant count; seeds historicalParticipants from this list.
         Conversation conversation = new Conversation(conversationId, participants);
         conversationsByConversationID.put(conversationId, conversation);
-        // Per-conversation set of user ids (used when broadcasting to everyone in a thread).
-        Set<String> participantIds = userIDsByConversationID.computeIfAbsent(
-            conversationId, ignored -> newConcurrentStringSet());
-        // Mirror loadData(): each user gets this conversation id in their index; reverse map gets each user id.
-        for (UserInfo userInfo : conversation.getParticipants()) {
-            String userId = userInfo.getUserId();
-            conversationIDsByUserID.computeIfAbsent(userId, ignored -> newConcurrentLongSet())
-                .add(conversationId);
-            participantIds.add(userId);
-        }
+        linkParticipantsToConversation(conversationId, conversation.getParticipants());
         try {
             persistConversation(conversation);
         } catch (IOException e) {
@@ -335,8 +327,104 @@ public class DataManager {
     }
 
     public Response handleAddToConversation(Request request) {
-        // TODO
+        AddToConversationPayload payload = (AddToConversationPayload) request.getPayload();
+        ArrayList<UserInfo> incoming = payload.getParticipants();
+        long targetConversationId = payload.getTargetConversationId();
+        if (incoming == null || incoming.isEmpty()) {
+            return null;
+        }
+        Conversation existing = conversationsByConversationID.get(targetConversationId);
+        if (existing == null) {
+            return null;
+        }
+        ArrayList<UserInfo> netNew = new ArrayList<>();
+        for (UserInfo u : incoming) {
+            if (u == null || u.getUserId() == null) {
+                continue;
+            }
+            if (!containsParticipant(existing.getParticipants(), u.getUserId())) {
+                netNew.add(u);
+            }
+        }
+        if (netNew.isEmpty()) {
+            return null;
+        }
+
+        // GROUP: never fork; append members and keep the same conversation id.
+        if (existing.getType() == ConversationType.GROUP) {
+            existing.addParticipants(netNew);
+            linkParticipantsToConversation(targetConversationId, netNew);
+            try {
+                persistConversation(existing);
+            } catch (IOException e) {
+                e.printStackTrace();
+                return null;
+            }
+            return new Response(ResponseType.CONVERSATION, existing);
+        }
+
+        // PRIVATE: always fork on add (new roster, blank history); original private thread unchanged.
+        if (existing.getType() == ConversationType.PRIVATE) {
+            ArrayList<UserInfo> merged = new ArrayList<>(existing.getParticipants());
+            merged.addAll(netNew);
+            long forkId = nextConversationId();
+            Conversation forked = new Conversation(forkId, merged);
+            conversationsByConversationID.put(forkId, forked);
+            linkParticipantsToConversation(forkId, forked.getParticipants());
+            try {
+                persistConversation(forked);
+            } catch (IOException e) {
+                e.printStackTrace();
+                return null;
+            }
+            return new Response(ResponseType.CONVERSATION, forked);
+        }
+
         return null;
+    }
+
+    private static boolean containsParticipant(ArrayList<UserInfo> participants, String userId) {
+        for (UserInfo p : participants) {
+            if (p != null && p.getUserId() != null && userId.equals(p.getUserId())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Bidirectional index update: {@code userId} is a member of {@code conversationId} in both
+     * {@link #conversationIDsByUserID} and {@link #userIDsByConversationID}.
+     */
+    private void linkUserToConversation(String userId, long conversationId) {
+        if (userId == null) {
+            return;
+        }
+        conversationIDsByUserID
+            .computeIfAbsent(userId, ignored -> newConcurrentLongSet())
+            .add(conversationId);
+        userIDsByConversationID
+            .computeIfAbsent(conversationId, ignored -> newConcurrentStringSet())
+            .add(userId);
+    }
+
+    /** Applies {@link #linkUserToConversation(String, long)} for each participant in {@code participants}. */
+    private void linkParticipantsToConversation(long conversationId, Iterable<UserInfo> participants) {
+        for (UserInfo userInfo : participants) {
+            if (userInfo == null || userInfo.getUserId() == null) {
+                continue;
+            }
+            linkUserToConversation(userInfo.getUserId(), conversationId);
+        }
+    }
+
+    /**
+     * Inverse of {@link #linkUserToConversation(String, long)}: remove {@code userId} from both indices
+     * and prune empty sets.
+     * <p>TODO: implement — remove from conversationIDsByUserID and userIDsByConversationID; prune empty sets.
+     */
+    private void unlinkUserFromConversation(String userId, long conversationId) {
+        // TODO
     }
 
     public Response handleLeaveConversation(Request request) {
@@ -425,19 +513,7 @@ public class DataManager {
 	        	in = new ObjectInputStream(fs);
 	        	Conversation newConversation = (Conversation) in.readObject();
 	        	conversationsByConversationID.put(newConversation.getConversationId(),newConversation);
-	        	ArrayList<UserInfo> participantList = newConversation.getParticipants();
-	        	Set<String> participantIds = userIDsByConversationID.computeIfAbsent(
-	        	    newConversation.getConversationId(),
-	        	    ignored -> newConcurrentStringSet()
-                );
-	        	// Rebuild both sides of user/conversation relationships.
-                // for each user in the conversation, add the conversation ID to the user's conversation IDs
-	        	for(UserInfo userInfo:participantList) {
-	        		String userId = userInfo.getUserId();
-	        		conversationIDsByUserID.computeIfAbsent(userId, ignored -> newConcurrentLongSet())
-	        		    .add(newConversation.getConversationId());
-	        		participantIds.add(userId);
-	        	}
+	        	linkParticipantsToConversation(newConversation.getConversationId(), newConversation.getParticipants());
 	        }
         }catch(IOException e) {
         	e.printStackTrace();
