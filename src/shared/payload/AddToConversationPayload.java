@@ -2,9 +2,9 @@ package shared.payload;
 
 import java.util.ArrayList;
 
-public class AddToConversationPayload implements Payload {
-    private ArrayList<UserInfo> participants;
-    private String targetConversationId;
+public class AddToConversationPayload implements RequestPayload {
+    private final ArrayList<UserInfo> participants;
+    private final String targetConversationId;
 
     public AddToConversationPayload(ArrayList<UserInfo> p, String t) {
         this.participants = p;

@@ -3,11 +3,11 @@ package shared.payload;
 import shared.enums.ConversationType;
 import java.util.ArrayList;
 
-public class ConversationMetadata implements Payload {
-    private String conversationId;
-    private ArrayList<UserInfo> participants;
-    private ArrayList<UserInfo> historicalParticipants;
-    private ConversationType type;
+public class ConversationMetadata implements ResponsePayload {
+    private final String conversationId;
+    private final ArrayList<UserInfo> participants;
+    private final ArrayList<UserInfo> historicalParticipants;
+    private final ConversationType type;
 
     public ConversationMetadata(String c_id, ArrayList<UserInfo> p, ArrayList<UserInfo> hp, ConversationType t) {
         this.conversationId = c_id;

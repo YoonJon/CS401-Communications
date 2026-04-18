@@ -1,7 +1,7 @@
 package shared.payload;
 
-public class LeaveConversationPayload implements Payload {
-    private String targetConversationId;
+public class LeaveConversationPayload implements RequestPayload {
+    private final String targetConversationId;
 
     public LeaveConversationPayload(String t) {
         this.targetConversationId = t;

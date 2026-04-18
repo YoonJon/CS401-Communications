@@ -1,0 +1,53 @@
+# =========================
+# Java compiled output
+# =========================
+*.class
+
+# Common build directories
+bin/
+build/
+out/
+target/
+
+# =========================
+# IDEs
+# =========================
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Eclipse
+.project
+.classpath
+.settings/
+
+# VS Code
+.vscode/
+
+# =========================
+# Logs
+# =========================
+*.log
+
+# =========================
+# OS files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Java packaging artifacts
+# =========================
+*.jar
+*.war
+*.ear
+
+# =========================
+# Temporary files
+# =========================
+*.tmp
+*.swp
+*~

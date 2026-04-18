@@ -4,13 +4,12 @@ import shared.enums.ConversationType;
 import java.io.File;
 import java.util.ArrayList;
 
-public class Conversation implements Payload {
-    private String conversationId;
-    private ArrayList<Message> messages;
-    private ArrayList<UserInfo> participants;
-    private ArrayList<UserInfo> historicalParticipants;
-    private ConversationType type;
-    private ConversationMetadata metadata;
+public class Conversation implements ResponsePayload {
+    private final String conversationId;
+    private final ArrayList<Message> messages;
+    private final ArrayList<UserInfo> participants;
+    private final ArrayList<UserInfo> historicalParticipants;
+    private final ConversationType type;
 
     public Conversation(String c_id, ConversationType t) {
         this.conversationId = c_id;
@@ -20,14 +19,24 @@ public class Conversation implements Payload {
         this.historicalParticipants = new ArrayList<>();
     }
 
+    /**
+     * Lightweight view of this conversation: id, participants, type — no message bodies.
+     * Produced on demand; lists are copied so later changes to the conversation do not affect the returned snapshot.
+     */
+    public ConversationMetadata toMetadata() {
+        return new ConversationMetadata(
+            conversationId,
+            new ArrayList<>(participants),
+            new ArrayList<>(historicalParticipants),
+            type
+        );
+    }
+
     public String getConversationId() { return conversationId; }
     public ArrayList<Message> getMessages() { return messages; }
     public ArrayList<UserInfo> getParticipants() { return participants; }
     public ArrayList<UserInfo> getHistoricalParticipants() { return historicalParticipants; }
     public ConversationType getType() { return type; }
-
-    public void setConversationMetadata(ConversationMetadata cm) { this.metadata = cm; }
-    public ConversationMetadata getConversationMetadata() { return metadata; }
 
     public void append(Message m) { messages.add(m); }
 
