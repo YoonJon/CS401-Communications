@@ -1,16 +1,18 @@
 package shared.networking.fixtures;
 
-import shared.payload.Payload;
+import shared.payload.RequestPayload;
+import shared.payload.ResponsePayload;
 
 /**
- * Minimal {@link Payload} used only in networking tests and seed data.
- * Carries a single string value so tests can verify payload identity
- * after a full socket round-trip without depending on any real payload class.
+ * Minimal test payload used only in networking tests and seed data.
+ * Implements both {@link RequestPayload} and {@link ResponsePayload} so it can
+ * be passed to both {@code Request} and {@code Response} constructors without
+ * requiring separate stub classes.
  *
  * Must be public because it is used from {@code shared.networking.NetworkingTest}
  * (different package from this fixtures sub-package).
  */
-public class FakePayload implements Payload {
+public class FakePayload implements RequestPayload, ResponsePayload {
 
     private static final long serialVersionUID = 1L;
 
