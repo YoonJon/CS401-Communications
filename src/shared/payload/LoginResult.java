@@ -1,7 +1,7 @@
 package shared.payload;
 
-import shared.enums.LoginStatus;
 import java.util.ArrayList;
+import shared.enums.LoginStatus;
 
 public class LoginResult implements ResponsePayload {
     private final LoginStatus result;
@@ -14,6 +14,13 @@ public class LoginResult implements ResponsePayload {
     }
 
     /** Successful login: authenticated snapshot and the user's conversations. */
+    public LoginResult(LoginStatus r, UserInfo ui, ArrayList<Conversation> cl) {
+        this.result = r;
+        this.userInfo = ui;
+        this.conversationList = cl;
+    }
+
+    /** Constructor that also carries the authenticated user's info. */
     public LoginResult(LoginStatus r, UserInfo ui, ArrayList<Conversation> cl) {
         this.result = r;
         this.userInfo = ui;

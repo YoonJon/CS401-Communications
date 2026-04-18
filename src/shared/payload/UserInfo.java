@@ -4,6 +4,7 @@ import shared.enums.UserType;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import shared.enums.UserType;
 
 /**
  * Client-visible user snapshot (server-side user credentials are never included).
@@ -32,6 +33,13 @@ public class UserInfo implements Payload {
         this.userId = userId;
         this.userType = userType;
         this.lastRead = new HashMap<>(lastRead != null ? lastRead : Map.of());
+    }
+
+    public UserInfo(String userId, String name, UserType userType) {
+        this.userId = userId;
+        this.name = name;
+        this.userType = userType;
+        this.lastRead = new HashMap<>();
     }
 
     public String getName() { return name; }
