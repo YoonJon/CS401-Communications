@@ -17,7 +17,8 @@ public class ClientController {
     private int hostPort;
     private Socket socket;
     private ArrayList<Conversation> conversations;
-    private String currentConversationID;
+    /** 0 means no conversation selected. */
+    private long currentConversationId;
     private ArrayList<UserInfo> currentDirectory;
     private ArrayList<Conversation> currentConversationList;
     private ArrayList<Conversation> currentAdminConversationSearch;
@@ -25,7 +26,7 @@ public class ClientController {
     private Thread inactivityDetectorThread;
 
     public static void main(String[] args) {
-        // TODO: parse args, instantiate ClientController
+    	ClientController ctr = new ClientController("localhost", 8080);
     }
 
     public ClientController(String hostIp, int hostPort) {
@@ -39,6 +40,7 @@ public class ClientController {
         this.currentConversationList = new ArrayList<>();
         this.currentAdminConversationSearch = new ArrayList<>();
         this.gui = new ClientUI(this);
+        gui.showMainView();
     }
 
     public void close() {
@@ -53,11 +55,11 @@ public class ClientController {
         // TODO: lazily establish TCP connection if not connected
     }
 
-    public void register(String userId, String realName, String loginName, String password) {
+    public void register(String userId, String realName, String loginName, char[] password) {
         // TODO
     }
 
-    public void login(String loginName, String password) {
+    public void login(String loginName, char[] password) {
         // TODO
     }
 
@@ -65,7 +67,7 @@ public class ClientController {
         // TODO
     }
 
-    public void sendMessage(String cId, String m) {
+    public void sendMessage(long conversationId, String m) {
         // TODO
     }
 
@@ -85,11 +87,11 @@ public class ClientController {
         // TODO
     }
 
-    public void addToConversation(ArrayList<UserInfo> p, String c_id) {
+    public void addToConversation(ArrayList<UserInfo> p, long conversationId) {
         // TODO
     }
 
-    public void leaveConversation(String cId) {
+    public void leaveConversation(long conversationId) {
         // TODO
     }
 
@@ -97,7 +99,7 @@ public class ClientController {
         // TODO
     }
 
-    public void joinConversation(String c_Id) {
+    public void joinConversation(long conversationId) {
         // TODO
     }
 
@@ -118,11 +120,11 @@ public class ClientController {
         return null;
     }
 
-    public void setCurrentConversationID(String c_id) { this.currentConversationID = c_id; }
-    public String getCurrentConversationID() { return currentConversationID; }
+    public void setCurrentConversationId(long conversationId) { this.currentConversationId = conversationId; }
+    public long getCurrentConversationId() { return currentConversationId; }
 
     public Conversation getCurrentConversation() {
-        // TODO: look up currentConversationID in conversations
+        // TODO: look up currentConversationId in conversations
         return null;
     }
 

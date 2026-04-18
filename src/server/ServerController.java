@@ -23,7 +23,10 @@ public class ServerController {
     }
 
     public void close() {
-        // TODO: shut down gracefully
+        if (dataManager != null) {
+            dataManager.close();
+        }
+        // TODO: shut down listener and active sessions
     }
 
     public Response processRequest(Request request) {
