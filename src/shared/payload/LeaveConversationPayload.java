@@ -1,11 +1,11 @@
 package shared.payload;
 
 public class LeaveConversationPayload implements RequestPayload {
-    private final String targetConversationId;
+    private final long targetConversationId;
 
-    public LeaveConversationPayload(String t) {
-        this.targetConversationId = t;
+    public LeaveConversationPayload(long targetConversationId) {
+        this.targetConversationId = targetConversationId;
     }
 
-    public String getTargetConversationId() { return targetConversationId; }
+    public long getTargetConversationId() { return targetConversationId; }
 }

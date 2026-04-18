@@ -6,7 +6,6 @@ public enum RequestType {
     REGISTER,
     LOGIN,
     LOGOUT,
-    SEARCH_DIRECTORY,
     CREATE_CONVERSATION,
     ADD_PARTICIPANT,
     LEAVE_CONVERSATION,
