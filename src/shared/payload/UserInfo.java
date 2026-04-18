@@ -1,8 +1,8 @@
 package shared.payload;
 
-import shared.enums.UserType;
 import java.util.HashMap;
 import java.util.Map;
+import shared.enums.UserType;
 
 public class UserInfo implements Payload {
     private final String name;
@@ -23,6 +23,13 @@ public class UserInfo implements Payload {
         this.userId = userId;
         this.userType = userType;
         this.lastRead = lastRead;
+    }
+
+    public UserInfo(String userId, String name, UserType userType) {
+        this.userId = userId;
+        this.name = name;
+        this.userType = userType;
+        this.lastRead = new HashMap<>();
     }
 
     public String getName() { return name; }
