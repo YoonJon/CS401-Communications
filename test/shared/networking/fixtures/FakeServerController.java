@@ -4,6 +4,7 @@ import server.ServerController;
 import shared.networking.Request;
 import shared.networking.Response;
 
+import java.io.File;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -19,9 +20,8 @@ import java.util.function.Function;
  * operate on the live {@code ConcurrentHashMap}, so auth-transition tests can
  * call {@code hasActiveSession()} just like the real server would.
  *
- * Constructor note: {@code super("", 0)} triggers {@code DataManager("")}
- * (harmless — all data-load logic is TODO and no file I/O happens) and
- * {@code ConnectionListener(0, this)} (harmless — listen() is never called).
+ * Constructor note: passes a path under {@code java.io.tmpdir} so project {@code data/} is not
+ * touched; {@code ConnectionListener(0, this)} never calls {@code listen()}.
  *
  * Public because it is referenced from {@code shared.networking.NetworkingTest}
  * (a different package from this fixtures sub-package).
@@ -35,7 +35,7 @@ public class FakeServerController extends ServerController {
     private final List<Request> received = new CopyOnWriteArrayList<>();
 
     public FakeServerController() {
-        super("", 0);
+        super(new File(System.getProperty("java.io.tmpdir"), "cs401-fake-server-data").getPath(), 0);
     }
 
     // -------------------------------------------------------------------------

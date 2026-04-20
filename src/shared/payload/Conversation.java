@@ -60,6 +60,20 @@ public class Conversation implements ResponsePayload {
     }
 
     /**
+     * Removes {@code userId} from the active {@link #getParticipants()} roster only.
+     * {@link #getHistoricalParticipants()} is unchanged.
+     */
+    public void removeParticipant(String userId) {
+        if (userId == null) {
+            return;
+        }
+        int i = indexOfParticipant(userId);
+        if (i >= 0) {
+            participants.remove(i);
+        }
+    }
+
+    /**
      * Lightweight view of this conversation: id, participants, type — no message bodies.
      * Produced on demand; lists are copied so later changes to the conversation do not affect the returned snapshot.
      */

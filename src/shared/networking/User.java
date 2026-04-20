@@ -10,32 +10,44 @@ import java.io.Serializable;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Server-persisted account. Lives in {@code shared.networking} so it can own {@link UserInfo},
  * the client-visible snapshot type used on the wire inside payloads.
+ * <p>
+ * <b>Registration:</b> the server derives {@link UserType} from {@code authorized_admins.txt} (same
+ * list as in memory) and passes it into the public constructor; that value is persisted on this object.
+ * <p>
+ * <b>Wire snapshots:</b> build {@link UserInfo} only via {@link #createUserInfo(User)}, which copies
+ * persisted fields including {@link #userType}. Rehydration uses {@link #fromFile}.
  */
 public class User implements Serializable {
-    private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 5L;
 
     private String userId;
     private String name;
     private String loginName;
     private String password;
+    /** Persisted; set at registration from server-derived admin eligibility. */
     private UserType userType;
     /**
      * Best-effort read cursors (conversation id → last seen message sequence). Used so
-     * {@link #getUserInfo()} can supply unread markers on login; clients may update their own UI
+     * {@link #createUserInfo(User)} can supply unread markers on login; clients may update their own UI
      * optimistically without waiting for the server. No concurrent-update guarantees.
      */
     private Map<Long, Long> lastRead;
 
-    public User(String id, String n, String ln, String p) {
+    /**
+     * @param userType derived by the server at registration from {@code authorizedAdminIds}
+     *                 (e.g. ADMIN if user id is listed in {@code authorized_admins.txt}).
+     */
+    public User(String id, String n, String ln, String p, UserType userType) {
         this.userId = id;
         this.name = n;
         this.loginName = ln;
         this.password = p;
-        this.userType = UserType.USER;
+        this.userType = Objects.requireNonNull(userType);
         this.lastRead = new HashMap<>();
     }
 
@@ -45,9 +57,14 @@ public class User implements Serializable {
     public String getPassword() { return password; }
     public UserType getUserType() { return userType; }
 
-    /** Client snapshot of this account (no credentials). */
-    public UserInfo getUserInfo() {
-        return userInfo(userId, name, userType, new HashMap<>(lastRead));
+    /**
+     * Factory for protocol {@link UserInfo}: copies {@link #userId}, {@link #name}, persisted
+     * {@link #userType}, and {@link #lastRead} (defensive copy). Prefer this over
+     * {@link #userInfo(String, String, UserType, Map)} for live server snapshots.
+     */
+    public static UserInfo createUserInfo(User user) {
+        Objects.requireNonNull(user, "user");
+        return userInfo(user.getUserId(), user.getName(), user.getUserType(), new HashMap<>(user.lastRead));
     }
 
     /** Snapshot with empty read cursors (e.g. protocol fixtures). */
@@ -68,6 +85,12 @@ public class User implements Serializable {
         lastRead.put(conversationId, sequenceNumber);
     }
 
+    /** Drops read-state for a conversation (e.g. after leaving). */
+    public void removeConversationFromLastReadMap(long conversationId) {
+        lastRead.remove(conversationId);
+    }
+
+    /** Rehydrate a persisted account from a {@code .user} file. */
     public static User fromFile(File f) throws IOException, ClassNotFoundException {
         try (ObjectInputStream in = new ObjectInputStream(new FileInputStream(f))) {
             return (User) in.readObject();
@@ -77,8 +100,8 @@ public class User implements Serializable {
     /**
      * Client-visible user snapshot (credentials never included).
      * <p>
-     * Create only via {@link User#getUserInfo()}, {@link User#userInfo(String, String, UserType)},
-     * {@link User#userInfo(String, String, UserType, Map)}, or Java deserialization.
+     * Prefer {@link User#createUserInfo(User)} for live accounts. Direct use of
+     * {@link User#userInfo(String, String, UserType)} is for tests and fixtures.
      */
     public static class UserInfo implements Serializable {
         private static final long serialVersionUID = 1L;
