@@ -436,7 +436,6 @@ public class ClientUI {
             adminButton.setVisible(true);
             
             setLayout(new BorderLayout());
-            setBorder(BorderFactory.createMatteBorder(0, 1, 0, 0, Color.LIGHT_GRAY));
             setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
             
             // userPanel is located upper side of the window
