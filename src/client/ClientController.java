@@ -39,7 +39,7 @@ public class ClientController {
         this.currentConversationList = new ArrayList<>();
         this.currentAdminConversationSearch = new ArrayList<>();
         this.gui = new ClientUI(this);
-         // gui.showMainView();
+        gui.showRegisterError(RegisterStatus.USER_ID_TAKEN);
     }
 
     public void close() {

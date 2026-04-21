@@ -9,8 +9,6 @@ public class ClientUI {
     private ClientController controller;
     private JFrame frame;
     private ScreenCards cards;
-    private SelectUserWindow selectUserWindow;
-    private AdminConversationSearchWindow adminConversationSearchWindow;
     private boolean selectingUser;
     private boolean adminSearchingConversation;
 
@@ -31,7 +29,7 @@ public class ClientUI {
     public void showMainView() { cards.layout.show(cards, "main"); }
 
     public void showRegisterError(RegisterStatus registerStatus) {
-        // TODO
+        JOptionPane.showMessageDialog(frame, "Register is not completed.");
     }
 
     public void showLoginError(LoginStatus loginStatus) {
@@ -473,6 +471,31 @@ public class ClientUI {
             buttonPane.add(adminButton);
             
             add(buttonPane, BorderLayout.SOUTH);
+        
+            // add action to the create conversation button
+            createConversationButton.addActionListener(e -> {
+            	SelectUserWindow panel = new SelectUserWindow();
+
+            	JDialog dialog = new JDialog(frame, "Select User", true);
+            	dialog.add(panel);
+            	dialog.setLocationRelativeTo(null);
+            	dialog.setModal(false);
+            	dialog.setSize(300, 400);
+            	dialog.setVisible(true);            	
+            });
+            
+            // add action to admin button
+            adminButton.addActionListener(e -> {
+            	AdminConversationSearchWindow panel = new AdminConversationSearchWindow();
+            	
+            	JDialog dialog = new JDialog(frame, "Admin Window", true);
+            	dialog.add(panel);
+            	dialog.setLocationRelativeTo(null);
+            	dialog.setModal(false);
+            	dialog.setSize(300, 400);
+            	dialog.setVisible(true);  
+            	
+            });
         }
            
         
@@ -483,6 +506,7 @@ public class ClientUI {
         public DefaultListModel getListModel() {
         	return this.listModel;
         }
+
     }
 
     // =========================================================================
@@ -522,11 +546,41 @@ public class ClientUI {
         JButton removeButton;
         JButton okButton;
         JButton cancelButton;
+        Boolean window = false;
 
         SelectUserWindow() {
             model = new DefaultListModel();
             list = new JList(model);
-            // TODO: lay out components
+            removeButton = new JButton("Remove");
+            okButton = new JButton("OK");
+            cancelButton = new JButton("Cancel");
+            window = true;
+            
+            // List located on the middle of the window
+            setLayout(new BorderLayout());
+            setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+            add(new JScrollPane(list), BorderLayout.CENTER);
+            
+            // buttons are located on the bottom of the window
+        	JPanel buttonPane = new JPanel(new FlowLayout());
+        	buttonPane.add(okButton);
+        	buttonPane.add(cancelButton);
+        	
+        	add(buttonPane, BorderLayout.SOUTH);
+        	
+            okButton.addActionListener(e -> {
+            	// sent the list
+            	window = false;
+                Window window = SwingUtilities.getWindowAncestor(this);
+                window.dispose();            
+            });
+            
+            cancelButton.addActionListener(e -> {
+            	// clear the list
+            	window = false;
+                Window window = SwingUtilities.getWindowAncestor(this);
+                window.dispose();  
+            });
         }
     }
 
@@ -537,12 +591,45 @@ public class ClientUI {
         JList list;
         JButton okButton;
         JButton cancelButton;
+        Boolean window = false;
 
         AdminConversationSearchWindow() {
+        	window = true;
             model = new DefaultListModel();
             list = new JList(model);
-            searchField = new JTextField();
-            // TODO: lay out components
+            searchField = new JTextField(15);
+            okButton = new JButton("OK");
+            cancelButton = new JButton("Cancel");
+            
+            setLayout(new BorderLayout());
+            setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+            
+            // searchField is located on the upper side of the window
+            add(searchField, BorderLayout.NORTH);
+            
+            // the list is located on the center of the window
+            add(new JScrollPane(list), BorderLayout.CENTER);
+            
+            // buttons are located on the bottom of the window
+        	JPanel buttonPane = new JPanel(new FlowLayout());
+        	buttonPane.add(okButton);
+        	buttonPane.add(cancelButton);
+        	
+        	add(buttonPane, BorderLayout.SOUTH);
+        	
+            okButton.addActionListener(e -> {
+            	// sent the list
+            	window = false;
+                Window window = SwingUtilities.getWindowAncestor(this);
+                window.dispose();            
+            });
+            
+            cancelButton.addActionListener(e -> {
+            	// clear the list
+            	window = false;
+                Window window = SwingUtilities.getWindowAncestor(this);
+                window.dispose();  
+            });
         }
     }
 }
