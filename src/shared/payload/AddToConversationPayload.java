@@ -2,6 +2,8 @@ package shared.payload;
 
 import java.util.ArrayList;
 
+import shared.networking.User.UserInfo;
+
 public class AddToConversationPayload implements RequestPayload {
     private final ArrayList<UserInfo> participants;
     private final long targetConversationId;

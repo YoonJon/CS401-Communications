@@ -1,11 +1,12 @@
 package server;
 
+import java.io.File;
 import java.util.*;
 import java.util.concurrent.*;
 import shared.networking.*;
 
 public class ServerController {
-    private String dataFilePath;
+    private final File dataRoot;
     private Map<String, ConnectionHandler> activeSessions;
     private DataManager dataManager;
     private ConnectionListener connectionListener;
@@ -14,12 +15,17 @@ public class ServerController {
         // TODO: parse args, instantiate ServerController
     }
 
-    public ServerController(String dataFilePath, int port) {
-        this.dataFilePath = dataFilePath;
+    public ServerController(String dataRootPath, int port) {
+        this.dataRoot = new File(dataRootPath);
         this.activeSessions = new ConcurrentHashMap<>();
-        this.dataManager = new DataManager(dataFilePath);
+        this.dataManager = new DataManager(dataRootPath);
         this.connectionListener = new ConnectionListener(port, this);
         // TODO: start listening
+    }
+
+    /** Directory passed at construction; same root given to {@link DataManager}. */
+    public File getDataRoot() {
+        return dataRoot;
     }
 
     public void close() {

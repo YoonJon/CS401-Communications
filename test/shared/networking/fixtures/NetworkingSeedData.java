@@ -7,6 +7,8 @@ import shared.enums.ResponseType;
 import shared.enums.UserType;
 import shared.networking.Request;
 import shared.networking.Response;
+import shared.networking.User;
+import shared.networking.User.UserInfo;
 import shared.payload.*;
 
 import java.util.ArrayList;
@@ -102,19 +104,19 @@ public final class NetworkingSeedData {
     // =========================================================================
 
     public static UserInfo aliceInfo() {
-        return new UserInfo(ALICE_ID, ALICE_NAME, UserType.USER);
+        return User.userInfo(ALICE_ID, ALICE_NAME, UserType.USER);
     }
 
     public static UserInfo bobInfo() {
-        return new UserInfo(BOB_ID, BOB_NAME, UserType.USER);
+        return User.userInfo(BOB_ID, BOB_NAME, UserType.USER);
     }
 
     public static UserInfo carolInfo() {
-        return new UserInfo(CAROL_ID, CAROL_NAME, UserType.USER);
+        return User.userInfo(CAROL_ID, CAROL_NAME, UserType.USER);
     }
 
     public static UserInfo adminInfo() {
-        return new UserInfo(ADMIN_ID, ADMIN_NAME, UserType.ADMIN);
+        return User.userInfo(ADMIN_ID, ADMIN_NAME, UserType.ADMIN);
     }
 
     // =========================================================================
@@ -122,21 +124,21 @@ public final class NetworkingSeedData {
     // =========================================================================
 
     public static Request pingRequest() {
-        return new Request(RequestType.PING, new FakePayload("ping"));
+        return new Request(RequestType.PING, new FakePayload("ping"), null);
     }
 
     public static Request loginRequestAlice() {
         return new Request(RequestType.LOGIN,
-                new LoginCredentials(ALICE_LOGIN, ALICE_PASSWORD));
+                new LoginCredentials(ALICE_LOGIN, ALICE_PASSWORD), null);
     }
 
     public static Request loginRequestBob() {
         return new Request(RequestType.LOGIN,
-                new LoginCredentials(BOB_LOGIN, BOB_PASSWORD));
+                new LoginCredentials(BOB_LOGIN, BOB_PASSWORD), null);
     }
 
     public static Request logoutRequest() {
-        return new Request(RequestType.LOGOUT, new FakePayload("logout"));
+        return new Request(RequestType.LOGOUT, new FakePayload("logout"), null);
     }
 
     // =========================================================================
@@ -150,7 +152,7 @@ public final class NetworkingSeedData {
      */
     public static Request registerRequestAlice() {
         return new Request(RequestType.REGISTER,
-                new RegisterCredentials(ALICE_ID, ALICE_LOGIN, ALICE_PASSWORD, ALICE_NAME));
+                new RegisterCredentials(ALICE_ID, ALICE_LOGIN, ALICE_PASSWORD, ALICE_NAME), null);
     }
 
     /**
@@ -159,7 +161,7 @@ public final class NetworkingSeedData {
      */
     public static Request registerRequestCarol() {
         return new Request(RequestType.REGISTER,
-                new RegisterCredentials(CAROL_ID, CAROL_LOGIN, CAROL_PASSWORD, CAROL_NAME));
+                new RegisterCredentials(CAROL_ID, CAROL_LOGIN, CAROL_PASSWORD, CAROL_NAME), null);
     }
 
     /**
@@ -169,7 +171,7 @@ public final class NetworkingSeedData {
      */
     public static Request registerRequestBadName() {
         return new Request(RequestType.REGISTER,
-                new RegisterCredentials(ALICE_ID, ALICE_LOGIN, ALICE_PASSWORD, "Wrong Name"));
+                new RegisterCredentials(ALICE_ID, ALICE_LOGIN, ALICE_PASSWORD, "Wrong Name"), null);
     }
 
     /**
@@ -178,19 +180,15 @@ public final class NetworkingSeedData {
      */
     public static Request registerRequestUnknownId() {
         return new Request(RequestType.REGISTER,
-                new RegisterCredentials("9999", "nobody", "p@ss", "Nobody"));
+                new RegisterCredentials("9999", "nobody", "p@ss", "Nobody"), null);
     }
 
     // =========================================================================
-    // Request factories — messaging / directory
+    // Request factories — messaging
     // =========================================================================
 
-    public static Request messageRequest(String conversationId, String text) {
-        return new Request(RequestType.MESSAGE, new RawMessage(text, conversationId));
-    }
-
-    public static Request directoryRequest(String query) {
-        return new Request(RequestType.SEARCH_DIRECTORY, new DirectoryQuery(query));
+    public static Request messageRequest(long conversationId, String text) {
+        return new Request(RequestType.MESSAGE, new RawMessage(text, conversationId), null);
     }
 
     // =========================================================================
@@ -208,8 +206,7 @@ public final class NetworkingSeedData {
     }
 
     public static Response loginFailedResponse() {
-        LoginResult lr = new LoginResult(
-                LoginStatus.INVALID_CREDENTIALS, null);
+        LoginResult lr = new LoginResult(LoginStatus.INVALID_CREDENTIALS);
         return new Response(ResponseType.LOGIN_RESULT, lr);
     }
 
@@ -240,16 +237,6 @@ public final class NetworkingSeedData {
     public static Response registerUserIdTakenResponse() {
         return new Response(ResponseType.REGISTER_RESULT,
                 new RegisterResult(RegisterStatus.USER_ID_TAKEN));
-    }
-
-    // =========================================================================
-    // Response factories — directory
-    // =========================================================================
-
-    public static Response directoryResultResponse(UserInfo... users) {
-        ArrayList<UserInfo> list = new ArrayList<>();
-        for (UserInfo u : users) list.add(u);
-        return new Response(ResponseType.DIRECTORY_RESULT, new DirectoryResult(list));
     }
 
     // =========================================================================

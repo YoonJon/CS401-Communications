@@ -1,5 +1,6 @@
 package shared.payload;
 
+import shared.networking.User.UserInfo;
 import shared.enums.ConversationType;
 import java.io.File;
 import java.util.ArrayList;
@@ -56,6 +57,20 @@ public class Conversation implements ResponsePayload {
             }
         }
         return -1;
+    }
+
+    /**
+     * Removes {@code userId} from the active {@link #getParticipants()} roster only.
+     * {@link #getHistoricalParticipants()} is unchanged.
+     */
+    public void removeParticipant(String userId) {
+        if (userId == null) {
+            return;
+        }
+        int i = indexOfParticipant(userId);
+        if (i >= 0) {
+            participants.remove(i);
+        }
     }
 
     /**

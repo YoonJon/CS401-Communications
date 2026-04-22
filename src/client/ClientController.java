@@ -2,6 +2,7 @@ package client;
 
 import shared.enums.*;
 import shared.networking.*;
+import shared.networking.User.UserInfo;
 import shared.payload.*;
 import java.net.Socket;
 import java.util.*;
