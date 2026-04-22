@@ -51,17 +51,17 @@ public class ClientUI {
     public void chooseLoginView() { showLoginView(); }
     public void chooseRegisterView() { showRegisterView(); }
 
-    public DefaultListModel getDirectoryViewModel() { return userDirectory.listModel; }
-    public DefaultListModel getConversationViewModel() { return chatView.listModel; }
+    public DefaultListModel getDirectoryViewModel() { return cards.main.directoryView.listModel; }
+    public DefaultListModel getConversationViewModel() { return cards.main.conversationView.listModel; }
     public DefaultListModel getConversationListViewModel() { return conversationList.messageModel; }
     public DefaultListModel getSelectUserWindowModel() { return selectUserWindow.model; }
     public DefaultListModel getAdminConversationSearchWindowModel() { return adminConversationSearchWindow.model; }
 
-    public void setDirectoryQuery(String query) { userDirectory.searchField.setText(query); }
-    public String getDirectoryQuery() { return userDirectory.searchField.getText(); }
+    public void setDirectoryQuery(String query) { cards.main.directoryView.searchField.setText(query); }
+    public String getDirectoryQuery() { return cards.main.directoryView.searchField.getText(); }
 
-    public void setConversationQuery(String query) { chatView.text.setText(query); }
-    public String getConversationQuery() { return chatView.text.getText(); }
+    public void setConversationQuery(String query) { cards.main.conversationView.text.setText(query); }
+    public String getConversationQuery() { return cards.main.conversationView.text.getText(); }
 
     public void setAdminConversationQuery(String q) { adminConversationSearchWindow.searchField.setText(q); }
     public String getAdminConversationQuery() { return adminConversationSearchWindow.searchField.getText(); }
