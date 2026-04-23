@@ -210,18 +210,30 @@ public class ClientController {
                 long leftId = lr.getLeftConversationID();
                 conversations.removeIf(c -> c.getConversationId() == leftId);
                 
-                if (gui != null) {
-                    ArrayList<Conversation> snapshot = new ArrayList<>(conversations);
-                    DefaultListModel model = gui.getConversationListViewModel();
-                    SwingUtilities.invokeLater(() -> {
-                        model.clear();
-                        for (Conversation c : snapshot) model.addElement(c);
-                    });
-                }
-                
                 // If we just left the current conversation, switch to the most recent one
                 if (currentConversationId == leftId) {
                     currentConversationId = conversations.isEmpty() ? -1 : conversations.get(0).getConversationId();
+                }
+                
+                if (gui != null) {
+                    ArrayList<Conversation> snapshot = new ArrayList<>(conversations);
+                    Conversation current = getCurrentConversation();
+                    DefaultListModel conversationListModel = gui.getConversationListViewModel();
+                    DefaultListModel conversationViewModel = gui.getConversationViewModel();
+                    
+                    SwingUtilities.invokeLater(() -> {
+                        // Update conversation list (sidebar)
+                        conversationListModel.clear();
+                        for (Conversation c : snapshot) conversationListModel.addElement(c);
+                        
+                        // Update conversation view (message panel) to show the new current conversation
+                        conversationViewModel.clear();
+                        if (current != null) {
+                            for (Message msg : current.getMessages()) {
+                                conversationViewModel.addElement(msg);
+                            }
+                        }
+                    });
                 }
                 break;
             }
