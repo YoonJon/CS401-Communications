@@ -30,20 +30,49 @@ public class ClientController {
     /** -1 means no conversation selected. */
     private long currentConversationId = -1;
     private ArrayList<UserInfo> currentDirectory;
-    private ArrayList<Conversation> currentConversationList;
-    private ArrayList<Conversation> currentAdminConversationSearch;
+    private ArrayList<ConversationMetadata> currentAdminConversationSearch;
     private Thread responseListenerThread;
     private Thread inactivityDetectorThread;
-    private volatile long lastActivityTimestamp;
+    private volatile long lastActivityTimestamp = System.currentTimeMillis();
 
     public static void main(String[] args) {
         ClientController ctr = new ClientController("localhost", 8080);
+        ctr.runRequestLoop();
     }
 
     public ClientController(String hostIp, int hostPort) {
-        this(hostIp, hostPort, null);
+        this.hostIp = hostIp;
+        this.hostPort = hostPort;
+        this.connectionStatus = ConnectionStatus.NOT_CONNECTED;
+        this.requestQueue = new LinkedBlockingDeque<>();
+        this.loggedIn = false;
+        this.conversations = new ArrayList<>();
+        this.currentDirectory = new ArrayList<>();
+        this.currentAdminConversationSearch = new ArrayList<>();
         this.gui = new ClientUI(this);
         gui.showLoginView();
+        startRequestProcessing();
+    }
+
+    /** Starts request processing in a daemon thread. Called by production constructor. */
+    private void startRequestProcessing() {
+        ensureConnected();  // Connect synchronously before starting the thread
+        Thread requestThread = new Thread(() -> {
+            try {
+                while (!Thread.currentThread().isInterrupted()) {
+                    Request r = requestQueue.take();
+                    sendRequest(r);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }, "request-processor");
+        requestThread.setDaemon(true);
+        requestThread.start();
+    }
+
+    /** Runs the request loop in the current thread (blocking). Called from main. */
+    void runRequestLoop() {
         ensureConnected();
         try {
             while (!Thread.currentThread().isInterrupted()) {
@@ -64,9 +93,12 @@ public class ClientController {
         this.loggedIn = false;
         this.conversations = new ArrayList<>();
         this.currentDirectory = new ArrayList<>();
-        this.currentConversationList = new ArrayList<>();
         this.currentAdminConversationSearch = new ArrayList<>();
         this.gui = guiOverride;
+        // Integration tests pass a real port (>0) and need request processing
+        if (hostPort > 0) {
+            startRequestProcessing();
+        }
     }
 
     public void close() {
@@ -93,7 +125,6 @@ public class ClientController {
                         currentUser = lr.getUserInfo();
                         conversations = lr.getConversationList() != null
                                 ? lr.getConversationList() : new ArrayList<>();
-                        currentConversationList = new ArrayList<>(conversations);
                         if (gui != null) {
                             if (currentUser.getUserType() == UserType.ADMIN) {
                                 gui.showAdminMainView();
@@ -127,15 +158,14 @@ public class ClientController {
                 break;
             }
 
-            case LOGOUT_RESULT: {
+            case LOGOUT_RESULT:
+                // Defensive: clear state even if logout() already did so.
                 loggedIn = false;
                 currentUser = null;
                 conversations.clear();
-                currentConversationList.clear();
                 currentConversationId = -1;
                 if (gui != null) gui.showLoginView();
                 break;
-            }
 
             case MESSAGE: {
                 // Move the matching conversation to front (most recent), then refresh the list view.
@@ -164,7 +194,6 @@ public class ClientController {
                 Conversation conv = (Conversation) response.getPayload();
                 conversations.removeIf(c -> c.getConversationId() == conv.getConversationId());
                 conversations.add(0, conv);
-                currentConversationList = new ArrayList<>(conversations);
                 if (gui != null) {
                     ArrayList<Conversation> snapshot = new ArrayList<>(conversations);
                     DefaultListModel model = gui.getConversationListViewModel();
@@ -180,22 +209,27 @@ public class ClientController {
                 LeaveResult lr = (LeaveResult) response.getPayload();
                 long leftId = lr.getLeftConversationID();
                 conversations.removeIf(c -> c.getConversationId() == leftId);
-                currentConversationList = new ArrayList<>(conversations);
+                
+                if (gui != null) {
+                    ArrayList<Conversation> snapshot = new ArrayList<>(conversations);
+                    DefaultListModel model = gui.getConversationListViewModel();
+                    SwingUtilities.invokeLater(() -> {
+                        model.clear();
+                        for (Conversation c : snapshot) model.addElement(c);
+                    });
+                }
+                
+                // If we just left the current conversation, switch to the most recent one
                 if (currentConversationId == leftId) {
-                    currentConversationId = -1;
+                    currentConversationId = conversations.isEmpty() ? -1 : conversations.get(0).getConversationId();
                 }
                 break;
             }
 
             case ADMIN_CONVERSATION_RESULT: {
-                // AdminConversationResult carries ConversationMetadata, not full Conversation objects.
-                // Store the raw payload for the GUI to consume via getFilteredAdminConversationSearch.
+                // AdminConversationResult carries ConversationMetadata — store it directly.
                 AdminConversationResult acr = (AdminConversationResult) response.getPayload();
-                currentAdminConversationSearch = new ArrayList<>();
-                for (ConversationMetadata m : acr.getConversations()) {
-                    currentAdminConversationSearch.add(
-                        new Conversation(m.getConversationId(), m.getParticipants()));
-                }
+                currentAdminConversationSearch = new ArrayList<>(acr.getConversations());
                 break;
             }
 
@@ -257,7 +291,6 @@ public class ClientController {
         loggedIn = false;
         currentUser = null;
         conversations.clear();
-        currentConversationList.clear();
         currentConversationId = -1;
         if (gui != null) gui.showLoginView();
         enqueueRequest(new Request(RequestType.LOGOUT, userId));
@@ -369,14 +402,14 @@ public class ClientController {
     }
 
     /** Returns admin search results filtered by participant id or name. */
-    public ArrayList<Conversation> getFilteredAdminConversationSearch(String q) {
+    public ArrayList<ConversationMetadata> getFilteredAdminConversationSearch(String q) {
         if (q == null || q.isBlank()) return new ArrayList<>(currentAdminConversationSearch);
-        ArrayList<Conversation> filtered = new ArrayList<>();
+        ArrayList<ConversationMetadata> filtered = new ArrayList<>();
         String query = q.toLowerCase();
-        for (Conversation c : currentAdminConversationSearch) {
-            for (UserInfo p : c.getParticipants()) {
+        for (ConversationMetadata m : currentAdminConversationSearch) {
+            for (UserInfo p : m.getParticipants()) {
                 if (p.getName().toLowerCase().contains(query) || p.getUserId().toLowerCase().contains(query)) {
-                    filtered.add(c);
+                    filtered.add(m);
                     break;
                 }
             }

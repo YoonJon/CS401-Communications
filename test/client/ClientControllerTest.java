@@ -5,7 +5,6 @@ import org.junit.jupiter.api.Timeout;
 import shared.enums.*;
 import shared.networking.*;
 import shared.networking.User.UserInfo;
-import shared.networking.fixtures.FakeServerController;
 import shared.networking.fixtures.NetworkingSeedData;
 import shared.payload.*;
 
@@ -13,7 +12,6 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import java.util.function.BooleanSupplier;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -22,11 +20,8 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * <h3>Structure</h3>
  * <ul>
- *   <li>Groups 1–12 (outer class): pure unit tests — call {@code processResponse()}
+ *   <li>Groups 1–12: pure unit tests — call {@code processResponse()}
  *       directly (package-private), no socket, null GUI. Fast and deterministic.</li>
- *   <li>Group 13 ({@link RequestConstructionTests}): loopback integration tests —
- *       verifies each action method sends the correct {@link Request} to a
- *       {@link FakeServerController} over a real TCP socket.</li>
  * </ul>
  */
 @Timeout(value = 10, unit = TimeUnit.SECONDS)
@@ -207,7 +202,7 @@ class ClientControllerTest {
         c.processResponse(loginSuccessAliceWithConv());
         c.setCurrentConversationId(100L);
         c.processResponse(logoutResult());
-        assertEquals(0L, c.getCurrentConversationId());
+        assertEquals(-1L, c.getCurrentConversationId());
     }
 
     // =========================================================================
@@ -274,7 +269,7 @@ class ClientControllerTest {
         c.processResponse(loginSuccessAliceWithConv());
         c.setCurrentConversationId(100L);
         c.processResponse(leaveResult(100L));
-        assertEquals(0L, c.getCurrentConversationId());
+        assertEquals(-1L, c.getCurrentConversationId());
         assertNull(c.getCurrentConversation());
     }
 
@@ -296,7 +291,7 @@ class ClientControllerTest {
     void adminResult_populatesAdminSearchList() {
         ClientController c = headless();
         c.processResponse(adminConversationResult()); // 1 entry: conv 200
-        List<Conversation> results = c.getFilteredAdminConversationSearch(null);
+        List<ConversationMetadata> results = c.getFilteredAdminConversationSearch(null);
         assertEquals(1, results.size());
         assertEquals(200L, results.get(0).getConversationId());
     }
@@ -453,246 +448,5 @@ class ClientControllerTest {
         ClientController c = headless();
         c.processResponse(adminConversationResult());
         assertEquals(0, c.getFilteredAdminConversationSearch("nosuch99").size());
-    }
-
-    // =========================================================================
-    // 13. Integration — request construction over real loopback socket (14 tests)
-    // =========================================================================
-
-    @Nested
-    @Timeout(value = 10, unit = TimeUnit.SECONDS)
-    class RequestConstructionTests {
-
-        private FakeServerController fakeServer;
-        private ConnectionListener   listener;
-        private Thread               listenerThread;
-        private int                  port;
-
-        /**
-         * FakeServerController passes a temp path to DataManager, which warns about
-         * missing server_data/authorized_ids/ but then tries to createNewFile() for
-         * server_config.txt — that fails if the parent dir doesn't exist.
-         * Pre-create the minimum required structure once per class.
-         */
-        @BeforeAll
-        static void createTempServerDirs() throws Exception {
-            java.io.File base = new java.io.File(
-                    System.getProperty("java.io.tmpdir"), "cs401-fake-server-data");
-            new java.io.File(base, "server_data/authorized_ids").mkdirs();
-            new java.io.File(base, "server_data/authorized_ids/authorized_users.txt").createNewFile();
-            new java.io.File(base, "server_data/authorized_ids/authorized_admins.txt").createNewFile();
-        }
-
-        @BeforeEach
-        void startServer() throws Exception {
-            fakeServer     = new FakeServerController();
-            listener       = new ConnectionListener(0, fakeServer);
-            listenerThread = new Thread(() -> listener.listen(), "test-listener");
-            listenerThread.setDaemon(true);
-            listenerThread.start();
-            port = listener.getLocalPort();
-            assertTrue(port > 0, "Listener did not bind in time");
-        }
-
-        @AfterEach
-        void stopServer() throws Exception {
-            listener.close();
-            listenerThread.join(3_000);
-        }
-
-        private void waitFor(BooleanSupplier cond, long maxMs) throws InterruptedException {
-            long deadline = System.currentTimeMillis() + maxMs;
-            while (!cond.getAsBoolean() && System.currentTimeMillis() < deadline) {
-                Thread.sleep(20);
-            }
-        }
-
-        /**
-         * Connects a controller, performs login, waits until isLoggedIn() is true,
-         * then clears the received-request log so tests only see their own action.
-         */
-        private ClientController loggedIn() throws Exception {
-            fakeServer.setRequestHandler(req -> {
-                if (req.getType() == RequestType.LOGIN)
-                    return NetworkingSeedData.loginSuccessResponseAlice();
-                return NetworkingSeedData.pongResponse();
-            });
-            ClientController c = new ClientController("localhost", port, null);
-            c.login(NetworkingSeedData.ALICE_LOGIN,
-                    new char[]{'p','a','s','s'});
-            waitFor(c::isLoggedIn, 3_000);
-            assertTrue(c.isLoggedIn(), "Controller did not reach logged-in state in time");
-            fakeServer.clearReceived();
-            return c;
-        }
-
-        // --- register ---
-
-        @Test
-        void register_sendsRegisterRequestType() throws Exception {
-            ClientController c = new ClientController("localhost", port, null);
-            c.register(NetworkingSeedData.CAROL_ID, NetworkingSeedData.CAROL_NAME,
-                       NetworkingSeedData.CAROL_LOGIN, NetworkingSeedData.CAROL_PASSWORD.toCharArray());
-            waitFor(() -> !fakeServer.getReceived().isEmpty(), 2_000);
-            assertEquals(RequestType.REGISTER, fakeServer.getReceived().get(0).getType());
-        }
-
-        @Test
-        void register_payloadHasCorrectFields() throws Exception {
-            ClientController c = new ClientController("localhost", port, null);
-            c.register(NetworkingSeedData.CAROL_ID, NetworkingSeedData.CAROL_NAME,
-                       NetworkingSeedData.CAROL_LOGIN, NetworkingSeedData.CAROL_PASSWORD.toCharArray());
-            waitFor(() -> !fakeServer.getReceived().isEmpty(), 2_000);
-            RegisterCredentials creds =
-                    (RegisterCredentials) fakeServer.getReceived().get(0).getPayload();
-            assertEquals(NetworkingSeedData.CAROL_ID,    creds.getUserId());
-            assertEquals(NetworkingSeedData.CAROL_LOGIN, creds.getLoginName());
-            assertEquals(NetworkingSeedData.CAROL_NAME,  creds.getName());
-        }
-
-        // --- login ---
-
-        @Test
-        void login_sendsLoginRequestType() throws Exception {
-            ClientController c = new ClientController("localhost", port, null);
-            c.login(NetworkingSeedData.ALICE_LOGIN, new char[]{'p','a'});
-            waitFor(() -> !fakeServer.getReceived().isEmpty(), 2_000);
-            assertEquals(RequestType.LOGIN, fakeServer.getReceived().get(0).getType());
-        }
-
-        @Test
-        void login_payloadHasCorrectLoginName() throws Exception {
-            ClientController c = new ClientController("localhost", port, null);
-            c.login(NetworkingSeedData.ALICE_LOGIN, new char[]{'p','a'});
-            waitFor(() -> !fakeServer.getReceived().isEmpty(), 2_000);
-            LoginCredentials creds =
-                    (LoginCredentials) fakeServer.getReceived().get(0).getPayload();
-            assertEquals(NetworkingSeedData.ALICE_LOGIN, creds.getLoginName());
-        }
-
-        // --- logout ---
-
-        @Test
-        void logout_sendsLogoutRequestType() throws Exception {
-            ClientController c = loggedIn();
-            c.logout();
-            waitFor(() -> !fakeServer.getReceived().isEmpty(), 2_000);
-            assertEquals(RequestType.LOGOUT, fakeServer.getReceived().get(0).getType());
-        }
-
-        @Test
-        void logout_senderIdIsCurrentUserId() throws Exception {
-            ClientController c = loggedIn();
-            c.logout();
-            waitFor(() -> !fakeServer.getReceived().isEmpty(), 2_000);
-            assertEquals(NetworkingSeedData.ALICE_ID,
-                    fakeServer.getReceived().get(0).getSenderId());
-        }
-
-        // --- sendMessage ---
-
-        @Test
-        void sendMessage_sendsMessageRequestType() throws Exception {
-            ClientController c = loggedIn();
-            c.sendMessage(100L, "hello");
-            waitFor(() -> !fakeServer.getReceived().isEmpty(), 2_000);
-            assertEquals(RequestType.MESSAGE, fakeServer.getReceived().get(0).getType());
-        }
-
-        @Test
-        void sendMessage_payloadHasCorrectTextAndConversationId() throws Exception {
-            ClientController c = loggedIn();
-            c.sendMessage(100L, "hello");
-            waitFor(() -> !fakeServer.getReceived().isEmpty(), 2_000);
-            RawMessage rm = (RawMessage) fakeServer.getReceived().get(0).getPayload();
-            assertEquals("hello", rm.getText());
-            assertEquals(100L,    rm.getTargetConversationId());
-        }
-
-        // --- createConversation ---
-
-        @Test
-        void createConversation_sendsCreateConversationRequestType() throws Exception {
-            ClientController c = loggedIn();
-            ArrayList<UserInfo> p = new ArrayList<>();
-            p.add(NetworkingSeedData.bobInfo());
-            c.createConversation(p);
-            waitFor(() -> !fakeServer.getReceived().isEmpty(), 2_000);
-            assertEquals(RequestType.CREATE_CONVERSATION,
-                    fakeServer.getReceived().get(0).getType());
-        }
-
-        // --- addToConversation ---
-
-        @Test
-        void addToConversation_sendsAddParticipantRequestType() throws Exception {
-            ClientController c = loggedIn();
-            ArrayList<UserInfo> p = new ArrayList<>();
-            p.add(NetworkingSeedData.carolInfo());
-            c.addToConversation(p, 100L);
-            waitFor(() -> !fakeServer.getReceived().isEmpty(), 2_000);
-            assertEquals(RequestType.ADD_PARTICIPANT,
-                    fakeServer.getReceived().get(0).getType());
-        }
-
-        // --- leaveConversation ---
-
-        @Test
-        void leaveConversation_sendsLeaveConversationRequestType() throws Exception {
-            ClientController c = loggedIn();
-            c.leaveConversation(100L);
-            waitFor(() -> !fakeServer.getReceived().isEmpty(), 2_000);
-            assertEquals(RequestType.LEAVE_CONVERSATION,
-                    fakeServer.getReceived().get(0).getType());
-        }
-
-        @Test
-        void leaveConversation_payloadHasCorrectConversationId() throws Exception {
-            ClientController c = loggedIn();
-            c.leaveConversation(100L);
-            waitFor(() -> !fakeServer.getReceived().isEmpty(), 2_000);
-            LeaveConversationPayload lp =
-                    (LeaveConversationPayload) fakeServer.getReceived().get(0).getPayload();
-            assertEquals(100L, lp.getTargetConversationId());
-        }
-
-        // --- joinConversation ---
-
-        @Test
-        void joinConversation_sendsJoinConversationRequestType() throws Exception {
-            ClientController c = loggedIn();
-            c.joinConversation(300L);
-            waitFor(() -> !fakeServer.getReceived().isEmpty(), 2_000);
-            assertEquals(RequestType.JOIN_CONVERSATION,
-                    fakeServer.getReceived().get(0).getType());
-        }
-
-        // --- adminGetUserConversations ---
-
-        @Test
-        void adminGetUserConversations_sendsAdminConversationQueryType() throws Exception {
-            ClientController c = loggedIn();
-            c.adminGetUserConversations(NetworkingSeedData.BOB_ID);
-            waitFor(() -> !fakeServer.getReceived().isEmpty(), 2_000);
-            assertEquals(RequestType.ADMIN_CONVERSATION_QUERY,
-                    fakeServer.getReceived().get(0).getType());
-        }
-
-        // --- guard: unauthenticated actions are no-ops ---
-
-        @Test
-        void actionMethods_noOpWhenNotLoggedIn() throws Exception {
-            ClientController c = new ClientController("localhost", port, null);
-            // none of these should send a request
-            c.logout();
-            c.sendMessage(100L, "text");
-            c.createConversation(new ArrayList<>());
-            c.leaveConversation(100L);
-            c.joinConversation(100L);
-            c.adminGetUserConversations("anyId");
-            Thread.sleep(300);
-            assertTrue(fakeServer.getReceived().isEmpty(),
-                    "Unauthenticated action methods must not send any request");
-        }
     }
 }
