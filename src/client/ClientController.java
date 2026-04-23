@@ -26,6 +26,7 @@ public class ClientController {
 
     public static void main(String[] args) {
     	ClientController ctr = new ClientController("localhost", 8080);
+    
     }
 
     public ClientController(String hostIp, int hostPort) {
@@ -39,7 +40,7 @@ public class ClientController {
         this.currentConversationList = new ArrayList<>();
         this.currentAdminConversationSearch = new ArrayList<>();
         this.gui = new ClientUI(this);
-        gui.showRegisterError(RegisterStatus.USER_ID_TAKEN);
+        gui.showMainView();
     }
 
     public void close() {
@@ -55,7 +56,7 @@ public class ClientController {
     }
 
     public void register(String userId, String realName, String loginName, char[] password) {
-        // TODO
+        
     }
 
     public void login(String loginName, char[] password) {
@@ -103,6 +104,8 @@ public class ClientController {
     }
 
     public UserInfo getCurrentUserInfo() { return currentUser; }
+    
+    public ArrayList<UserInfo> getCurrentDirectory() { return currentDirectory; }
 
     public ArrayList<UserInfo> getFilteredDirectory(String query) {
         // TODO: filter currentDirectory by query
