@@ -8,6 +8,8 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.util.*;
 import java.util.concurrent.LinkedBlockingDeque;
+import javax.swing.DefaultListModel;
+import javax.swing.SwingUtilities;
 import shared.enums.*;
 import shared.networking.*;
 import shared.networking.User.UserInfo;
@@ -16,7 +18,7 @@ import shared.payload.*;
 public class ClientController {
     private ClientUI gui;
     private ConnectionStatus connectionStatus;
-    private Deque<Request> requestQueue;
+    private LinkedBlockingDeque<Request> requestQueue;
     private boolean loggedIn;
     private UserInfo currentUser;
     private String hostIp;
@@ -25,8 +27,8 @@ public class ClientController {
     private ObjectOutputStream outputStream;
     private ObjectInputStream inputStream;
     private ArrayList<Conversation> conversations;
-    /** 0 means no conversation selected. */
-    private long currentConversationId;
+    /** -1 means no conversation selected. */
+    private long currentConversationId = -1;
     private ArrayList<UserInfo> currentDirectory;
     private ArrayList<Conversation> currentConversationList;
     private ArrayList<Conversation> currentAdminConversationSearch;
@@ -42,6 +44,15 @@ public class ClientController {
         this(hostIp, hostPort, null);
         this.gui = new ClientUI(this);
         gui.showLoginView();
+        ensureConnected();
+        try {
+            while (!Thread.currentThread().isInterrupted()) {
+                Request r = requestQueue.take();
+                sendRequest(r);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     /** Package-private test seam: accepts a pre-built (or null) GUI; no Swing window opened. */
@@ -76,26 +87,42 @@ public class ClientController {
 
             case LOGIN_RESULT: {
                 LoginResult lr = (LoginResult) response.getPayload();
-                if (lr.getLoginStatus() == LoginStatus.SUCCESS) {
-                    loggedIn = true;
-                    currentUser = lr.getUserInfo();
-                    conversations = lr.getConversationList() != null
-                            ? lr.getConversationList() : new ArrayList<>();
-                    currentConversationList = new ArrayList<>(conversations);
-                    lastActivityTimestamp = System.currentTimeMillis();
-                    if (gui != null) gui.showMainView();
-                } else {
-                    if (gui != null) gui.showLoginError(lr.getLoginStatus());
+                switch (lr.getLoginStatus()) {
+                    case SUCCESS:
+                        loggedIn = true;
+                        currentUser = lr.getUserInfo();
+                        conversations = lr.getConversationList() != null
+                                ? lr.getConversationList() : new ArrayList<>();
+                        currentConversationList = new ArrayList<>(conversations);
+                        if (gui != null) {
+                            if (currentUser.getUserType() == UserType.ADMIN) {
+                                gui.showAdminMainView();
+                            } else {
+                                gui.showMainView();
+                            }
+                        }
+                        break;
+                    case INVALID_CREDENTIALS:
+                    case NO_ACCOUNT_EXISTS:
+                    case DUPLICATE_SESSION:
+                        if (gui != null) gui.showLoginError(lr.getLoginStatus());
+                        break;
                 }
                 break;
             }
 
             case REGISTER_RESULT: {
                 RegisterResult rr = (RegisterResult) response.getPayload();
-                if (rr.getRegisterStatus() == RegisterStatus.SUCCESS) {
-                    if (gui != null) gui.showLoginView();
-                } else {
-                    if (gui != null) gui.showRegisterError(rr.getRegisterStatus());
+                switch (rr.getRegisterStatus()) {
+                    case SUCCESS:
+                        if (gui != null) gui.showLoginView();
+                        break;
+                    case USER_ID_TAKEN:
+                    case USER_ID_INVALID:
+                    case LOGIN_NAME_TAKEN:
+                    case LOGIN_NAME_INVALID:
+                        if (gui != null) gui.showRegisterError(rr.getRegisterStatus());
+                        break;
                 }
                 break;
             }
@@ -105,39 +132,47 @@ public class ClientController {
                 currentUser = null;
                 conversations.clear();
                 currentConversationList.clear();
-                currentConversationId = 0;
+                currentConversationId = -1;
                 if (gui != null) gui.showLoginView();
                 break;
             }
 
             case MESSAGE: {
-                // Server distributes a Message; append it to the matching local conversation.
+                // Move the matching conversation to front (most recent), then refresh the list view.
                 Message msg = (Message) response.getPayload();
-                for (Conversation c : conversations) {
-                    if (c.getConversationId() == msg.getConversationId()) {
+                for (int i = 0; i < conversations.size(); i++) {
+                    if (conversations.get(i).getConversationId() == msg.getConversationId()) {
+                        Conversation c = conversations.remove(i);
                         c.append(msg);
+                        conversations.add(0, c);
                         break;
                     }
+                }
+                if (gui != null) {
+                    ArrayList<Conversation> snapshot = new ArrayList<>(conversations);
+                    DefaultListModel model = gui.getConversationListViewModel();
+                    SwingUtilities.invokeLater(() -> {
+                        model.clear();
+                        for (Conversation c : snapshot) model.addElement(c);
+                    });
                 }
                 break;
             }
 
             case CONVERSATION: {
-                // Returned after create / add-participant / join.
-                // Update in-place if already known; otherwise add to the list.
+                // Move to front regardless of whether it is new or an update (recency sort).
                 Conversation conv = (Conversation) response.getPayload();
-                boolean found = false;
-                for (int i = 0; i < conversations.size(); i++) {
-                    if (conversations.get(i).getConversationId() == conv.getConversationId()) {
-                        conversations.set(i, conv);
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found) {
-                    conversations.add(conv);
-                }
+                conversations.removeIf(c -> c.getConversationId() == conv.getConversationId());
+                conversations.add(0, conv);
                 currentConversationList = new ArrayList<>(conversations);
+                if (gui != null) {
+                    ArrayList<Conversation> snapshot = new ArrayList<>(conversations);
+                    DefaultListModel model = gui.getConversationListViewModel();
+                    SwingUtilities.invokeLater(() -> {
+                        model.clear();
+                        for (Conversation c : snapshot) model.addElement(c);
+                    });
+                }
                 break;
             }
 
@@ -147,7 +182,7 @@ public class ClientController {
                 conversations.removeIf(c -> c.getConversationId() == leftId);
                 currentConversationList = new ArrayList<>(conversations);
                 if (currentConversationId == leftId) {
-                    currentConversationId = 0;
+                    currentConversationId = -1;
                 }
                 break;
             }
@@ -163,14 +198,6 @@ public class ClientController {
                 }
                 break;
             }
-
-            case READ_UPDATED:
-                // Server acknowledged the read-cursor update; no local state change needed.
-                break;
-
-            case PONG:
-                lastActivityTimestamp = System.currentTimeMillis();
-                break;
 
             case CONNECTED:
                 connectionStatus = ConnectionStatus.CONNECTED;
@@ -193,7 +220,6 @@ public class ClientController {
             outputStream.flush();
             inputStream = new ObjectInputStream(socket.getInputStream());
             connectionStatus = ConnectionStatus.CONNECTED;
-            lastActivityTimestamp = System.currentTimeMillis();
 
             responseListenerThread = new Thread(new ResponseListener(), "client-resp");
             responseListenerThread.setDaemon(true);
@@ -214,28 +240,33 @@ public class ClientController {
 
     /** Matches DataManager.handleRegister — payload: RegisterCredentials(userId, loginName, password, name). */
     public void register(String userId, String realName, String loginName, char[] password) {
-        ensureConnected();
         RegisterCredentials creds = new RegisterCredentials(userId, loginName, new String(password), realName);
-        sendRequest(new Request(RequestType.REGISTER, creds, null));
+        enqueueRequest(new Request(RequestType.REGISTER, creds, null));
     }
 
     /** Matches DataManager.handleLogin — payload: LoginCredentials(loginName, password). */
     public void login(String loginName, char[] password) {
-        ensureConnected();
         LoginCredentials creds = new LoginCredentials(loginName, new String(password));
-        sendRequest(new Request(RequestType.LOGIN, creds, null));
+        enqueueRequest(new Request(RequestType.LOGIN, creds, null));
     }
 
     /** Matches DataManager.handleLogout — no payload, senderId = current user id. */
     public void logout() {
         if (!loggedIn || currentUser == null) return;
-        sendRequest(new Request(RequestType.LOGOUT, currentUser.getUserId()));
+        String userId = currentUser.getUserId();
+        loggedIn = false;
+        currentUser = null;
+        conversations.clear();
+        currentConversationList.clear();
+        currentConversationId = -1;
+        if (gui != null) gui.showLoginView();
+        enqueueRequest(new Request(RequestType.LOGOUT, userId));
     }
 
     /** Matches DataManager.handleSendMessage — payload: RawMessage(text, conversationId). */
     public void sendMessage(long conversationId, String m) {
         if (!loggedIn || currentUser == null) return;
-        sendRequest(new Request(RequestType.MESSAGE,
+        enqueueRequest(new Request(RequestType.MESSAGE,
                 new RawMessage(m, conversationId), currentUser.getUserId()));
     }
 
@@ -251,56 +282,57 @@ public class ClientController {
     /** Filters local conversation list and refreshes the conversation list model in the GUI. */
     public void searchConversationList(String query) {
         if (gui == null) return;
-        gui.getConversationViewModel().clear();
+        gui.getConversationListViewModel().clear();
         for (Conversation c : getFilteredConversationList(query)) {
-            gui.getConversationViewModel().addElement(c);
+            gui.getConversationListViewModel().addElement(c);
         }
     }
 
     /** Matches DataManager.handleAdminConversationQuery — payload: AdminConversationQuery(userId). */
     public void adminConversationSearch(String query) {
-        if (!loggedIn || currentUser == null) return;
-        sendRequest(new Request(RequestType.ADMIN_CONVERSATION_QUERY,
+        if (!loggedIn || currentUser == null || currentUser.getUserType() != UserType.ADMIN) return;
+        enqueueRequest(new Request(RequestType.ADMIN_CONVERSATION_QUERY,
                 new AdminConversationQuery(query), currentUser.getUserId()));
     }
 
     /** Matches DataManager.handleCreateConversation — payload: CreateConversationPayload(participants). */
     public void createConversation(ArrayList<UserInfo> p) {
         if (!loggedIn || currentUser == null) return;
-        sendRequest(new Request(RequestType.CREATE_CONVERSATION,
+        enqueueRequest(new Request(RequestType.CREATE_CONVERSATION,
                 new CreateConversationPayload(p), currentUser.getUserId()));
     }
 
     /** Matches DataManager.handleAddToConversation — payload: AddToConversationPayload(participants, conversationId). */
     public void addToConversation(ArrayList<UserInfo> p, long conversationId) {
         if (!loggedIn || currentUser == null) return;
-        sendRequest(new Request(RequestType.ADD_PARTICIPANT,
+        enqueueRequest(new Request(RequestType.ADD_PARTICIPANT,
                 new AddToConversationPayload(p, conversationId), currentUser.getUserId()));
     }
 
     /** Matches DataManager.handleLeaveConversation — payload: LeaveConversationPayload(conversationId). */
     public void leaveConversation(long conversationId) {
         if (!loggedIn || currentUser == null) return;
-        sendRequest(new Request(RequestType.LEAVE_CONVERSATION,
+        enqueueRequest(new Request(RequestType.LEAVE_CONVERSATION,
                 new LeaveConversationPayload(conversationId), currentUser.getUserId()));
     }
 
     /** Matches DataManager.handleAdminConversationQuery — payload: AdminConversationQuery(userID). */
     public void adminGetUserConversations(String userID) {
-        if (!loggedIn || currentUser == null) return;
-        sendRequest(new Request(RequestType.ADMIN_CONVERSATION_QUERY,
+        if (!loggedIn || currentUser == null || currentUser.getUserType() != UserType.ADMIN) return;
+        enqueueRequest(new Request(RequestType.ADMIN_CONVERSATION_QUERY,
                 new AdminConversationQuery(userID), currentUser.getUserId()));
     }
 
     /** Matches DataManager.handleJoinConversation — payload: JoinConversationPayload(conversationId). */
     public void joinConversation(long conversationId) {
-        if (!loggedIn || currentUser == null) return;
-        sendRequest(new Request(RequestType.JOIN_CONVERSATION,
+        if (!loggedIn || currentUser == null || currentUser.getUserType() != UserType.ADMIN) return;
+        enqueueRequest(new Request(RequestType.JOIN_CONVERSATION,
                 new JoinConversationPayload(conversationId), currentUser.getUserId()));
     }
 
     public UserInfo getCurrentUserInfo() { return currentUser; }
     public boolean isLoggedIn()           { return loggedIn; }
+    void updateLastActivity()             { lastActivityTimestamp = System.currentTimeMillis(); }
 
     /** Package-private: seeds the directory list for unit tests without a live server. */
     void setCurrentDirectoryForTesting(ArrayList<UserInfo> dir) {
@@ -357,7 +389,7 @@ public class ClientController {
 
     /** Returns the full {@link Conversation} object for the currently selected conversation, or null. */
     public Conversation getCurrentConversation() {
-        if (currentConversationId == 0) return null;
+        if (currentConversationId == -1) return null;
         for (Conversation c : conversations) {
             if (c.getConversationId() == currentConversationId) return c;
         }
@@ -371,7 +403,6 @@ public class ClientController {
             outputStream.writeObject(r);
             outputStream.flush();
             outputStream.reset(); // prevent object-reference cache memory leak
-            lastActivityTimestamp = System.currentTimeMillis();
         } catch (IOException e) {
             connectionStatus = ConnectionStatus.NOT_CONNECTED;
             e.printStackTrace();

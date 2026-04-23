@@ -1,9 +1,9 @@
 package client;
 
 
-import shared.enums.*;
-import javax.swing.*;
 import java.awt.*;
+import javax.swing.*;
+import shared.enums.*;
 
 public class ClientUI {
     private ClientController controller;
@@ -25,11 +25,19 @@ public class ClientUI {
         cards = new ScreenCards();
         frame.add(cards);
         frame.setVisible(true);
+        Toolkit.getDefaultToolkit().addAWTEventListener(
+            e -> controller.updateLastActivity(),
+            AWTEvent.KEY_EVENT_MASK | AWTEvent.MOUSE_EVENT_MASK
+        );
     }
 
     public void showLoginView() { cards.layout.show(cards, "login"); }
     public void showRegisterView() { cards.layout.show(cards, "register"); }
     public void showMainView() { cards.layout.show(cards, "main"); }
+    public void showAdminMainView() {
+        cards.main.directoryView.adminButton.setVisible(true);
+        cards.layout.show(cards, "main");
+    }
 
     public void showRegisterError(RegisterStatus registerStatus) {
         // TODO
