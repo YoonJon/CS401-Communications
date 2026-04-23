@@ -9,7 +9,6 @@ public class ClientUI {
     private ClientController controller;
     private JFrame frame;
     private ScreenCards cards;
-    private ConversationListView conversationList;
     private SelectUserWindow selectUserWindow;
     private AdminConversationSearchWindow adminConversationSearchWindow;
     private boolean selectingUser;
@@ -19,11 +18,11 @@ public class ClientUI {
         this.controller = controller;
         frame = new JFrame();
         frame.setTitle("Communication Application");
-        frame.setSize(400, 300);
-        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        frame.setLocationRelativeTo(null);
         cards = new ScreenCards();
         frame.add(cards);
+        frame.pack();                 
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        frame.setLocationRelativeTo(null);       
         frame.setVisible(true);
         Toolkit.getDefaultToolkit().addAWTEventListener(
             e -> controller.updateLastActivity(),
@@ -93,6 +92,30 @@ public class ClientUI {
             add(login, "login");
             add(register, "register");
             add(main, "main");
+        }
+        
+        public void setMainDirectoryListModel(DefaultListModel model) {
+        	main.setDirectoryListModel(model);
+        }
+        
+        public DefaultListModel getMainDirectoryListModel() {
+        	return main.getDirectoryListModel();
+        }
+        
+        public void setMainConversationMessageListModel(DefaultListModel model) {
+        	main.setMessageListModel(model);
+        }
+        
+        public DefaultListModel getMainConversationMessageListModel() {
+        	return main.getMessageListModel();
+        }
+        
+        public void setMainConversationListModel(DefaultListModel model) {
+        	main.setConversationListModel(model);
+        }
+        
+        public DefaultListModel getMainConversationListModel() {
+        	return main.getConversationListModel();
         }
     }
 
@@ -282,72 +305,60 @@ public class ClientUI {
         ConversationListView conversationListView;
 
         MainView() {
-        	frame.setSize(900,400);
-       
+        	setLayout(new GridBagLayout());
+        	GridBagConstraints gridConst = new GridBagConstraints();
         	conversationView = new ConversationView();
             directoryView = new DirectoryView();
             conversationListView = new ConversationListView();
             
-            // define the panel and set the layout
-            setLayout(new BoxLayout(this, BoxLayout.X_AXIS));
-            add(directoryView);
-            add(conversationView);
-            add(conversationListView);
+        	gridConst.gridy = 0;
+        	gridConst.fill = GridBagConstraints.BOTH;
+        	gridConst.weighty = 1.0;   
 
+        	// left
+        	gridConst.gridx = 0;
+        	gridConst.weightx = 0.2; // 20%
+        	add(directoryView, gridConst);
+
+        	// middle
+        	gridConst.gridx = 1;
+        	gridConst.weightx = 0.6; // 60%
+        	add(conversationView, gridConst);
+
+        	// right
+        	gridConst.gridx = 2;
+        	gridConst.weightx = 0.2; // 20%
+        	add(conversationListView, gridConst);       	  
+ 
+        }
+        
+        public void setDirectoryListModel(DefaultListModel model) {
+        	directoryView.setListModel(model);
+        }
+        
+        public DefaultListModel getDirectoryListModel() {
+        	return directoryView.getListModel();
+        }
+        
+        public void setMessageListModel(DefaultListModel model) {
+        	conversationView.setListModel(model);
+        }
+        
+        public DefaultListModel getMessageListModel() {
+        	return conversationView.getListModel();
+        }
+        
+        public void setConversationListModel(DefaultListModel model) {
+        	conversationListView.setListModel(model);
+        }
+        
+        public DefaultListModel getConversationListModel() {
+        	return conversationListView.getListModel();
         }
     }
 
     // =========================================================================
     class ConversationView extends JPanel {
-        JLabel participantsLabel;
-        DefaultListModel listModel;
-        JList list;
-        JButton addButton;
-        JButton leaveButton;
-        JTextField text;
-        JButton sendButton;
-
-        ConversationView() {
-            listModel = new DefaultListModel();
-            list = new JList(listModel);
-            // TODO: lay out components
-        }
-    }
-
-    // =========================================================================
-    class DirectoryView extends JPanel {
-        JLabel userLabel;
-        JTextField searchField;
-        DefaultListModel listModel;
-        JList list;
-        JButton logoutButton;
-        JButton createConversationButton;
-        JButton adminButton;
-        JTextField searchBar;
-
-        DirectoryView() {
-        	userLabel = new JLabel("UserID \nRealName");
-            listModel = new DefaultListModel();
-            list = new JList(listModel);
-            searchField = new JTextField();
-            searchBar = new JTextField();
-            logoutButton = new JButton("Log Out");
-            createConversationButton = new JButton("Create Conversation");
-            adminButton = new JButton("Admin");
-            // user is admin
-            adminButton.setVisible(false);
-            
-            setLayout(new BorderLayout());
-            
-            JPanel userPane = new JPanel();
-            userPane.add(userLabel);
-            userPane.add(searchField);
-            add(userPane, BorderLayout.NORTH);
-        }
-    }
-
-    // =========================================================================
-    class ConversationListView extends JPanel {
         JLabel participantsLabel;
         DefaultListModel messageModel;
         JList list;
@@ -356,10 +367,158 @@ public class ClientUI {
         JTextField text;
         JButton sendButton;
 
-        ConversationListView() {
+        ConversationView() {
+        	participantsLabel = new JLabel("Group A");
             messageModel = new DefaultListModel();
             list = new JList(messageModel);
-            // TODO: lay out components
+            addButton = new JButton("Add");
+            leaveButton = new JButton("Leave");
+            text = new JTextField(15);
+            sendButton = new JButton("Send");
+            
+            setLayout(new BorderLayout());
+            setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+            
+            // conversation info is located on the upper side of the window
+            JPanel infoPane = new JPanel(new GridBagLayout());
+            GridBagConstraints gridConst = new GridBagConstraints();
+            gridConst.insets = new Insets(5, 5, 5, 5);
+            gridConst.fill = GridBagConstraints.HORIZONTAL;
+            
+            gridConst.gridx = 0;
+            gridConst.gridy = 0;
+            infoPane.add(participantsLabel, gridConst);
+            
+            gridConst.gridx = 1;
+            infoPane.add(addButton, gridConst);
+            
+            gridConst.gridx = 2;
+            infoPane.add(leaveButton, gridConst);
+            
+            add(infoPane, BorderLayout.NORTH);
+            
+            // list is located on the middle of the window
+            add(new JScrollPane(list), BorderLayout.CENTER);
+            
+            // sendPane is located on the bottom of the window 
+            JPanel sendPane = new JPanel(new BorderLayout());
+            sendPane.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 0));
+            sendPane.add(text, BorderLayout.CENTER);
+            sendPane.add(sendButton, BorderLayout.EAST);
+            
+            add(sendPane, BorderLayout.SOUTH);
+                      
+        }
+        
+        public void setListModel(DefaultListModel model) {
+        	this.messageModel = model;
+        }
+        
+        public DefaultListModel getListModel() {
+        	return this.messageModel;
+        }
+    }
+
+    // =========================================================================
+    class DirectoryView extends JPanel {
+        JLabel userLabel;
+        JLabel nameLabel;
+        JTextField searchField;
+        DefaultListModel listModel;
+        JList list;
+        JButton logoutButton;
+        JButton createConversationButton;
+        JButton adminButton;
+
+        DirectoryView() {
+        	userLabel = new JLabel("UserID");
+        	nameLabel = new JLabel("RealName");
+            listModel = new DefaultListModel();
+            list = new JList(listModel);
+            searchField = new JTextField(15);
+            logoutButton = new JButton("Log Out");
+            createConversationButton = new JButton("Create Conversation");
+            adminButton = new JButton("Admin");
+            // user is admin
+            adminButton.setVisible(true);
+            
+            setLayout(new BorderLayout());
+            setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+            
+            // userPanel is located upper side of the window
+            JPanel userPane = new JPanel(new GridBagLayout());
+            GridBagConstraints gridConst = new GridBagConstraints();
+            gridConst.insets = new Insets(5, 5, 5, 5);
+            gridConst.fill = GridBagConstraints.HORIZONTAL;
+            
+            
+            gridConst.gridx = 0;
+            gridConst.gridy = 0;
+            userPane.add(userLabel, gridConst);
+            
+            gridConst.gridy = 1;
+            userPane.add(nameLabel, gridConst);
+            
+            gridConst.gridy = 2;
+            userPane.add(searchField, gridConst);
+            
+            gridConst.gridx = 1;
+            gridConst.gridy = 0;
+            gridConst.gridheight = 2;
+            userPane.add(logoutButton, gridConst);
+           
+            add(userPane, BorderLayout.NORTH);
+            
+            
+            // list is located center of the window with JScrollPane
+            add(new JScrollPane(list), BorderLayout.CENTER);
+        
+            
+            // buttonPane is located at the bottom side of the window
+            JPanel buttonPane = new JPanel(new FlowLayout());
+            buttonPane.add(createConversationButton);
+            buttonPane.add(adminButton);
+            
+            add(buttonPane, BorderLayout.SOUTH);
+        }
+           
+        
+        public void setListModel(DefaultListModel model) {
+        	this.listModel = model;
+        }
+        
+        public DefaultListModel getListModel() {
+        	return this.listModel;
+        }
+    }
+
+    // =========================================================================
+    class ConversationListView extends JPanel {
+        JTextField searchField;
+        DefaultListModel listModel;
+        JList list;
+        
+
+        ConversationListView() {
+        	searchField = new JTextField(15);
+            listModel = new DefaultListModel();
+            list = new JList(listModel);
+            
+            // searchField is located on the upper of the window.
+            setLayout(new BorderLayout());
+            setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+            add(searchField, BorderLayout.NORTH);
+            
+            // list is located on the middle of the window.
+            add(new JScrollPane(list), BorderLayout.CENTER);
+        }
+        
+        public void setListModel(DefaultListModel model) {
+        	this.listModel = model;
+        }
+        
+        public DefaultListModel getListModel() {
+        	return this.listModel;
         }
     }
 
