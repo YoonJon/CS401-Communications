@@ -10,6 +10,7 @@ import javax.swing.event.DocumentListener;
 
 import java.awt.*;
 import java.awt.event.*;
+import java.util.ArrayList;
 
 public class ClientUI {
     private ClientController controller;
@@ -481,7 +482,9 @@ public class ClientUI {
         JButton adminButton;
         JDialog createDialog;
         JDialog adminDialog;
-
+        UserInfo selecting;
+        SelectUserWindow selectPane;
+        AdminConversationSearchWindow adminPane;
         DirectoryView() {
         	userLabel = new JLabel(controller.getCurrentUserInfo().getUserId());
         	nameLabel = new JLabel(controller.getCurrentUserInfo().getName());
@@ -490,13 +493,16 @@ public class ClientUI {
             searchField = new JTextField(15);
             logoutButton = new JButton("Log Out");
             createConversationButton = new JButton("Create Conversation");
+            // gray-out until select the user
+            createConversationButton.setEnabled(false);
             
             listModel.addElement(new UserInfo());
                         
             // user is admin
             if(controller.getCurrentUserInfo().getUserType().equals(UserType.ADMIN)) {
             	adminButton = new JButton("Admin");
-            	adminButton.setVisible(true);
+            	// gray-out until select the user
+                adminButton.setEnabled(false);
             }
                       
             setLayout(new BorderLayout());
@@ -547,11 +553,9 @@ public class ClientUI {
                 private void filter() {
                     String text = searchField.getText().toUpperCase();
                     listModel.clear();
-
-                    for (UserInfo item : controller.getCurrentDirectory()) {
-                        if (item.getName().contains(text)) {
-                            listModel.addElement(item);
-                        }
+                                      
+                    for(UserInfo item: controller.getFilteredDirectory(text)) {
+                    	listModel.addElement(item);
                     }
                 }
             });
@@ -566,10 +570,10 @@ public class ClientUI {
                     return;
                 }
 
-                SelectUserWindow panel = new SelectUserWindow();
-
+               
+            	selectPane = new SelectUserWindow();
                 createDialog = new JDialog(frame, "Select User", false);
-                createDialog.add(panel);
+                createDialog.add(selectPane);
                 createDialog.setSize(300, 400);
                 createDialog.setLocationRelativeTo(frame);
                 createDialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
@@ -593,10 +597,9 @@ public class ClientUI {
                     return;
                 }
 
-            	AdminConversationSearchWindow panel = new AdminConversationSearchWindow();
-
+            	adminPane= new AdminConversationSearchWindow();
                 adminDialog = new JDialog(frame, "Searching Conversations", false);
-                adminDialog.add(panel);
+                adminDialog.add(adminPane);
                 adminDialog.setSize(300, 400);
                 adminDialog.setLocationRelativeTo(frame);
                 adminDialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
@@ -615,11 +618,18 @@ public class ClientUI {
             // add action for selecting an item from the list
             list.addListSelectionListener(e-> {
             	if (!e.getValueIsAdjusting()) {
-					 UserInfo selectedUser = list.getSelectedValue();
-					 if (selectedUser != null) {
-					  
-					 }
-            	}
+						 selecting = list.getSelectedValue();
+						 // if the another window is not visible, shows the buttons
+						 if(selecting != null && !createDialog.isVisible() && !adminDialog.isVisible()) {
+							 createConversationButton.setEnabled(true);
+							 if(adminButton != null) {
+								 adminButton.setEnabled(true);
+							 }
+						 } else if(createDialog.isVisible()) { // if selectUser window is open
+							 createDialog.add
+						 }
+							
+			    }
             });
             
         }           
@@ -670,15 +680,14 @@ public class ClientUI {
                 private void filter() {
                     String text = searchField.getText().toUpperCase();
                     listModel.clear();
-
-                    for (UserInfo item : controller.getCurrentDirectory()) {
-                        if (item.getName().contains(text)) {
-                            listModel.addElement(item);
-                        }
-                    }
+                    
+                    for(Conversation item: controller.getFilteredConversationList(text)) {
+                    	listModel.addElement(item);
+                    }                   
                 }
             });
         }
+        
         
         public void setListModel(DefaultListModel model) {
         	this.listModel = model;
@@ -691,16 +700,14 @@ public class ClientUI {
 
     // =========================================================================
     class SelectUserWindow extends JPanel {
-        DefaultListModel model;
-        JList list;
+        DefaultListModel<UserInfo> model = new DefaultListModel<>();
+        JList<UserInfo> list = new JList<>(model);
         JButton removeButton;
         JButton okButton;
         JButton cancelButton;
         
 
         SelectUserWindow() {
-            model = new DefaultListModel();
-            list = new JList(model);
             removeButton = new JButton("Remove");
             okButton = new JButton("OK");
             cancelButton = new JButton("Cancel");
@@ -728,6 +735,15 @@ public class ClientUI {
                 Window window = SwingUtilities.getWindowAncestor(this);
                 window.dispose();  
             });
+        }
+        
+        public void addUser(UserInfo user) {
+        	for(int i = 0; i < model.size(); i++) {
+        		if(user.getUserId().equals(model.get(i).getUserId())){
+        			return;
+        		}
+        	}
+        	model.addElement(user);
         }
     }
 
@@ -763,13 +779,30 @@ public class ClientUI {
         	
         	add(buttonPane, BorderLayout.SOUTH);
         	
+        	// add action to searchField
+        	searchField.getDocument().addDocumentListener(new DocumentListener() {
+                public void insertUpdate(DocumentEvent e) { filter(); }
+                public void removeUpdate(DocumentEvent e) { filter(); }
+                public void changedUpdate(DocumentEvent e) { filter(); }
+
+                private void filter() {
+                    String text = searchField.getText().toUpperCase();
+                    model.clear();
+                                      
+                    for(Conversation item: controller.getFilteredAdminConversationSearch(text)) {
+                    	model.addElement(item);
+                    }
+                }
+            });
         	
+        	// add action to okButton
             okButton.addActionListener(e -> {
             	// sent the list
                 Window window = SwingUtilities.getWindowAncestor(this);
                 window.dispose();            
             });
             
+            // add action to cancelButton
             cancelButton.addActionListener(e -> {
             	// clear the list
                 Window window = SwingUtilities.getWindowAncestor(this);

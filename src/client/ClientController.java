@@ -105,16 +105,27 @@ public class ClientController {
 
     public UserInfo getCurrentUserInfo() { return currentUser; }
     
-    public ArrayList<UserInfo> getCurrentDirectory() { return currentDirectory; }
 
     public ArrayList<UserInfo> getFilteredDirectory(String query) {
-        // TODO: filter currentDirectory by query
-        return null;
+    	ArrayList<UserInfo> filtered = new ArrayList<>();
+    	for(UserInfo item: currentDirectory) {
+    		if(item.getName().toUpperCase().contains(query)) {
+    			filtered.add(item);
+    		}
+    	}
+        return filtered;
     }
 
     public ArrayList<Conversation> getFilteredConversationList(String query) {
-        // TODO
-        return null;
+    	ArrayList<Conversation> filtered = new ArrayList<>();
+    	for(Conversation item: conversations) {
+    		for(UserInfo user: item.getParticipants()) {
+    			if(user.getName().toUpperCase().contains(query)) {
+	    			filtered.add(item);
+	    		}
+    		}
+    	}
+        return filtered;
     }
 
     public ArrayList<Conversation> getFilteredAdminConversationSearch(String q) {
