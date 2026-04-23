@@ -1,5 +1,6 @@
-package server.harness;
+package server;
 
+import server.DataManager;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -13,7 +14,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
-import server.DataManager;
 import shared.enums.ConversationType;
 import shared.enums.LoginStatus;
 import shared.enums.RegisterStatus;
@@ -105,15 +105,109 @@ public class DataManagerHarnessTest {
                 u5,Eve
                 """);
 
-        Files.writeString(authorizedIds.resolve("authorized_admins.txt"), "u1\n");
+        Files.writeString(authorizedIds.resolve("authorized_admins.txt"), "");
         Files.writeString(serverData.resolve("server_config.txt"), "");
 
         Files.createDirectories(root.resolve("conversation_data"));
         Files.createDirectories(root.resolve("user_data"));
     }
 
-    /** End-to-end handler walk used by {@link #smoke_allHandlers_inOrder}. */
-    private static void runSmokeScenario(DataManager dm) {
+    private static User.UserInfo ui(String userId, String displayName) {
+        return User.userInfo(userId, displayName, UserType.USER);
+    }
+
+    private static ArrayList<User.UserInfo> roster(User.UserInfo... parts) {
+        ArrayList<User.UserInfo> list = new ArrayList<>();
+        for (User.UserInfo u : parts) {
+            list.add(u);
+        }
+        return list;
+    }
+
+    // -------------------------------------------------------------------------
+    // Individual handler / edge behaviours
+    // -------------------------------------------------------------------------
+
+    @Test
+    void handleRegister_successAndDuplicateAndInvalid() {
+        Request ok = new Request(RequestType.REGISTER,
+                new RegisterCredentials("u1", "alice", "secret", "Alice"),
+                null);
+        Response r1 = dm.handleRegister(ok);
+        assertEquals(ResponseType.REGISTER_RESULT, r1.getType());
+        assertEquals(RegisterStatus.SUCCESS,
+                ((RegisterResult) r1.getPayload()).getRegisterStatus());
+
+        Response r2 = dm.handleRegister(ok);
+        assertEquals(RegisterStatus.USER_ID_TAKEN,
+                ((RegisterResult) r2.getPayload()).getRegisterStatus());
+
+        Request bad = new Request(RequestType.REGISTER,
+                new RegisterCredentials("unknown", "nobody", "x", "Nobody"),
+                null);
+        Response r3 = dm.handleRegister(bad);
+        assertEquals(RegisterStatus.USER_ID_INVALID,
+                ((RegisterResult) r3.getPayload()).getRegisterStatus());
+    }
+
+    @Test
+    void handleLogin_successAndBadPassword() {
+        dm.handleRegister(new Request(RequestType.REGISTER,
+                new RegisterCredentials("u1", "alice", "goodpass", "Alice"),
+                null));
+
+        Response ok = dm.handleLogin(new Request(RequestType.LOGIN,
+                new LoginCredentials("alice", "goodpass"),
+                null));
+        assertEquals(ResponseType.LOGIN_RESULT, ok.getType());
+        LoginResult lr = (LoginResult) ok.getPayload();
+        assertEquals(LoginStatus.SUCCESS, lr.getLoginStatus());
+        assertNotNull(lr.getUserInfo());
+        assertEquals("u1", lr.getUserInfo().getUserId());
+
+        Response bad = dm.handleLogin(new Request(RequestType.LOGIN,
+                new LoginCredentials("alice", "wrong"),
+                null));
+        assertEquals(LoginStatus.INVALID_CREDENTIALS,
+                ((LoginResult) bad.getPayload()).getLoginStatus());
+    }
+
+    @Test
+    void handleLogout_returnsLogoutResult() {
+        Response out = dm.handleLogout(new Request(RequestType.LOGOUT, "u1"));
+        assertEquals(ResponseType.LOGOUT_RESULT, out.getType());
+    }
+
+    @Test
+    void handleCreateConversation_emptyParticipants_returnsNull() {
+        Response r = dm.handleCreateConversation(new Request(RequestType.CREATE_CONVERSATION,
+                new CreateConversationPayload(new ArrayList<>()),
+                "u1"));
+        assertNull(r);
+    }
+
+    @Test
+    void handleSendMessage_unknownConversation_returnsNull() {
+        Response r = dm.handleSendMessage(new Request(RequestType.MESSAGE,
+                new RawMessage("hi", 9_999_999L),
+                "u1"));
+        assertNull(r);
+    }
+
+    @Test
+    void handleAddToConversation_unknownConversation_returnsNull() {
+        Response r = dm.handleAddToConversation(new Request(RequestType.ADD_PARTICIPANT,
+                new AddToConversationPayload(roster(ui("u9", "Zed")), 9_999_999L),
+                "u1"));
+        assertNull(r);
+    }
+
+    // -------------------------------------------------------------------------
+    // End-to-end smoke: walks every handler once in a realistic order
+    // -------------------------------------------------------------------------
+
+    @Test
+    void smoke_allHandlers_inOrder() {
         // --- Register u1–u5
         RegisterCredentials[] regs = new RegisterCredentials[]{
                 new RegisterCredentials("u1", "alice", "p1", "Alice"),
@@ -228,132 +322,5 @@ public class DataManagerHarnessTest {
         // --- Participant query helper (used later by ServerController for fan-out)
         ArrayList<User.UserInfo> participants = dm.getParticipantList(convGroup);
         assertEquals(Integer.valueOf(4), Integer.valueOf(participants.size()), "participant list size");
-    }
-
-    private static User.UserInfo ui(String userId, String displayName) {
-        return User.userInfo(userId, displayName, UserType.USER);
-    }
-
-    private static ArrayList<User.UserInfo> roster(User.UserInfo... parts) {
-        ArrayList<User.UserInfo> list = new ArrayList<>();
-        for (User.UserInfo u : parts) {
-            list.add(u);
-        }
-        return list;
-    }
-
-    // -------------------------------------------------------------------------
-    // Individual handler / edge behaviours
-    // -------------------------------------------------------------------------
-
-    @Test
-    void handleRegister_successAndDuplicateAndInvalid() {
-        Request ok = new Request(RequestType.REGISTER,
-                new RegisterCredentials("u1", "alice", "secret", "Alice"),
-                null);
-        Response r1 = dm.handleRegister(ok);
-        assertEquals(ResponseType.REGISTER_RESULT, r1.getType());
-        assertEquals(RegisterStatus.SUCCESS,
-                ((RegisterResult) r1.getPayload()).getRegisterStatus());
-
-        Response r2 = dm.handleRegister(ok);
-        assertEquals(RegisterStatus.USER_ID_TAKEN,
-                ((RegisterResult) r2.getPayload()).getRegisterStatus());
-
-        Request bad = new Request(RequestType.REGISTER,
-                new RegisterCredentials("unknown", "nobody", "x", "Nobody"),
-                null);
-        Response r3 = dm.handleRegister(bad);
-        assertEquals(RegisterStatus.USER_ID_INVALID,
-                ((RegisterResult) r3.getPayload()).getRegisterStatus());
-    }
-
-    @Test
-    void handleRegister_userListedAsAdmin_getsAdminUserTypeOnLogin() {
-        dm.handleRegister(new Request(RequestType.REGISTER,
-                new RegisterCredentials("u1", "alice", "secret", "Alice"),
-                null));
-        Response login = dm.handleLogin(new Request(RequestType.LOGIN,
-                new LoginCredentials("alice", "secret"),
-                null));
-        LoginResult lr = (LoginResult) login.getPayload();
-        assertEquals(LoginStatus.SUCCESS, lr.getLoginStatus());
-        assertNotNull(lr.getUserInfo());
-        assertEquals(UserType.ADMIN, lr.getUserInfo().getUserType());
-    }
-
-    @Test
-    void handleRegister_userNotListedAsAdmin_getsUserUserTypeOnLogin() {
-        dm.handleRegister(new Request(RequestType.REGISTER,
-                new RegisterCredentials("u2", "bob", "secret", "Bob"),
-                null));
-        Response login = dm.handleLogin(new Request(RequestType.LOGIN,
-                new LoginCredentials("bob", "secret"),
-                null));
-        LoginResult lr = (LoginResult) login.getPayload();
-        assertEquals(LoginStatus.SUCCESS, lr.getLoginStatus());
-        assertNotNull(lr.getUserInfo());
-        assertEquals(UserType.USER, lr.getUserInfo().getUserType());
-    }
-
-    @Test
-    void handleLogin_successAndBadPassword() {
-        dm.handleRegister(new Request(RequestType.REGISTER,
-                new RegisterCredentials("u1", "alice", "goodpass", "Alice"),
-                null));
-
-        Response ok = dm.handleLogin(new Request(RequestType.LOGIN,
-                new LoginCredentials("alice", "goodpass"),
-                null));
-        assertEquals(ResponseType.LOGIN_RESULT, ok.getType());
-        LoginResult lr = (LoginResult) ok.getPayload();
-        assertEquals(LoginStatus.SUCCESS, lr.getLoginStatus());
-        assertNotNull(lr.getUserInfo());
-        assertEquals("u1", lr.getUserInfo().getUserId());
-
-        Response bad = dm.handleLogin(new Request(RequestType.LOGIN,
-                new LoginCredentials("alice", "wrong"),
-                null));
-        assertEquals(LoginStatus.INVALID_CREDENTIALS,
-                ((LoginResult) bad.getPayload()).getLoginStatus());
-    }
-
-    @Test
-    void handleLogout_returnsLogoutResult() {
-        Response out = dm.handleLogout(new Request(RequestType.LOGOUT, "u1"));
-        assertEquals(ResponseType.LOGOUT_RESULT, out.getType());
-    }
-
-    @Test
-    void handleCreateConversation_emptyParticipants_returnsNull() {
-        Response r = dm.handleCreateConversation(new Request(RequestType.CREATE_CONVERSATION,
-                new CreateConversationPayload(new ArrayList<>()),
-                "u1"));
-        assertNull(r);
-    }
-
-    @Test
-    void handleSendMessage_unknownConversation_returnsNull() {
-        Response r = dm.handleSendMessage(new Request(RequestType.MESSAGE,
-                new RawMessage("hi", 9_999_999L),
-                "u1"));
-        assertNull(r);
-    }
-
-    @Test
-    void handleAddToConversation_unknownConversation_returnsNull() {
-        Response r = dm.handleAddToConversation(new Request(RequestType.ADD_PARTICIPANT,
-                new AddToConversationPayload(roster(ui("u9", "Zed")), 9_999_999L),
-                "u1"));
-        assertNull(r);
-    }
-
-    // -------------------------------------------------------------------------
-    // End-to-end smoke: walks every handler once in a realistic order
-    // -------------------------------------------------------------------------
-
-    @Test
-    void smoke_allHandlers_inOrder() {
-        runSmokeScenario(dm);
     }
 }

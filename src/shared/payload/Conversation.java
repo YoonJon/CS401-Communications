@@ -91,6 +91,8 @@ public class Conversation implements ResponsePayload {
     public ArrayList<UserInfo> getParticipants() { return participants; }
     public ArrayList<UserInfo> getHistoricalParticipants() { return historicalParticipants; }
     public ConversationType getType() { return type; }
+    // TODO: format as a list of participants
+    public String toString(){return "Conversation "+conversationId+": "+participants.toString();}
 
     public void append(Message m) { messages.add(m); }
 
