@@ -2,6 +2,7 @@ package client;
 
 import shared.enums.*;
 import shared.networking.*;
+import shared.networking.User.UserInfo;
 import shared.payload.*;
 import java.net.Socket;
 import java.util.*;
@@ -17,7 +18,8 @@ public class ClientController {
     private int hostPort;
     private Socket socket;
     private ArrayList<Conversation> conversations;
-    private String currentConversationID;
+    /** 0 means no conversation selected. */
+    private long currentConversationId;
     private ArrayList<UserInfo> currentDirectory;
     private ArrayList<Conversation> currentConversationList;
     private ArrayList<Conversation> currentAdminConversationSearch;
@@ -67,7 +69,7 @@ public class ClientController {
         // TODO
     }
 
-    public void sendMessage(String cId, String m) {
+    public void sendMessage(long conversationId, String m) {
         // TODO
     }
 
@@ -87,11 +89,11 @@ public class ClientController {
         // TODO
     }
 
-    public void addToConversation(ArrayList<UserInfo> p, String c_id) {
+    public void addToConversation(ArrayList<UserInfo> p, long conversationId) {
         // TODO
     }
 
-    public void leaveConversation(String cId) {
+    public void leaveConversation(long conversationId) {
         // TODO
     }
 
@@ -99,7 +101,7 @@ public class ClientController {
         // TODO
     }
 
-    public void joinConversation(String c_Id) {
+    public void joinConversation(long conversationId) {
         // TODO
     }
 
@@ -122,11 +124,11 @@ public class ClientController {
         return null;
     }
 
-    public void setCurrentConversationID(String c_id) { this.currentConversationID = c_id; }
-    public String getCurrentConversationID() { return currentConversationID; }
+    public void setCurrentConversationId(long conversationId) { this.currentConversationId = conversationId; }
+    public long getCurrentConversationId() { return currentConversationId; }
 
     public Conversation getCurrentConversation() {
-        // TODO: look up currentConversationID in conversations
+        // TODO: look up currentConversationId in conversations
         return null;
     }
 

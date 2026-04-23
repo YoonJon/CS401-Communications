@@ -1,11 +1,16 @@
 package shared.payload;
 
-public class UpdateReadMessages implements Payload {
-    private String conversationID;
+public class UpdateReadMessages implements RequestPayload {
+    private final long conversationID;
+    /** Last message sequence number the user has seen for this conversation. */
+    private final long lastSeenSequenceNumber;
 
-    public UpdateReadMessages(String c_id) {
-        this.conversationID = c_id;
+    public UpdateReadMessages(long conversationID, long lastSeenSequenceNumber) {
+        this.conversationID = conversationID;
+        this.lastSeenSequenceNumber = lastSeenSequenceNumber;
     }
 
-    public String getConversationID() { return conversationID; }
+    public long getConversationID() { return conversationID; }
+
+    public long getLastSeenSequenceNumber() { return lastSeenSequenceNumber; }
 }
