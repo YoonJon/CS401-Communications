@@ -483,8 +483,9 @@ public class ClientUI {
         JDialog createDialog;
         JDialog adminDialog;
         UserInfo selecting;
-        SelectUserWindow selectPane;
+        SelectUserWindow createPane;
         AdminConversationSearchWindow adminPane;
+        
         DirectoryView() {
         	userLabel = new JLabel(controller.getCurrentUserInfo().getUserId());
         	nameLabel = new JLabel(controller.getCurrentUserInfo().getName());
@@ -571,9 +572,9 @@ public class ClientUI {
                 }
 
                
-            	selectPane = new SelectUserWindow();
+            	createPane = new SelectUserWindow();
                 createDialog = new JDialog(frame, "Select User", false);
-                createDialog.add(selectPane);
+                createDialog.add(createPane);
                 createDialog.setSize(300, 400);
                 createDialog.setLocationRelativeTo(frame);
                 createDialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
@@ -626,7 +627,7 @@ public class ClientUI {
 								 adminButton.setEnabled(true);
 							 }
 						 } else if(createDialog.isVisible()) { // if selectUser window is open
-							 createDialog.add
+							 createPane.addUser(selecting);
 						 }
 							
 			    }
@@ -731,12 +732,13 @@ public class ClientUI {
             });
             
             cancelButton.addActionListener(e -> {
-            	// clear the list
+            	model.clear();
                 Window window = SwingUtilities.getWindowAncestor(this);
                 window.dispose();  
             });
         }
         
+        // add user to selecting list
         public void addUser(UserInfo user) {
         	for(int i = 0; i < model.size(); i++) {
         		if(user.getUserId().equals(model.get(i).getUserId())){
@@ -745,6 +747,8 @@ public class ClientUI {
         	}
         	model.addElement(user);
         }
+        
+        
     }
 
     // =========================================================================
