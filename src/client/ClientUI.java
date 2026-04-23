@@ -26,11 +26,19 @@ public class ClientUI {
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.setLocationRelativeTo(null);       
         frame.setVisible(true);
+        Toolkit.getDefaultToolkit().addAWTEventListener(
+            e -> controller.updateLastActivity(),
+            AWTEvent.KEY_EVENT_MASK | AWTEvent.MOUSE_EVENT_MASK
+        );
     }
 
     public void showLoginView() { cards.layout.show(cards, "login"); }
     public void showRegisterView() { cards.layout.show(cards, "register"); }
     public void showMainView() { cards.layout.show(cards, "main"); }
+    public void showAdminMainView() {
+        cards.main.directoryView.adminButton.setVisible(true);
+        cards.layout.show(cards, "main");
+    }
 
     public void showRegisterError(RegisterStatus registerStatus) {
     	// need to identify which status???
@@ -56,11 +64,11 @@ public class ClientUI {
     public DefaultListModel getSelectUserWindowModel() { return selectUserWindow.model; }
     public DefaultListModel getAdminConversationSearchWindowModel() { return adminConversationSearchWindow.model; }
 
-    public void setDirectoryQuery(String query) { directoryView.searchField.setText(query); }
-    public String getDirectoryQuery() { return userDirectory.searchField.getText(); }
+    public void setDirectoryQuery(String query) { cards.main.directoryView.searchField.setText(query); }
+    public String getDirectoryQuery() { return cards.main.directoryView.searchField.getText(); }
 
-    public void setConversationQuery(String query) { chatView.text.setText(query); }
-    public String getConversationQuery() { return chatView.text.getText(); }
+    public void setConversationQuery(String query) { cards.main.conversationView.text.setText(query); }
+    public String getConversationQuery() { return cards.main.conversationView.text.getText(); }
 
     public void setAdminConversationQuery(String q) { adminConversationSearchWindow.searchField.setText(q); }
     public String getAdminConversationQuery() { return adminConversationSearchWindow.searchField.getText(); }

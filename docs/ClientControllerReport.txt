@@ -1,0 +1,260 @@
+CLIENT CONTROLLER IMPLEMENTATION AND TEST REPORT
+CS401-Communications — Jons-Branch
+Date: April 2026
+==================================================
+
+
+OVERVIEW
+--------
+This report documents the implementation of ClientController.java (the
+networking layer for the client application) and the accompanying JUnit 5
+test suite (ClientControllerTest.java).  Both artifacts were produced on
+Jons-Branch alongside the DataManager implementation (PR #19).
+
+The goal was to give ClientController the same level of coverage that
+DataManager already had, and to verify that every action method on the
+client side produces the correct Request type and payload before it ever
+reaches a real server.
+
+
+IMPLEMENTATION — ClientController.java
+---------------------------------------
+ClientController is the sole networking layer on the client side.  It:
+
+  1. Opens a TCP socket to the server via ensureConnected().
+  2. Spawns two daemon threads:
+       ResponseListener  — reads Response objects from the server and calls
+                           processResponse() for dispatch.
+       InactivityDetector — sends PING requests when no traffic is seen for
+                            a configurable period, and disconnects after a
+                            longer silence.
+  3. Maintains all client-side state:
+       loggedIn              (boolean)
+       currentUser           (UserInfo — the logged-in user's profile)
+       conversations         (ArrayList<Conversation> — the user's full list)
+       currentConversationId (long — 0 means none selected)
+       currentDirectory      (ArrayList<UserInfo> — user-search results)
+       currentAdminConversationSearch (ArrayList<Conversation>)
+  4. Exposes action methods that map 1-to-1 with DataManager handlers:
+       register(), login(), logout(), sendMessage(), createConversation(),
+       addToConversation(), leaveConversation(), joinConversation(),
+       adminGetUserConversations().
+  5. Exposes filter/query methods that operate on the in-memory state
+       without contacting the server:
+       getFilteredDirectory(), getFilteredConversationList(),
+       getFilteredAdminConversationSearch(), getCurrentConversation().
+
+Each action method guards against unauthenticated calls (checks loggedIn
+and currentUser != null) so no request is sent before a successful login.
+
+processResponse() dispatches on ResponseType.  Key cases:
+  LOGIN_RESULT    — success: sets loggedIn, currentUser, conversations.
+                    failure: no state change.
+  REGISTER_RESULT — success: navigates to login view.  No auto-login.
+                    failure: shows register error.
+  LOGOUT_RESULT   — clears all session state (loggedIn=false, currentUser=null,
+                    conversations cleared, currentConversationId reset to 0).
+  MESSAGE         — appends the message to the matching local Conversation.
+                    Unknown conversation ids are silently ignored.
+  CONVERSATION    — upsert: replaces in-place if known, appends if new.
+  LEAVE_RESULT    — removes the conversation; resets currentConversationId
+                    if it matched the left conversation.
+  ADMIN_CONVERSATION_RESULT — populates the admin search result list.
+  PONG            — resets the inactivity timestamp.
+  CONNECTED       — updates connectionStatus to CONNECTED.
+
+
+TESTABILITY CHANGES
+-------------------
+The following changes were made to enable headless unit testing:
+
+  1. Test-seam constructor
+       ClientController(String hostIp, int hostPort, ClientUI guiOverride)
+       (package-private)
+     Accepts a null GUI so tests run without opening a Swing window.
+     The public production constructor delegates to this and then sets
+     gui = new ClientUI(this) and calls gui.showLoginView().
+
+  2. processResponse() visibility
+     Changed from private to package-private so tests in the same package
+     can call it directly without a live socket.
+
+  3. Null guards on all gui.showXxx() calls
+     Every call to gui.showMainView(), gui.showLoginView(),
+     gui.showLoginError(), gui.showRegisterError() is wrapped with
+     if (gui != null) so the same code path executes with or without a GUI.
+
+  4. Null guard in searchDirectory() and searchConversationList()
+     Both methods return early when gui == null.
+
+  5. isLoggedIn() public getter
+     Allows tests to poll the loggedIn field without reflection.
+
+  6. setCurrentDirectoryForTesting(ArrayList<UserInfo>) package-private setter
+     Allows tests to seed the directory list without a live server.
+
+
+TEST SUITE — ClientControllerTest.java
+----------------------------------------
+Location: test/client/ClientControllerTest.java
+Package:  client  (same package as ClientController — required for
+          access to package-private members)
+Framework: JUnit 5 (junit-platform-console-standalone-1.10.5.jar)
+Result:   53 tests found, 53 passed, 0 failed
+
+The suite is divided into two layers:
+
+LAYER A — Pure Unit Tests (Groups 1–12, 38 tests)
+  These tests call processResponse() directly using the package-private
+  test-seam constructor (null GUI).  No socket is opened, no Swing is
+  created, and no threads are started.  All tests complete in < 1 ms.
+
+  Group 1:  LOGIN_RESULT — success (5 tests)
+    loginSuccess_setsLoggedInFlag
+    loginSuccess_setsCurrentUser
+    loginSuccess_populatesConversationList
+    loginSuccess_nullConversationListTreatedAsEmpty
+    loginFailed_doesNotSetLoggedIn
+
+  Group 2:  REGISTER_RESULT (2 tests)
+    registerSuccess_doesNotAutoLogin
+    registerFailed_stateUnchanged
+
+  Group 3:  LOGOUT_RESULT (4 tests)
+    logoutResult_clearsLoggedInFlag
+    logoutResult_clearsCurrentUser
+    logoutResult_clearsConversationList
+    logoutResult_resetsCurrentConversationId
+
+  Group 4:  MESSAGE (2 tests)
+    message_appendedToMatchingConversation
+    message_ignoredForUnknownConversation
+
+  Group 5:  CONVERSATION (2 tests)
+    conversation_newConversationAddedToList
+    conversation_existingConversationUpdatedInPlace
+
+  Group 6:  LEAVE_RESULT (3 tests)
+    leaveResult_removesConversationFromList
+    leaveResult_clearsCurrentConversationIdWhenMatching
+    leaveResult_preservesCurrentConversationIdWhenDifferent
+
+  Group 7:  ADMIN_CONVERSATION_RESULT (1 test)
+    adminResult_populatesAdminSearchList
+
+  Group 8:  Edge cases (3 tests)
+    pong_handledWithoutException
+    connected_handledWithoutException
+    nullResponse_ignoredSafely
+
+  Group 9:  getCurrentConversation (3 tests)
+    getCurrentConversation_returnsNullWhenNoneSelected
+    getCurrentConversation_returnsCorrectObject
+    getCurrentConversation_returnsNullForUnknownId
+
+  Group 10: getFilteredDirectory (6 tests)
+    filteredDirectory_blankQueryReturnsAll
+    filteredDirectory_nullQueryReturnsAll
+    filteredDirectory_matchesByExactUserId
+    filteredDirectory_matchesByPartialName
+    filteredDirectory_caseInsensitiveMatch
+    filteredDirectory_noMatchReturnsEmpty
+
+  Group 11: getFilteredConversationList (4 tests)
+    filteredConversationList_blankQueryReturnsAll
+    filteredConversationList_matchesByParticipantName
+    filteredConversationList_matchesByParticipantId
+    filteredConversationList_noMatchReturnsEmpty
+
+  Group 12: getFilteredAdminConversationSearch (3 tests)
+    filteredAdminSearch_blankQueryReturnsAll
+    filteredAdminSearch_matchesByParticipantName
+    filteredAdminSearch_noMatchReturnsEmpty
+
+LAYER B — Integration Tests (Group 13, 15 tests)
+  These tests open a real loopback TCP socket to a FakeServerController
+  and verify that each action method sends a Request with the correct
+  RequestType and payload contents.
+
+  The FakeServerController (existing test fixture) extends ServerController
+  and overrides processRequest() to record incoming requests and return
+  configurable responses.
+
+  A @BeforeAll method pre-creates the expected directory structure under
+  java.io.tmpdir/cs401-fake-server-data/ so DataManager can initialise
+  without the live project data/ folder.
+
+  Each test calls waitFor() to poll a condition with a 2-second timeout
+  instead of blocking with Thread.sleep.
+
+  register_sendsRegisterRequestType
+  register_payloadHasCorrectFields
+  login_sendsLoginRequestType
+  login_payloadHasCorrectLoginName
+  logout_sendsLogoutRequestType
+  logout_senderIdIsCurrentUserId
+  sendMessage_sendsMessageRequestType
+  sendMessage_payloadHasCorrectTextAndConversationId
+  createConversation_sendsCreateConversationRequestType
+  addToConversation_sendsAddParticipantRequestType
+  leaveConversation_sendsLeaveConversationRequestType
+  leaveConversation_payloadHasCorrectConversationId
+  joinConversation_sendsJoinConversationRequestType
+  adminGetUserConversations_sendsAdminConversationQueryType
+  actionMethods_noOpWhenNotLoggedIn
+
+
+SEED DATA USED
+--------------
+All tests use constants and factory methods from NetworkingSeedData:
+
+  ALICE — id=1001, name="Alice", login="alice"   (primary user for login tests)
+  BOB   — id=1002, name="Bob",   login="bob"     (secondary participant)
+  CAROL — id=1003, name="Carol White", login="carol"  (for register tests)
+
+Test conversation id=100 always has Alice + Bob as participants.
+Test conversation id=200 is used in admin search result tests.
+
+
+CONSISTENCY WITH DataManager
+------------------------------
+Every RequestType sent by a ClientController action method has a
+corresponding handler in DataManager.  The mapping is:
+
+  ClientController.register()               → DataManager.handleRegister()
+  ClientController.login()                  → DataManager.handleLogin()
+  ClientController.logout()                 → DataManager.handleLogout()
+  ClientController.sendMessage()            → DataManager.handleSendMessage()
+  ClientController.createConversation()     → DataManager.handleCreateConversation()
+  ClientController.addToConversation()      → DataManager.handleAddToConversation()
+  ClientController.leaveConversation()      → DataManager.handleLeaveConversation()
+  ClientController.joinConversation()       → DataManager.handleJoinConversation()
+  ClientController.adminGetUserConversations() → DataManager.handleAdminConversationQuery()
+
+Payload class pairing (Request → Response):
+  LoginCredentials     → LoginResult
+  RegisterCredentials  → RegisterResult
+  (no payload)         → (LOGOUT_RESULT type, no payload accessed)
+  RawMessage           → Message
+  CreateConversationPayload → Conversation
+  AddToConversationPayload  → Conversation
+  LeaveConversationPayload  → LeaveResult
+  JoinConversationPayload   → Conversation
+  AdminConversationQuery    → AdminConversationResult
+
+
+HOW TO RUN THE TESTS
+--------------------
+From D:\CS401-Communications:
+
+  1. Compile (src + test):
+     javac -d bin -sourcepath "src;test" -cp "bin;lib\junit-platform-console-standalone-1.10.5.jar" ^
+       (Get-ChildItem -Recurse -Filter "*.java" -Path src,test | Select-Object -ExpandProperty FullName)
+
+  2. Run ClientControllerTest:
+     java -jar lib\junit-platform-console-standalone-1.10.5.jar ^
+       -cp bin --select-class client.ClientControllerTest
+
+  3. Run all tests (including NetworkingTest):
+     java -jar lib\junit-platform-console-standalone-1.10.5.jar ^
+       -cp bin --scan-class-path
