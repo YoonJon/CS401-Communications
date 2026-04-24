@@ -1,6 +1,8 @@
 package shared.payload;
 
 import java.util.Date;
+import java.time.*;
+import java.time.format.DateTimeFormatter;
 
 /**
  * A conversation message. The {@linkplain #getSequenceNumber() sequence number} is assigned by the server
@@ -26,4 +28,6 @@ public class Message implements ResponsePayload {
     public String getSenderId() { return senderId; }
     public long getSequenceNumber() { return sequenceNumber; }
     public Date getTimestamp() { return timestamp; }
+    public String toString(){return timestamp.toInstant().atZone(ZoneId.systemDefault()
+    ).format(DateTimeFormatter.ofPattern("LLL dd HH:mm"))+" "+senderId+": "+text;}
 }

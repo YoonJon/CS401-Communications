@@ -21,4 +21,5 @@ public class ConversationMetadata implements ResponsePayload {
     public ArrayList<UserInfo> getParticipants() { return participants; }
     public ArrayList<UserInfo> getHistoricalParticipants() { return historicalParticipants; }
     public ConversationType getType() { return type; }
+    public String toString(){return "Conversation "+conversationId+": "+participants.toString();}
 }
