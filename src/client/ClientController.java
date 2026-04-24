@@ -15,30 +15,17 @@ public class ClientController {
     // -------------------------------------------------------------------------
 
     private ClientUI gui;
-<<<<<<< HEAD
 
-=======
-<<<<<<< HEAD
->>>>>>> 46d970ef4c8535bbaf25a62e42faa1128eba1f94
     private ConnectionStatus connectionStatus;
     private Deque<Request> requestQueue;
     private boolean loggedIn;
     private UserInfo currentUser;
-<<<<<<< HEAD
-
-=======
-=======
->>>>>>> 46d970ef4c8535bbaf25a62e42faa1128eba1f94
 
     // -------------------------------------------------------------------------
     // Server endpoint (fixed for this controller instance)
     // -------------------------------------------------------------------------
 
-<<<<<<< HEAD
 
-=======
->>>>>>> origin/main
->>>>>>> 46d970ef4c8535bbaf25a62e42faa1128eba1f94
     private String hostIp;
     private int hostPort;
 
@@ -48,13 +35,7 @@ public class ClientController {
 
     private ConnectionStatus connectionStatus;
     private Socket socket;
-<<<<<<< HEAD
 
-
-=======
-<<<<<<< HEAD
-=======
->>>>>>> 46d970ef4c8535bbaf25a62e42faa1128eba1f94
     private ObjectOutputStream outputStream;
     private ObjectInputStream inputStream;
 
@@ -78,20 +59,12 @@ public class ClientController {
     // Client-side caches backing list views / filters
     // -------------------------------------------------------------------------
 
-<<<<<<< HEAD
 
-=======
->>>>>>> origin/main
->>>>>>> 46d970ef4c8535bbaf25a62e42faa1128eba1f94
     private ArrayList<Conversation> conversations;
     /** 0 means no conversation selected. */
     private long currentConversationId;
     private ArrayList<UserInfo> currentDirectory;
-<<<<<<< HEAD
 
-=======
-<<<<<<< HEAD
->>>>>>> 46d970ef4c8535bbaf25a62e42faa1128eba1f94
     private ArrayList<Conversation> currentConversationList;
     private ArrayList<Conversation> currentAdminConversationSearch;
     private Thread responseListenerThread;
@@ -100,11 +73,7 @@ public class ClientController {
     public static void main(String[] args) {
     	ClientController ctr = new ClientController("localhost", 8080);
     
-<<<<<<< HEAD
 
-=======
-=======
->>>>>>> 46d970ef4c8535bbaf25a62e42faa1128eba1f94
     private ArrayList<ConversationMetadata> currentAdminConversationSearch;
 
     // -------------------------------------------------------------------------
@@ -123,11 +92,7 @@ public class ClientController {
                 break;
             }
         }
-<<<<<<< HEAD
 
-=======
->>>>>>> origin/main
->>>>>>> 46d970ef4c8535bbaf25a62e42faa1128eba1f94
     }
 
     public ClientController(String hostIp, int hostPort) {
@@ -141,11 +106,7 @@ public class ClientController {
         this.currentConversationList = new ArrayList<>();
         this.currentAdminConversationSearch = new ArrayList<>();
         this.gui = new ClientUI(this);
-<<<<<<< HEAD
 
-=======
-<<<<<<< HEAD
->>>>>>> 46d970ef4c8535bbaf25a62e42faa1128eba1f94
         gui.showMainView();
     }
 
@@ -159,11 +120,7 @@ public class ClientController {
 
     private void ensureConnected() {
         // TODO: lazily establish TCP connection if not connected
-<<<<<<< HEAD
 
-=======
-=======
->>>>>>> 46d970ef4c8535bbaf25a62e42faa1128eba1f94
         gui.showLoginView();
         startRequestDrainThread();
         startResponseListenerThread();
@@ -414,11 +371,7 @@ public class ClientController {
         inputStream = new ObjectInputStream(socket.getInputStream());
         connectionStatus = ConnectionStatus.CONNECTED;
         lastServerActivityMillis = System.currentTimeMillis();
-<<<<<<< HEAD
 
-=======
->>>>>>> origin/main
->>>>>>> 46d970ef4c8535bbaf25a62e42faa1128eba1f94
     }
 
     public void register(String userId, String realName, String loginName, char[] password) {
@@ -429,14 +382,7 @@ public class ClientController {
         // TODO
     }
 
-<<<<<<< HEAD
-    public void logout() {
-        // TODO
-<<<<<<< HEAD
 
-=======
-=======
->>>>>>> 46d970ef4c8535bbaf25a62e42faa1128eba1f94
     /**
      * Clears local session (lists, queue, flags), shows login UI, sends {@link RequestType#LOGOUT} on the
      * wire (if connected), then {@link #disconnectSocket(String)}. Session tracking lives outside
@@ -454,22 +400,14 @@ public class ClientController {
         requestQueue.clear();
         if (gui != null) gui.showLoginView();
         disconnectSocket(userId);
-<<<<<<< HEAD
 
-=======
->>>>>>> origin/main
->>>>>>> 46d970ef4c8535bbaf25a62e42faa1128eba1f94
     }
 
     public void sendMessage(Conversation conversation, String m) {
         // TODO
     }
 
-<<<<<<< HEAD
 
-=======
-<<<<<<< HEAD
->>>>>>> 46d970ef4c8535bbaf25a62e42faa1128eba1f94
     public void searchDirectory(String query) {
         // TODO
     }
@@ -478,15 +416,7 @@ public class ClientController {
         // TODO
     }
 
-<<<<<<< HEAD
 
-    /** Matches DataManager.handleAdminConversationQuery — payload: AdminConversationQuery(userId). */
-
-=======
-=======
-    /** Matches DataManager.handleAdminConversationQuery — payload: AdminConversationQuery(userId). */
->>>>>>> origin/main
->>>>>>> 46d970ef4c8535bbaf25a62e42faa1128eba1f94
     public void adminConversationSearch(String query) {
         // TODO
     }
@@ -534,17 +464,7 @@ public class ClientController {
     }
 
     public UserInfo getCurrentUserInfo() { return currentUser; }
-<<<<<<< HEAD
 
-    public boolean isLoggedIn()           { return loggedIn; }
-
-=======
-<<<<<<< HEAD
-    
-=======
-    public boolean isLoggedIn()           { return loggedIn; }
->>>>>>> origin/main
->>>>>>> 46d970ef4c8535bbaf25a62e42faa1128eba1f94
 
     public ArrayList<UserInfo> getFilteredDirectory(String query) {
     	ArrayList<UserInfo> filtered = new ArrayList<>();
@@ -590,11 +510,7 @@ public class ClientController {
     }
 
     // -------------------------------------------------------------------------
-<<<<<<< HEAD
 
-=======
-<<<<<<< HEAD
->>>>>>> 46d970ef4c8535bbaf25a62e42faa1128eba1f94
     class ResponseListener implements Runnable {
         public ResponseListener() {}
 
@@ -612,11 +528,7 @@ public class ClientController {
         public void run() {
             // TODO: monitor lastActivityTimestamp, trigger logout on inactivity
         }
-<<<<<<< HEAD
 
-=======
-=======
->>>>>>> 46d970ef4c8535bbaf25a62e42faa1128eba1f94
     // Background thread starters (daemon workers for queue drain, responses,
     // and connection / ping keepalive).
     // -------------------------------------------------------------------------
@@ -728,10 +640,6 @@ public class ClientController {
         }, "client-inact");
         inactivityDetectorThread.setDaemon(true);
         inactivityDetectorThread.start();
-<<<<<<< HEAD
 
-=======
->>>>>>> origin/main
->>>>>>> 46d970ef4c8535bbaf25a62e42faa1128eba1f94
     }
 }

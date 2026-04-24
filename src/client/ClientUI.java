@@ -38,12 +38,7 @@ public class ClientUI {
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.setLocationRelativeTo(null);       
         frame.setVisible(true);
-<<<<<<< HEAD
 
-=======
-<<<<<<< HEAD
-=======
->>>>>>> 46d970ef4c8535bbaf25a62e42faa1128eba1f94
         Toolkit.getDefaultToolkit().addAWTEventListener(
             e -> {
                 lastUserActivityMillis = System.currentTimeMillis();
