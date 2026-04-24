@@ -133,5 +133,7 @@ public class User implements Serializable {
         public void setLastRead(long conversationId, long sequenceNumber) {
             lastRead.put(conversationId, sequenceNumber);
         }
+
+        public String toString(){return name+" ("+userId+")";}
     }
 }

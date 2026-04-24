@@ -573,10 +573,6 @@ public class DataManager {
             conversationList));
     }
 
-    public Response handleLogout(Request request) {
-        return new Response(ResponseType.LOGOUT_RESULT);
-    }
-
     public Response handleSendMessage(Request request) {
         // this method needs to do 3 things:
         // 1. assign a sequence number and timestamp to the message

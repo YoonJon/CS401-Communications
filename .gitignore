@@ -52,3 +52,8 @@ Thumbs.db
 *.tmp
 *.swp
 *~
+
+# =========================
+# Local test fixtures
+# =========================
+test_data/
