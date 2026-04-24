@@ -72,10 +72,6 @@ class ClientControllerTest {
                 new RegisterResult(RegisterStatus.USER_ID_TAKEN));
     }
 
-    private static Response logoutResult() {
-        return new Response(ResponseType.LOGOUT_RESULT);
-    }
-
     private static Response messageFor(long convId, String text) {
         Message m = new Message(text, 1L, new Date(), NetworkingSeedData.ALICE_ID, convId);
         return new Response(ResponseType.MESSAGE, m);
@@ -169,40 +165,24 @@ class ClientControllerTest {
     }
 
     // =========================================================================
-    // 3. LOGOUT_RESULT (4 tests)
+    // 3. logout() — clears session (no LOGOUT_RESULT on wire)
     // =========================================================================
 
     @Test
-    void logoutResult_clearsLoggedInFlag() {
-        ClientController c = headless();
-        c.processResponse(loginSuccessAliceWithConv());
-        c.processResponse(logoutResult());
-        assertFalse(c.isLoggedIn());
-    }
-
-    @Test
-    void logoutResult_clearsCurrentUser() {
-        ClientController c = headless();
-        c.processResponse(loginSuccessAliceWithConv());
-        c.processResponse(logoutResult());
-        assertNull(c.getCurrentUserInfo());
-    }
-
-    @Test
-    void logoutResult_clearsConversationList() {
-        ClientController c = headless();
-        c.processResponse(loginSuccessAliceWithConv());
-        c.processResponse(logoutResult());
-        assertEquals(0, c.getFilteredConversationList(null).size());
-    }
-
-    @Test
-    void logoutResult_resetsCurrentConversationId() {
+    void logout_afterLogin_clearsLoggedInAndUserAndConversations() {
         ClientController c = headless();
         c.processResponse(loginSuccessAliceWithConv());
         c.setCurrentConversationId(100L);
-        c.processResponse(logoutResult());
+        ArrayList<UserInfo> dir = new ArrayList<>();
+        dir.add(bob());
+        c.setCurrentDirectoryForTesting(dir);
+        c.logout();
+        assertFalse(c.isLoggedIn());
+        assertNull(c.getCurrentUserInfo());
+        assertEquals(0, c.getFilteredConversationList(null).size());
         assertEquals(-1L, c.getCurrentConversationId());
+        assertEquals(0, c.getFilteredDirectory(null).size());
+        assertEquals(0, c.getFilteredAdminConversationSearch("").size());
     }
 
     // =========================================================================

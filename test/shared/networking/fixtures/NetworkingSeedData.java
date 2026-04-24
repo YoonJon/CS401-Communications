@@ -210,10 +210,6 @@ public final class NetworkingSeedData {
         return new Response(ResponseType.LOGIN_RESULT, lr);
     }
 
-    public static Response logoutResultResponse() {
-        return new Response(ResponseType.LOGOUT_RESULT, new FakePayload("logged-out"));
-    }
-
     // =========================================================================
     // Response factories — registration
     // =========================================================================

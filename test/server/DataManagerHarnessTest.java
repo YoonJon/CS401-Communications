@@ -173,12 +173,6 @@ public class DataManagerHarnessTest {
     }
 
     @Test
-    void handleLogout_returnsLogoutResult() {
-        Response out = dm.handleLogout(new Request(RequestType.LOGOUT, "u1"));
-        assertEquals(ResponseType.LOGOUT_RESULT, out.getType());
-    }
-
-    @Test
     void handleCreateConversation_emptyParticipants_returnsNull() {
         Response r = dm.handleCreateConversation(new Request(RequestType.CREATE_CONVERSATION,
                 new CreateConversationPayload(new ArrayList<>()),
@@ -223,18 +217,10 @@ public class DataManagerHarnessTest {
                     "register " + rc.getUserId());
         }
 
-        // --- Login / logout
+        // --- Login
         Response login1 = dm.handleLogin(new Request(RequestType.LOGIN,
                 new LoginCredentials("alice", "p1"), null));
         assertEquals(LoginStatus.SUCCESS, ((LoginResult) login1.getPayload()).getLoginStatus(), "login1");
-
-        assertEquals(ResponseType.LOGOUT_RESULT,
-                dm.handleLogout(new Request(RequestType.LOGOUT, "u1")).getType(),
-                "logout");
-
-        Response login2 = dm.handleLogin(new Request(RequestType.LOGIN,
-                new LoginCredentials("alice", "p1"), null));
-        assertEquals(LoginStatus.SUCCESS, ((LoginResult) login2.getPayload()).getLoginStatus(), "login2");
 
         // --- Private conversation u1–u2
         Response createPrivate = dm.handleCreateConversation(new Request(RequestType.CREATE_CONVERSATION,
