@@ -2,6 +2,7 @@ package client;
 
 
 import shared.enums.*;
+import shared.networking.User.UserInfo;
 import shared.payload.*;
 
 import javax.swing.*;
@@ -48,23 +49,14 @@ public class ClientUI {
     public void chooseLoginView() { showLoginView(); }
     public void chooseRegisterView() { showRegisterView(); }
 
-    public DefaultListModel getDirectoryViewModel() { return cards.getMainDirectoryListModel(); }
+    public DefaultListModel<UserInfo> getDirectoryViewModel() { return cards.getMainDirectoryListModel(); }
     public void setDirectoryViewModel(DefaultListModel model) {cards.setMainDirectoryListModel(model); }
     public DefaultListModel<Conversation> getConversationViewModel() { return cards.getMainConversationMessageListModel(); }
     public void setConversationViewModel(Conversation currentCon) {cards.setMainConversationMessageListModel(currentCon); }
-    public DefaultListModel getConversationListViewModel() { return cards.getMainConversationListModel(); }
+    public DefaultListModel<Conversation> getConversationListViewModel() { return cards.getMainConversationListModel(); }
     public void setConversationListViewModel(DefaultListModel model) {cards.setMainConversationListModel(model); }
-    public DefaultListModel getSelectUserWindowModel() { return selectUserWindow.model; }
-    public DefaultListModel getAdminConversationSearchWindowModel() { return adminConversationSearchWindow.model; }
-
-    public void setDirectoryQuery(String query) { directoryView.searchField.setText(query); }
-    public String getDirectoryQuery() { return userDirectory.searchField.getText(); }
-
-    public void setConversationQuery(String query) { chatView.text.setText(query); }
-    public String getConversationQuery() { return chatView.text.getText(); }
-
-    public void setAdminConversationQuery(String q) { adminConversationSearchWindow.searchField.setText(q); }
-    public String getAdminConversationQuery() { return adminConversationSearchWindow.searchField.getText(); }
+    
+    public DefaultListModel<Conversation> getAdminConversationSearchWindowModel() { return cards.getMainAdminConversationModel(); }
 
     public boolean isSelectingUsers() { return cards.isSelectingUser(); }
     public boolean isAdminSearchingConversation() { return cards.isAdminSearching(); }
@@ -117,6 +109,10 @@ public class ClientUI {
         
         public Boolean isAdminSearching() {
         	return main.isAdminSearching();
+        }
+        
+        public DefaultListModel<Conversation> getMainAdminConversationModel() {
+        	return main.getAdminConversationModel();
         }
     }
 
@@ -364,6 +360,10 @@ public class ClientUI {
         public Boolean isAdminSearching() {
         	return directoryView.isAdminSearching();
         }
+        
+        public DefaultListModel<Conversation> getAdminConversationModel() {
+        	return directoryView.getAdminConversationModel();
+        }
     }
 
     // =========================================================================
@@ -382,6 +382,7 @@ public class ClientUI {
             addButton = new JButton("Add");
             leaveButton = new JButton("Leave");
             text = new JTextField(15);
+            text.setEnabled(false);
             sendButton = new JButton("Send");
             
             setLayout(new BorderLayout());
@@ -416,6 +417,7 @@ public class ClientUI {
             
             add(sendPane, BorderLayout.SOUTH);
             
+            // add action to add button
             addButton.addActionListener(e -> {
             	
             	if (addDialog != null && addDialog.isVisible()) {
@@ -441,6 +443,42 @@ public class ClientUI {
 
                 addDialog.setVisible(true);
                       	
+            });
+            
+            // add action to leave button
+            leaveButton.addActionListener(e -> {
+            	int result = JOptionPane.showConfirmDialog(null, "Are you sure to leave this conversation?", "Confirm to Leave", JOptionPane.YES_NO_OPTION);
+            	if(result == JOptionPane.YES_OPTION) {
+            		controller.leaveConversation(controller.getCurrentConversationId());
+            	}
+            });
+            
+            // add action to text field (detecting if there is a text)
+            text.getDocument().addDocumentListener(new DocumentListener() {
+
+                private void update() {
+                    sendButton.setEnabled(!text.getText().trim().isEmpty());
+                }
+
+                @Override
+                public void insertUpdate(DocumentEvent e) {
+                    update();
+                }
+
+                @Override
+                public void removeUpdate(DocumentEvent e) {
+                    update();
+                }
+
+                @Override
+                public void changedUpdate(DocumentEvent e) {
+                    update();
+                }
+            });
+            
+            // add action to send button
+            sendButton.addActionListener(e -> {
+            	controller.sendMessage(controller.getCurrentConversation(), text.getText());
             });
                       
         }
@@ -475,7 +513,7 @@ public class ClientUI {
         JLabel userLabel;
         JLabel nameLabel;
         JTextField searchField;
-        DefaultListModel listModel = new DefaultListModel<UserInfo>();
+        DefaultListModel<UserInfo> listModel = new DefaultListModel<>();
         JList<UserInfo> list = new JList<>(listModel);
         JButton logoutButton;
         JButton createConversationButton;
@@ -496,9 +534,7 @@ public class ClientUI {
             createConversationButton = new JButton("Create Conversation");
             // gray-out until select the user
             createConversationButton.setEnabled(false);
-            
-            listModel.addElement(new UserInfo());
-                        
+                                    
             // user is admin
             if(controller.getCurrentUserInfo().getUserType().equals(UserType.ADMIN)) {
             	adminButton = new JButton("Admin");
@@ -561,16 +597,19 @@ public class ClientUI {
                 }
             });
             
+            // add action to the log in button
+            logoutButton.addActionListener(e -> {
+            	controller.logout();
+            });
         
             // add action to the create conversation button
             createConversationButton.addActionListener(e -> {
-            	
+            	// if createDialog is open
             	if (createDialog != null && createDialog.isVisible()) {
                     createDialog.toFront();
                     createDialog.requestFocus();
                     return;
                 }
-
                
             	createPane = new SelectUserWindow();
                 createDialog = new JDialog(frame, "Select User", false);
@@ -597,7 +636,8 @@ public class ClientUI {
             		adminDialog.requestFocus();
                     return;
                 }
-
+            	
+            	controller.adminGetUserConversations(selecting.getUserId());
             	adminPane= new AdminConversationSearchWindow();
                 adminDialog = new JDialog(frame, "Searching Conversations", false);
                 adminDialog.add(adminPane);
@@ -628,8 +668,7 @@ public class ClientUI {
 							 }
 						 } else if(createDialog.isVisible()) { // if selectUser window is open
 							 createPane.addUser(selecting);
-						 }
-							
+						 }							
 			    }
             });
             
@@ -650,19 +689,24 @@ public class ClientUI {
         public Boolean isAdminSearching() {
         	return createDialog.isVisible();
         }
+        
+        public DefaultListModel<Conversation> getAdminConversationModel() {
+        	return adminPane.getAdminConversationSearch();
+        }
+        
+        
     }
 
     // =========================================================================
     class ConversationListView extends JPanel {
         JTextField searchField;
-        DefaultListModel listModel;
-        JList list;
+        DefaultListModel<Conversation> listModel = new DefaultListModel<>();
+        JList<Conversation>	list = new JList<>(listModel);
         
 
         ConversationListView() {
-        	searchField = new JTextField(15);
-            listModel = new DefaultListModel();
-            list = new JList(listModel);
+        	searchField = new JTextField(15);          
+
             
             // searchField is located on the upper of the window.
             setLayout(new BorderLayout());
@@ -687,6 +731,15 @@ public class ClientUI {
                     }                   
                 }
             });
+            
+            // add action for selecting an item from the list
+            list.addListSelectionListener(e-> {
+            	if (!e.getValueIsAdjusting()) {
+    				if(list.getSelectedValue() != null) {
+    					controller.setCurrentConversationId(list.getSelectedValue().getConversationId());
+    				}
+            	}    					 				
+            });           
         }
         
         
@@ -694,7 +747,7 @@ public class ClientUI {
         	this.listModel = model;
         }
         
-        public DefaultListModel getListModel() {
+        public DefaultListModel<Conversation> getListModel() {
         	return this.listModel;
         }
     }
@@ -706,10 +759,11 @@ public class ClientUI {
         JButton removeButton;
         JButton okButton;
         JButton cancelButton;
+    
         
-
         SelectUserWindow() {
             removeButton = new JButton("Remove");
+            removeButton.setEnabled(false);
             okButton = new JButton("OK");
             cancelButton = new JButton("Cancel");
             
@@ -720,22 +774,47 @@ public class ClientUI {
             
             // buttons are located on the bottom of the window
         	JPanel buttonPane = new JPanel(new FlowLayout());
+        	buttonPane.add(removeButton);
         	buttonPane.add(okButton);
         	buttonPane.add(cancelButton);
         	
         	add(buttonPane, BorderLayout.SOUTH);
         	
+        	// add action to Remove button
+        	removeButton.addActionListener(e -> {
+
+        	    UserInfo selected = list.getSelectedValue();
+
+        	    if (selected != null) {
+        	        model.removeElement(selected);
+        	    }
+        	});
+        	
+        	// add action to OK button
             okButton.addActionListener(e -> {
-            	// sent the list
+            	if(model.size() != 0) {
+                	// sent the list
+            	}
                 Window window = SwingUtilities.getWindowAncestor(this);
                 window.dispose();            
             });
             
+            // add action to cancel button
             cancelButton.addActionListener(e -> {
             	model.clear();
                 Window window = SwingUtilities.getWindowAncestor(this);
                 window.dispose();  
             });
+            
+            
+            // add action for selecting an item from the list
+            list.addListSelectionListener(e-> {
+            	if (!e.getValueIsAdjusting()) {
+						 UserInfo selecting = list.getSelectedValue();
+						 // if the another window is not visible, shows the button
+						 removeButton.setEnabled(selecting != null);
+			    }
+            });            
         }
         
         // add user to selecting list
@@ -754,17 +833,17 @@ public class ClientUI {
     // =========================================================================
     class AdminConversationSearchWindow extends JPanel {
         JTextField searchField;
-        DefaultListModel model;
-        JList list;
+        DefaultListModel<Conversation> model = new DefaultListModel<>();
+        JList<Conversation> list = new JList<>(model);
         JButton okButton;
         JButton cancelButton;
+        
 
 
         AdminConversationSearchWindow() {
-            model = new DefaultListModel();
-            list = new JList(model);
             searchField = new JTextField(15);
             okButton = new JButton("OK");
+            okButton.setFocusTraversalKeysEnabled(false);
             cancelButton = new JButton("Cancel");
             
             setLayout(new BorderLayout());
@@ -799,19 +878,32 @@ public class ClientUI {
                 }
             });
         	
+        	// add action for selecting an item from the list
+            list.addListSelectionListener(e-> {
+            	if (!e.getValueIsAdjusting()) {
+						 Conversation selecting = list.getSelectedValue();
+						 // if the another window is not visible, shows the buttons
+						 okButton.setEnabled(selecting != null);
+			    }
+            });  
+            
         	// add action to okButton
             okButton.addActionListener(e -> {
-            	// sent the list
+            	controller.joinConversation(list.getSelectedValue().getConversationId());
                 Window window = SwingUtilities.getWindowAncestor(this);
                 window.dispose();            
             });
             
             // add action to cancelButton
             cancelButton.addActionListener(e -> {
-            	// clear the list
+            	model.clear();
                 Window window = SwingUtilities.getWindowAncestor(this);
                 window.dispose();  
             });
+        }
+        
+        public DefaultListModel<Conversation> getAdminConversationSearch() {
+        	return model;
         }
         
     }

@@ -2,15 +2,17 @@ package shared.payload;
 
 import java.util.ArrayList;
 
-public class AddToConversationPayload implements Payload {
-    private ArrayList<UserInfo> participants;
-    private String targetConversationId;
+import shared.networking.User.UserInfo;
 
-    public AddToConversationPayload(ArrayList<UserInfo> p, String t) {
+public class AddToConversationPayload implements RequestPayload {
+    private final ArrayList<UserInfo> participants;
+    private final long targetConversationId;
+
+    public AddToConversationPayload(ArrayList<UserInfo> p, long targetConversationId) {
         this.participants = p;
-        this.targetConversationId = t;
+        this.targetConversationId = targetConversationId;
     }
 
     public ArrayList<UserInfo> getParticipants() { return participants; }
-    public String getTargetConversationId() { return targetConversationId; }
+    public long getTargetConversationId() { return targetConversationId; }
 }

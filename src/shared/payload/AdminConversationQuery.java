@@ -1,11 +1,11 @@
 package shared.payload;
 
-public class AdminConversationQuery implements Payload {
-    private String conversationQuery;
+public class AdminConversationQuery implements RequestPayload {
+    private final String userId;
 
-    public AdminConversationQuery(String c_id) {
-        this.conversationQuery = c_id;
+    public AdminConversationQuery(String userId) {
+        this.userId = userId;
     }
 
-    public String getQuery() { return conversationQuery; }
+    public String getUserId() { return userId; }
 }
