@@ -38,8 +38,7 @@ public class ClientUI {
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.setLocationRelativeTo(null);       
         frame.setVisible(true);
-<<<<<<< HEAD
-=======
+
         Toolkit.getDefaultToolkit().addAWTEventListener(
             e -> {
                 lastUserActivityMillis = System.currentTimeMillis();
@@ -59,7 +58,6 @@ public class ClientUI {
                 && idleMs >= USER_IDLE_LOGOUT_AFTER_MS) {
             controller.logout();
         }
->>>>>>> origin/main
     }
 
     public void showLoginView() { cards.layout.show(cards, "login"); }
