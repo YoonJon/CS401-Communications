@@ -60,8 +60,8 @@ public class ClientController {
     // -------------------------------------------------------------------------
 
     private ArrayList<Conversation> conversations;
-    /** 0 means no conversation selected. */
-    private long currentConversationId;
+    /** -1 means no conversation selected. */
+    private long currentConversationId = -1;
     private ArrayList<UserInfo> currentDirectory;
     private ArrayList<ConversationMetadata> currentAdminConversationSearch;
 
@@ -81,7 +81,6 @@ public class ClientController {
                 break;
             }
         }
-
     }
 
     public ClientController(String hostIp, int hostPort) {
@@ -423,6 +422,7 @@ public class ClientController {
                 new AdminConversationQuery(userID), currentUser.getUserId()));
     }
 
+    /** Matches DataManager.handleJoinConversation — payload: JoinConversationPayload(conversationId). */
     public void joinConversation(long conversationId) {
         if (!loggedIn || currentUser == null || currentUser.getUserType() != UserType.ADMIN) return;
         enqueueRequest(new Request(RequestType.JOIN_CONVERSATION,
