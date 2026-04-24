@@ -175,12 +175,9 @@ public class ConnectionHandler implements Runnable {
                 // --- dispatch ---
                 try {
                     Response response = serverController.processRequest(request);
+                    handleSessionTransition(request, response);
                     if (response != null) {
-                        handleSessionTransition(request, response);
                         sendResponse(response);
-
-                        // After sending LOGOUT_RESULT the session is already removed;
-                        // keep the socket open so the response drains before the client closes.
                     }
                 } catch (Exception e) {
                     // Don't kill the connection for a server-side error on one request.
@@ -195,11 +192,12 @@ public class ConnectionHandler implements Runnable {
          * Inspects the outbound response to drive auth/session state transitions:
          * <ul>
          *   <li>Successful LOGIN  → mark authenticated, register with ServerController.</li>
-         *   <li>LOGOUT (any resp) → clear authenticated state, deregister session.</li>
+         *   <li>LOGOUT (response may be {@code null}) → clear authenticated state, deregister session.</li>
          * </ul>
          */
         private void handleSessionTransition(Request request, Response response) {
             if (request.getType() == RequestType.LOGIN
+                    && response != null
                     && response.getType() == ResponseType.LOGIN_RESULT
                     && response.getPayload() instanceof LoginResult) {
 

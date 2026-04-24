@@ -1,6 +1,6 @@
 package client;
 
-
+import shared.networking.User.UserInfo;
 import shared.enums.*;
 import shared.payload.*;
 
@@ -12,9 +12,19 @@ import java.awt.*;
 import java.awt.event.*;
 
 public class ClientUI {
+
+    /** Last time a global key/mouse AWT event was observed (UI “user active”). */
+    private volatile long lastUserActivityMillis = System.currentTimeMillis();
+
     private ClientController controller;
     private JFrame frame;
     private ScreenCards cards;
+    /** Fires on the EDT every 5s to compare wall clock to {@link #lastUserActivityMillis}. */
+    private final Timer userIdlePollTimer;
+
+    private static final int USER_IDLE_POLL_MS = 5_000;
+    /** Optional: end session after this much in-app UI idle time (0 disables). Default 30 minutes. */
+    private static final long USER_IDLE_LOGOUT_AFTER_MS = 30L * 60L * 1000L;
 
     public ClientUI(ClientController controller) {
         this.controller = controller;
@@ -27,9 +37,24 @@ public class ClientUI {
         frame.setLocationRelativeTo(null);       
         frame.setVisible(true);
         Toolkit.getDefaultToolkit().addAWTEventListener(
-            e -> controller.updateLastActivity(),
+            e -> {
+                lastUserActivityMillis = System.currentTimeMillis();
+            },
             AWTEvent.KEY_EVENT_MASK | AWTEvent.MOUSE_EVENT_MASK
         );
+        userIdlePollTimer = new Timer(USER_IDLE_POLL_MS, e -> onUserIdlePollTick());
+        userIdlePollTimer.setRepeats(true);
+        userIdlePollTimer.start();
+    }
+
+    /** Runs on EDT each timer tick: elapsed time since last AWT user input. */
+    private void onUserIdlePollTick() {
+        long idleMs = System.currentTimeMillis() - lastUserActivityMillis;
+        if (USER_IDLE_LOGOUT_AFTER_MS > 0
+                && controller.isLoggedIn()
+                && idleMs >= USER_IDLE_LOGOUT_AFTER_MS) {
+            controller.logout();
+        }
     }
 
     public void showLoginView() { cards.layout.show(cards, "login"); }
