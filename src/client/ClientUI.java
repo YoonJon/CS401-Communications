@@ -58,10 +58,6 @@ public class ClientUI {
                 && idleMs >= USER_IDLE_LOGOUT_AFTER_MS) {
             controller.logout();
         }
-<<<<<<< HEAD
-=======
->>>>>>> origin/main
->>>>>>> 46d970ef4c8535bbaf25a62e42faa1128eba1f94
     }
 
     public void showLoginView() { cards.layout.show(cards, "login"); }
