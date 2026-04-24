@@ -73,6 +73,14 @@ public class ClientController {
 
     public static void main(String[] args) {
         new ClientController("localhost", 8080);
+        while (!Thread.currentThread().isInterrupted()) {
+            try {
+                Thread.sleep(1000L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
     }
 
     public ClientController(String hostIp, int hostPort) {
@@ -128,7 +136,7 @@ public class ClientController {
     }
 
     /** Interrupts workers and tears down the TCP connection. Use for application shutdown. */
-    public void close() {
+    private void close() {
         if (requestDrainThread != null) requestDrainThread.interrupt();
         if (responseListenerThread != null) responseListenerThread.interrupt();
         if (inactivityDetectorThread != null) inactivityDetectorThread.interrupt();
@@ -141,7 +149,7 @@ public class ClientController {
      * or inactivity threads — they keep running and can wait for the next lazy reconnect (e.g. after
      * manual logout while the UI stays up). For full shutdown use {@link #close()}.
      */
-    public synchronized void disconnectSocket() {
+    private synchronized void disconnectSocket() {
         disconnectSocket(null);
     }
 
@@ -150,7 +158,7 @@ public class ClientController {
      * up, sends {@link RequestType#LOGOUT} on the wire directly (not via {@link #requestQueue}) before
      * tearing down the socket.
      */
-    public synchronized void disconnectSocket(String logoutUserId) {
+    private synchronized void disconnectSocket(String logoutUserId) {
         if (logoutUserId != null && outputStream != null
                 && connectionStatus == ConnectionStatus.CONNECTED) {
             try {
@@ -379,24 +387,6 @@ public class ClientController {
                 new RawMessage(m, conversationId), currentUser.getUserId()));
     }
 
-    /** Filters local directory and refreshes the directory list model in the GUI. */
-    public void searchDirectory(String query) {
-        if (gui == null) return;
-        gui.getDirectoryViewModel().clear();
-        for (UserInfo u : getFilteredDirectory(query)) {
-            gui.getDirectoryViewModel().addElement(u);
-        }
-    }
-
-    /** Filters local conversation list and refreshes the conversation list model in the GUI. */
-    public void searchConversationList(String query) {
-        if (gui == null) return;
-        gui.getConversationListViewModel().clear();
-        for (Conversation c : getFilteredConversationList(query)) {
-            gui.getConversationListViewModel().addElement(c);
-        }
-    }
-
     /** Matches DataManager.handleAdminConversationQuery — payload: AdminConversationQuery(userId). */
     public void adminConversationSearch(String query) {
         if (!loggedIn || currentUser == null || currentUser.getUserType() != UserType.ADMIN) return;
@@ -437,6 +427,28 @@ public class ClientController {
         if (!loggedIn || currentUser == null || currentUser.getUserType() != UserType.ADMIN) return;
         enqueueRequest(new Request(RequestType.JOIN_CONVERSATION,
                 new JoinConversationPayload(conversationId), currentUser.getUserId()));
+    }
+
+    // -------------------------------------------------------------------------
+    // UI/local filtering + read-only accessors.
+    // -------------------------------------------------------------------------
+
+    /** Filters local directory and refreshes the directory list model in the GUI. */
+    public void searchDirectory(String query) {
+        if (gui == null) return;
+        gui.getDirectoryViewModel().clear();
+        for (UserInfo u : getFilteredDirectory(query)) {
+            gui.getDirectoryViewModel().addElement(u);
+        }
+    }
+
+    /** Filters local conversation list and refreshes the conversation list model in the GUI. */
+    public void searchConversationList(String query) {
+        if (gui == null) return;
+        gui.getConversationListViewModel().clear();
+        for (Conversation c : getFilteredConversationList(query)) {
+            gui.getConversationListViewModel().addElement(c);
+        }
     }
 
     public UserInfo getCurrentUserInfo() { return currentUser; }
@@ -539,12 +551,18 @@ public class ClientController {
                 }
                 try {
                     ensureConnected();
+                    sendRequest(r);
                 } catch (IOException e) {
                     requestQueue.addFirst(r);
                     connectionStatus = ConnectionStatus.NOT_CONNECTED;
                     e.printStackTrace();
+                    try {
+                        Thread.sleep(300L);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
                 }
-                sendRequest(r);
             }
         }, "request-drain");
         requestDrainThread.setDaemon(true);
@@ -568,7 +586,7 @@ public class ClientController {
 
                 readLoop:
                 while (!Thread.currentThread().isInterrupted()
-                        && connectionStatus == ConnectionStatus.CONNECTED) {
+                        && connectionStatus == ConnectionStatus.CONNECTED && inputStream != null) {
                     try {
                         Object obj = inputStream.readObject();
                         if (obj instanceof Response) {
