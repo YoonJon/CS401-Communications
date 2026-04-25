@@ -208,11 +208,7 @@ public class ClientController {
                         conversations = lr.getConversationList() != null
                                 ? lr.getConversationList() : new ArrayList<>();
                         if (gui != null) {
-                            if (currentUser.getUserType() == UserType.ADMIN) {
-                                gui.showAdminMainView();
-                            } else {
-                                gui.showMainView();
-                            }
+                            gui.showMainView();
                         }
                         break;
                     case INVALID_CREDENTIALS:
@@ -292,7 +288,7 @@ public class ClientController {
                     ArrayList<Conversation> snapshot = new ArrayList<>(conversations);
                     Conversation current = getCurrentConversation();
                     DefaultListModel conversationListModel = gui.getConversationListViewModel();
-                    DefaultListModel conversationViewModel = gui.getConversationViewModel();
+                    DefaultListModel<Message> conversationViewModel = gui.getConversationViewModel();
                     
                     SwingUtilities.invokeLater(() -> {
                         // Update conversation list (sidebar)

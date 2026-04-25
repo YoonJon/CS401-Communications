@@ -1,17 +1,14 @@
 package client;
 
-import shared.networking.User.UserInfo;
 import shared.enums.*;
 import shared.networking.User.UserInfo;
 import shared.payload.*;
 
 import javax.swing.*;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
+import javax.swing.event.*;
 
 import java.awt.*;
 import java.awt.event.*;
-import java.util.ArrayList;
 
 public class ClientUI {
 
@@ -60,9 +57,31 @@ public class ClientUI {
         }
     }
 
-    public void showLoginView() { cards.layout.show(cards, "login"); }
+    public void showLoginView() {
+        SwingUtilities.invokeLater(() -> {
+            cards.main.directoryView.adminButton.setVisible(false);
+            cards.main.directoryView.revalidate();
+            cards.main.directoryView.repaint();
+            cards.layout.show(cards, "login");
+        });
+    }
     public void showRegisterView() { cards.layout.show(cards, "register"); }
-    public void showMainView() { cards.layout.show(cards, "main"); }
+    
+    // currentUser is set by the time this is called
+    public void showMainView() {
+        SwingUtilities.invokeLater(() -> {
+            UserInfo currentUser = controller.getCurrentUserInfo();
+            boolean isAdmin = currentUser != null && currentUser.getUserType() == UserType.ADMIN;
+            cards.main.directoryView.adminButton.setVisible(isAdmin);
+            cards.main.directoryView.revalidate();
+            cards.main.directoryView.repaint();
+            if (currentUser != null) {
+                cards.main.directoryView.profileUserIdLabel.setText(currentUser.getUserId());
+                cards.main.directoryView.profileNameLabel.setText(currentUser.getName());
+            }
+            cards.layout.show(cards, "main");
+        });
+    }
 
     public void showRegisterError(RegisterStatus registerStatus) {
     	// need to identify which status???
@@ -74,22 +93,22 @@ public class ClientUI {
     	JOptionPane.showMessageDialog(frame, "Log in is failed. Start over again.");
     }
 
-
-    public void chooseMainView() { showMainView(); }
-    public void chooseLoginView() { showLoginView(); }
-    public void chooseRegisterView() { showRegisterView(); }
-
-    public DefaultListModel<UserInfo> getDirectoryViewModel() { return cards.getMainDirectoryListModel(); }
-    public void setDirectoryViewModel(DefaultListModel model) {cards.setMainDirectoryListModel(model); }
-    public DefaultListModel<Conversation> getConversationViewModel() { return cards.getMainConversationMessageListModel(); }
-    public void setConversationViewModel(Conversation currentCon) {cards.setMainConversationMessageListModel(currentCon); }
-    public DefaultListModel<Conversation> getConversationListViewModel() { return cards.getMainConversationListModel(); }
-    public void setConversationListViewModel(DefaultListModel model) {cards.setMainConversationListModel(model); }
+    public DefaultListModel<UserInfo> getDirectoryViewModel() { return cards.main.directoryView.getListModel(); }
+    public DefaultListModel<Message> getConversationViewModel() { return cards.main.conversationView.getListModel(); }
+    public DefaultListModel<Conversation> getConversationListViewModel() { return cards.main.conversationListView.getListModel(); }
     
-    public DefaultListModel<Conversation> getAdminConversationSearchWindowModel() { return cards.getMainAdminConversationModel(); }
+    public DefaultListModel<ConversationMetadata> getAdminConversationSearchWindowModel() {
+        if (cards.main.directoryView.adminConversationSearchWindow == null
+                || cards.main.directoryView.adminConversationSearchWindow.model == null) {
+            return new DefaultListModel<>();
+        }
+        return cards.main.directoryView.adminConversationSearchWindow.model;
+    }
 
-    public boolean isSelectingUsers() { return cards.isSelectingUser(); }
-    public boolean isAdminSearchingConversation() { return cards.isAdminSearching(); }
+    public boolean isSelectingUsers() {
+        return cards.main.directoryView.isCreatingConversation() || cards.main.conversationView.isAddingUser();
+    }
+    public boolean isAdminSearchingConversation() { return cards.main.directoryView.isAdminSearching(); }
 
     // =========================================================================
     class ScreenCards extends JPanel {
@@ -107,42 +126,6 @@ public class ClientUI {
             add(login, "login");
             add(register, "register");
             add(main, "main");
-        }
-        
-        public void setMainDirectoryListModel(DefaultListModel model) {
-        	main.setDirectoryListModel(model);
-        }
-        
-        public DefaultListModel getMainDirectoryListModel() {
-        	return main.getDirectoryListModel();
-        }
-        
-        public void setMainConversationMessageListModel(Conversation currConv) {
-        	main.setMessageListModel(currConv);
-        }
-        
-        public DefaultListModel getMainConversationMessageListModel() {
-        	return main.getMessageListModel();
-        }
-        
-        public void setMainConversationListModel(DefaultListModel model) {
-        	main.setConversationListModel(model);
-        }
-        
-        public DefaultListModel getMainConversationListModel() {
-        	return main.getConversationListModel();
-        }
-        
-        public Boolean isSelectingUser() {
-        	return main.isSelectingUser();
-        }
-        
-        public Boolean isAdminSearching() {
-        	return main.isAdminSearching();
-        }
-        
-        public DefaultListModel<Conversation> getMainAdminConversationModel() {
-        	return main.getAdminConversationModel();
         }
     }
 
@@ -359,48 +342,13 @@ public class ClientUI {
  
         }
         
-        public void setDirectoryListModel(DefaultListModel model) {
-        	directoryView.setListModel(model);
-        }
-        
-        public DefaultListModel getDirectoryListModel() {
-        	return directoryView.getListModel();
-        }
-        
-        public void setMessageListModel(Conversation model) {
-        	conversationView.setListModel(model);
-        }
-        
-        public DefaultListModel getMessageListModel() {
-        	return conversationView.getListModel();
-        }
-        
-        public void setConversationListModel(DefaultListModel model) {
-        	conversationListView.setListModel(model);
-        }
-        
-        public DefaultListModel getConversationListModel() {
-        	return conversationListView.getListModel();
-        }
-        
-        public Boolean isSelectingUser() {
-        	return directoryView.isCreatingConversation() || conversationView.isAddingUser();
-        }
-        
-        public Boolean isAdminSearching() {
-        	return directoryView.isAdminSearching();
-        }
-        
-        public DefaultListModel<Conversation> getAdminConversationModel() {
-        	return directoryView.getAdminConversationModel();
-        }
     }
 
     // =========================================================================
     class ConversationView extends JPanel {
         JLabel participantsLabel;
-        DefaultListModel<Message> messageModel = new DefaultListModel<>();
-        JList<Message> list = new JList<>(messageModel);
+        DefaultListModel<Message> conversationMessageListModel = new DefaultListModel<>();
+        JList<Message> list = new JList<>(conversationMessageListModel);
         JButton addButton;
         JButton leaveButton;
         JTextField text;
@@ -508,12 +456,16 @@ public class ClientUI {
             
             // add action to send button
             sendButton.addActionListener(e -> {
-            	controller.sendMessage(controller.getCurrentConversation(), text.getText());
+                if(controller.getCurrentConversation() == null) {
+                    return;
+                }
+            	controller.sendMessage(controller.getCurrentConversation().getConversationId(), text.getText());
             });
                       
         }
         
         public void setListModel(Conversation currConv) {
+            // COMMENT: you can just use conversation.toString() to generate a participant
         	String member = "";
         	for(int i = 0; i < currConv.getParticipants().size(); i++) {
         		if(i != 0) {
@@ -521,27 +473,30 @@ public class ClientUI {
         		}
         		member += currConv.getParticipants().get(i).getName();
         	}
+            final String finalMember = member;
+        	SwingUtilities.invokeLater(() -> {
+        		participantsLabel.setText(finalMember);
+        	});
         	
-        	participantsLabel.setText(member);
-        	
+            conversationMessageListModel.clear();
         	for(int i = 0; i < currConv.getMessages().size(); i++) {
-        		messageModel.addElement(currConv.getMessages().get(i));
+        		conversationMessageListModel.addElement(currConv.getMessages().get(i));
         	}
         }
         
-        public DefaultListModel getListModel() {
-        	return this.messageModel;
+        public DefaultListModel<Message> getListModel() {
+        	return this.conversationMessageListModel;
         }
         
         public Boolean isAddingUser() {
-        	return addDialog.isVisible();
+        	return addDialog != null && addDialog.isVisible();
         }
     }
 
     // =========================================================================
     class DirectoryView extends JPanel {
-        JLabel userLabel;
-        JLabel nameLabel;
+        JLabel profileUserIdLabel;
+        JLabel profileNameLabel;
         JTextField searchField;
         DefaultListModel<UserInfo> listModel = new DefaultListModel<>();
         JList<UserInfo> list = new JList<>(listModel);
@@ -551,12 +506,12 @@ public class ClientUI {
         JDialog createDialog;
         JDialog adminDialog;
         UserInfo selecting;
-        SelectUserWindow createPane;
-        AdminConversationSearchWindow adminPane;
+        SelectUserWindow createConversationUserWindow;
+        AdminConversationSearchWindow adminConversationSearchWindow;
         
         DirectoryView() {
-        	userLabel = new JLabel(controller.getCurrentUserInfo().getUserId());
-        	nameLabel = new JLabel(controller.getCurrentUserInfo().getName());
+        	profileUserIdLabel = new JLabel();
+        	profileNameLabel = new JLabel();
             
             
             searchField = new JTextField(15);
@@ -564,14 +519,12 @@ public class ClientUI {
             createConversationButton = new JButton("Create Conversation");
             // gray-out until select the user
             createConversationButton.setEnabled(false);
-                                    
-            // user is admin
-            if(controller.getCurrentUserInfo().getUserType().equals(UserType.ADMIN)) {
-            	adminButton = new JButton("Admin");
-            	// gray-out until select the user
-                adminButton.setEnabled(false);
-            }
-                      
+                          
+            // construct admin button unconditionally and enable later if the user is admin
+            adminButton = new JButton("Admin");
+            adminButton.setEnabled(false);
+            adminButton.setVisible(false);
+
             setLayout(new BorderLayout());
             setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
             
@@ -584,10 +537,10 @@ public class ClientUI {
             
             gridConst.gridx = 0;
             gridConst.gridy = 0;
-            userPane.add(userLabel, gridConst);
+            userPane.add(profileUserIdLabel, gridConst);
             
             gridConst.gridy = 1;
-            userPane.add(nameLabel, gridConst);
+            userPane.add(profileNameLabel, gridConst);
             
             gridConst.gridy = 2;
             userPane.add(searchField, gridConst);
@@ -641,9 +594,9 @@ public class ClientUI {
                     return;
                 }
                
-            	createPane = new SelectUserWindow();
+            	createConversationUserWindow = new SelectUserWindow();
                 createDialog = new JDialog(frame, "Select User", false);
-                createDialog.add(createPane);
+                createDialog.add(createConversationUserWindow);
                 createDialog.setSize(300, 400);
                 createDialog.setLocationRelativeTo(frame);
                 createDialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
@@ -667,10 +620,13 @@ public class ClientUI {
                     return;
                 }
             	
+                if(selecting == null) {
+                    return;
+                }
             	controller.adminGetUserConversations(selecting.getUserId());
-            	adminPane= new AdminConversationSearchWindow();
+            	adminConversationSearchWindow= new AdminConversationSearchWindow();
                 adminDialog = new JDialog(frame, "Searching Conversations", false);
-                adminDialog.add(adminPane);
+                adminDialog.add(adminConversationSearchWindow);
                 adminDialog.setSize(300, 400);
                 adminDialog.setLocationRelativeTo(frame);
                 adminDialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
@@ -690,38 +646,47 @@ public class ClientUI {
             list.addListSelectionListener(e-> {
             	if (!e.getValueIsAdjusting()) {
 						 selecting = list.getSelectedValue();
-						 // if the another window is not visible, shows the buttons
-						 if(selecting != null && !createDialog.isVisible() && !adminDialog.isVisible()) {
+						 // if the another window is not visible, shows the button
+						 if(selecting != null && createDialog != null && adminDialog != null && !createDialog.isVisible() && !adminDialog.isVisible()) {
 							 createConversationButton.setEnabled(true);
 							 if(adminButton != null) {
 								 adminButton.setEnabled(true);
 							 }
 						 } else if(createDialog.isVisible()) { // if selectUser window is open
-							 createPane.addUser(selecting);
+							 createConversationUserWindow.addUser(selecting);
 						 }							
 			    }
             });
             
         }           
         
-        public void setListModel(DefaultListModel model) {
+        public void setListModel(DefaultListModel<UserInfo> model) {
         	this.listModel = model;
         }
         
-        public DefaultListModel getListModel() {
+        public DefaultListModel<UserInfo> getListModel() {
         	return this.listModel;
         }
 
         public Boolean isCreatingConversation() {
+            if(createDialog == null) {
+                return false;
+            }
         	return createDialog.isVisible();
         }
 
         public Boolean isAdminSearching() {
+            if(adminDialog == null) {
+                return false;
+            }
         	return createDialog.isVisible();
         }
         
-        public DefaultListModel<Conversation> getAdminConversationModel() {
-        	return adminPane.getAdminConversationSearch();
+        public DefaultListModel<ConversationMetadata> getAdminConversationModel() {
+            if(adminConversationSearchWindow == null) {
+                return new DefaultListModel<>();
+            }
+        	return adminConversationSearchWindow.getAdminConversationSearch();
         }
         
         
@@ -762,18 +727,25 @@ public class ClientUI {
                 }
             });
             
+            // TODO: label the conversation
+            // TODO: unread markers
             // add action for selecting an item from the list
             list.addListSelectionListener(e-> {
             	if (!e.getValueIsAdjusting()) {
     				if(list.getSelectedValue() != null) {
     					controller.setCurrentConversationId(list.getSelectedValue().getConversationId());
+                        DefaultListModel<Message> conversationMessageModel = cards.main.conversationView.conversationMessageListModel;
+                        conversationMessageModel.clear();
+                        for(Message message: list.getSelectedValue().getMessages()) {
+                            conversationMessageModel.addElement(message);
+                        }
     				}
             	}    					 				
             });           
         }
         
         
-        public void setListModel(DefaultListModel model) {
+        public void setListModel(DefaultListModel<Conversation> model) {
         	this.listModel = model;
         }
         
@@ -863,13 +835,11 @@ public class ClientUI {
     // =========================================================================
     class AdminConversationSearchWindow extends JPanel {
         JTextField searchField;
-        DefaultListModel<Conversation> model = new DefaultListModel<>();
-        JList<Conversation> list = new JList<>(model);
+        DefaultListModel<ConversationMetadata> model = new DefaultListModel<>();
+        JList<ConversationMetadata> list = new JList<>(model);
         JButton okButton;
         JButton cancelButton;
-        
-
-
+    
         AdminConversationSearchWindow() {
             searchField = new JTextField(15);
             okButton = new JButton("OK");
@@ -902,7 +872,7 @@ public class ClientUI {
                     String text = searchField.getText().toUpperCase();
                     model.clear();
                                       
-                    for(Conversation item: controller.getFilteredAdminConversationSearch(text)) {
+                    for(ConversationMetadata item: controller.getFilteredAdminConversationSearch(text)) {
                     	model.addElement(item);
                     }
                 }
@@ -911,7 +881,7 @@ public class ClientUI {
         	// add action for selecting an item from the list
             list.addListSelectionListener(e-> {
             	if (!e.getValueIsAdjusting()) {
-						 Conversation selecting = list.getSelectedValue();
+						 ConversationMetadata selecting = list.getSelectedValue();
 						 // if the another window is not visible, shows the buttons
 						 okButton.setEnabled(selecting != null);
 			    }
@@ -919,6 +889,9 @@ public class ClientUI {
             
         	// add action to okButton
             okButton.addActionListener(e -> {
+                if(list.getSelectedValue() == null) {
+                    return;
+                }
             	controller.joinConversation(list.getSelectedValue().getConversationId());
                 Window window = SwingUtilities.getWindowAncestor(this);
                 window.dispose();            
@@ -932,7 +905,7 @@ public class ClientUI {
             });
         }
         
-        public DefaultListModel<Conversation> getAdminConversationSearch() {
+        public DefaultListModel<ConversationMetadata> getAdminConversationSearch() {
         	return model;
         }
         
