@@ -2,9 +2,7 @@ package server;
 
 import java.util.ArrayList;
 import java.util.AbstractMap;
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -41,10 +39,24 @@ public class ServerController {
      *   java ServerController data 8080
      */
     public static void main(String[] args) {
+        // First CLI arg is the data root path; port is fixed at 8080.
         String dataRootPath = args.length > 0 ? args[0] : "data";
-        int port = args.length > 1 ? Integer.parseInt(args[1]) : 8080;
-        ServerController serverController = new ServerController(dataRootPath, port);
+        ServerController serverController = new ServerController(dataRootPath, 8080);
         keepAliveUntilInterrupted(serverController);
+    }
+
+    private static void keepAliveUntilInterrupted(ServerController serverController) {
+        CountDownLatch latch = new CountDownLatch(1);
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            latch.countDown();
+            serverController.close();
+        }, "server-shutdown"));
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            serverController.close();
+        }
     }
 
     private static void keepAliveUntilInterrupted(ServerController serverController) {
@@ -69,11 +81,9 @@ public class ServerController {
         this(dataRootPath, port, true);
     }
 
-    /*
-     * Package-private: used by tests only.
-     * Pass startBroadcaster=false to inspect the raw response queue
-     * without a background thread racing against test assertions.
-     * Production code always uses the 2-arg constructor above.
+    /**
+     * Package-private: pass {@code startBroadcaster=false} in tests that need to
+     * inspect the raw response queue without a draining thread racing against assertions.
      */
     ServerController(String dataRootPath, int port, boolean startBroadcaster) {
         this.activeSessions = new ConcurrentHashMap<>();
@@ -193,26 +203,28 @@ public class ServerController {
         }
         Conversation conversation = (Conversation) response.getPayload();
         AddToConversationPayload payload = (AddToConversationPayload) request.getPayload();
-        // addedIds comes from the request payload (who was requested to be added).
-        // For GROUP conversations the response ID equals the request's targetConversationId.
-        // For PRIVATE forks DataManager assigns a new ID to the forked conversation;
-        // payload.getParticipants() still correctly identifies the newly added users in both cases
-        // because DataManager only forks participants from the payload into the new conversation.
-        Set<String> addedIds = new HashSet<>();
         ArrayList<UserInfo> participantsToAdd = payload.getParticipants();
-        if (participantsToAdd != null) {
-            for (UserInfo p : participantsToAdd) {
-                if (p != null && p.getUserId() != null) addedIds.add(p.getUserId());
-            }
-        }
-        Response metadataResponse = new Response(ResponseType.CONVERSATION, conversation.toMetadata());
-        for (UserInfo participant : dataManager.getParticipantList(conversation.getConversationId())) {
+        Response metadataResponse = new Response(ResponseType.CONVERSATION_METADATA, conversation.toMetadata());
+        ArrayList<UserInfo> existingParticipants = new ArrayList<>();
+        for (UserInfo participant : conversation.getParticipants()) {
             if (participant == null || participant.getUserId() == null) continue;
             String id = participant.getUserId();
-            if (!hasActiveSession(id)) continue;
-            // Newly added participants receive the full Conversation; existing members get metadata.
-            Response delivery = addedIds.contains(id) ? response : metadataResponse;
-            responseQueue.offer(new AbstractMap.SimpleImmutableEntry<>(id, delivery));
+            boolean isAddedParticipant = false;
+            if (participantsToAdd != null) {
+                for (UserInfo added : participantsToAdd) {
+                    if (added != null && id.equals(added.getUserId())) {
+                        isAddedParticipant = true;
+                        break;
+                    }
+                }
+            }
+            if (!isAddedParticipant) {
+                existingParticipants.add(participant);
+            }
+        }
+        enqueueToActiveParticipants(existingParticipants, metadataResponse);
+        if (participantsToAdd != null) {
+            enqueueToActiveParticipants(participantsToAdd, response);
         }
     }
 
