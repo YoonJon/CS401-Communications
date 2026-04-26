@@ -476,12 +476,11 @@ public class ClientUI {
             final String finalMember = member;
         	SwingUtilities.invokeLater(() -> {
         		participantsLabel.setText(finalMember);
+                conversationMessageListModel.clear();
+                for(int i = 0; i < currConv.getMessages().size(); i++) {
+                    conversationMessageListModel.addElement(currConv.getMessages().get(i));
+                }
         	});
-        	
-            conversationMessageListModel.clear();
-        	for(int i = 0; i < currConv.getMessages().size(); i++) {
-        		conversationMessageListModel.addElement(currConv.getMessages().get(i));
-        	}
         }
         
         public DefaultListModel<Message> getListModel() {
@@ -679,7 +678,7 @@ public class ClientUI {
             if(adminDialog == null) {
                 return false;
             }
-        	return createDialog.isVisible();
+        	return adminDialog.isVisible();
         }
         
         public DefaultListModel<ConversationMetadata> getAdminConversationModel() {
