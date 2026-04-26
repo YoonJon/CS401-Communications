@@ -17,11 +17,11 @@ This application is intended to be a TCP/IP-based chat application for internal 
 For testing purposes, if you want to register as a user, put your desired ID + Name combination into the authorized_users.txt file.
 
 ## Externally-supplied CSV file formats:
-# authorized_users.txt format:
-<employee ID>,<first name> <last name>
+- authorized_users.txt format:
+`<employee ID>`,`<first name>` `<last name>`
 
-# authorized_admins.txt format:
-<admin ID>
+- authorized_admins.txt format:
+`<admin ID>`
 
 The host organization has the choice of what format ID numbers should be, although alphanumeric strings of 8-10 characters are recommended.
 
