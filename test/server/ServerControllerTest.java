@@ -178,12 +178,11 @@ class ServerControllerTest {
         stub.participantsByConversationId.put(33L, participants("u1", "u2", "u3", "u4"));
 
         server = buildServerWithStub(stub);
-        interruptBroadcasterThread(server); // keep queue stable for deterministic assertions
         LinkedBlockingQueue<Map.Entry<String, Response>> queue = getResponseQueue(server);
-        server.addSession("u1", new shared.networking.ConnectionHandler(new java.net.Socket(), server));
-        server.addSession("u2", new shared.networking.ConnectionHandler(new java.net.Socket(), server));
-        server.addSession("u3", new shared.networking.ConnectionHandler(new java.net.Socket(), server));
-        server.addSession("u4", new shared.networking.ConnectionHandler(new java.net.Socket(), server));
+        server.addSession("u1", noOpHandler());
+        server.addSession("u2", noOpHandler());
+        server.addSession("u3", noOpHandler());
+        server.addSession("u4", noOpHandler());
 
         assertEquals(ResponseType.MESSAGE, server.processRequest(
                 new Request(RequestType.MESSAGE, new RawMessage("hi", 1L), "u1")).getType());
@@ -223,7 +222,7 @@ class ServerControllerTest {
     @Test
     void logoutRemovesSession() throws Exception {
         server = buildServerWithStub();
-        server.addSession("u1", new shared.networking.ConnectionHandler(new java.net.Socket(), server));
+        server.addSession("u1", noOpHandler());
         assertTrue(server.hasActiveSession("u1"));
 
         Response out = server.processRequest(new Request(RequestType.LOGOUT, (RequestPayload) null, "u1"));
@@ -237,9 +236,17 @@ class ServerControllerTest {
     }
 
     private ServerController buildServerWithStub(StubDataManager stub) throws Exception {
-        ServerController c = new ServerController(testDataRoot().toString(), 0);
+        ServerController c = new ServerController(testDataRoot().toString(), 0, false);
         setField(c, "dataManager", stub);
         return c;
+    }
+
+    /** Returns a ConnectionHandler stub that performs no I/O — safe for unit tests. */
+    private static shared.networking.ConnectionHandler noOpHandler() {
+        return new shared.networking.ConnectionHandler(null, null) {
+            @Override public void sendResponse(shared.networking.Response r) {}
+            @Override public void close() {}
+        };
     }
 
     private Path testDataRoot() throws IOException {
@@ -264,13 +271,6 @@ class ServerControllerTest {
         Field f = ServerController.class.getDeclaredField("responseQueue");
         f.setAccessible(true);
         return (LinkedBlockingQueue<Map.Entry<String, Response>>) f.get(c);
-    }
-
-    private static void interruptBroadcasterThread(ServerController c) throws Exception {
-        Field f = ServerController.class.getDeclaredField("broadcasterThread");
-        f.setAccessible(true);
-        Thread t = (Thread) f.get(c);
-        if (t != null) t.interrupt();
     }
 
     private static void setField(Object target, String fieldName, Object value) throws Exception {
