@@ -71,16 +71,26 @@ public class ClientController {
 
     private volatile long lastServerActivityMillis = System.currentTimeMillis();
 
+    /*
+     * Entry point for the client application.
+     *
+     * Usage: java ClientController [host] [port]
+     *
+     *   host - IP address or hostname of the server to connect to.
+     *          Defaults to "localhost" if not provided.
+     *   port - TCP port the server is listening on.
+     *          Defaults to 8080 if not provided.
+     *          Must match the port the server was started with.
+     *          Configurable so clients can reach servers on different ports
+     *          across environments (dev, staging, prod).
+     *
+     * Example:
+     *   java ClientController 192.168.1.10 8080
+     */
     public static void main(String[] args) {
-        new ClientController("localhost", 8080);
-        while (!Thread.currentThread().isInterrupted()) {
-            try {
-                Thread.sleep(1000L);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
-            }
-        }
+        String host = args.length > 0 ? args[0] : "localhost";
+        int port = args.length > 1 ? Integer.parseInt(args[1]) : 8080;
+        new ClientController(host, port);
     }
 
     public ClientController(String hostIp, int hostPort) {
@@ -208,11 +218,7 @@ public class ClientController {
                         conversations = lr.getConversationList() != null
                                 ? lr.getConversationList() : new ArrayList<>();
                         if (gui != null) {
-                            if (currentUser.getUserType() == UserType.ADMIN) {
-                                gui.showAdminMainView();
-                            } else {
-                                gui.showMainView();
-                            }
+                            gui.showMainView();
                         }
                         break;
                     case INVALID_CREDENTIALS:
@@ -292,7 +298,7 @@ public class ClientController {
                     ArrayList<Conversation> snapshot = new ArrayList<>(conversations);
                     Conversation current = getCurrentConversation();
                     DefaultListModel conversationListModel = gui.getConversationListViewModel();
-                    DefaultListModel conversationViewModel = gui.getConversationViewModel();
+                    DefaultListModel<Message> conversationViewModel = gui.getConversationViewModel();
                     
                     SwingUtilities.invokeLater(() -> {
                         // Update conversation list (sidebar)
