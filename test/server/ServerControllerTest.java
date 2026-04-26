@@ -24,6 +24,7 @@ import shared.enums.ResponseType;
 import shared.enums.LoginStatus;
 import shared.enums.RegisterStatus;
 import shared.enums.UserType;
+import shared.networking.ConnectionHandler;
 import shared.networking.Request;
 import shared.networking.Response;
 import shared.networking.User;
@@ -242,9 +243,9 @@ class ServerControllerTest {
     }
 
     /** Returns a ConnectionHandler stub that performs no I/O — safe for unit tests. */
-    private static shared.networking.ConnectionHandler noOpHandler() {
-        return new shared.networking.ConnectionHandler(null, null) {
-            @Override public void sendResponse(shared.networking.Response r) {}
+    private static ConnectionHandler noOpHandler() {
+        return new ConnectionHandler(null, null) {
+            @Override public void sendResponse(Response r) {}
             @Override public void close() {}
         };
     }
