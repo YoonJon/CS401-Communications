@@ -65,7 +65,7 @@ public class ClientUI {
             cards.layout.show(cards, "login");
         });
     }
-    public void showRegisterView() { cards.layout.show(cards, "register"); }
+    public void showRegisterView() { SwingUtilities.invokeLater(() -> cards.layout.show(cards, "register")); }
     
     // currentUser is set by the time this is called
     public void showMainView() {
@@ -465,7 +465,6 @@ public class ClientUI {
         }
         
         public void setListModel(Conversation currConv) {
-            // COMMENT: you can just use conversation.toString() to generate a participant
         	String member = "";
         	for(int i = 0; i < currConv.getParticipants().size(); i++) {
         		if(i != 0) {
@@ -487,7 +486,7 @@ public class ClientUI {
         	return this.conversationMessageListModel;
         }
         
-        public Boolean isAddingUser() {
+        public boolean isAddingUser() {
         	return addDialog != null && addDialog.isVisible();
         }
     }
@@ -648,10 +647,9 @@ public class ClientUI {
 						 // if the another window is not visible, shows the button
 						 if(selecting != null && createDialog != null && adminDialog != null && !createDialog.isVisible() && !adminDialog.isVisible()) {
 							 createConversationButton.setEnabled(true);
-							 if(adminButton != null) {
-								 adminButton.setEnabled(true);
-							 }
-						 } else if(createDialog.isVisible()) { // if selectUser window is open
+							 // adminButton is always constructed; visibility is toggled at login time
+							 adminButton.setEnabled(true);
+						 } else if(createDialog != null && createDialog.isVisible()) { // if selectUser window is open
 							 createConversationUserWindow.addUser(selecting);
 						 }							
 			    }
@@ -667,18 +665,12 @@ public class ClientUI {
         	return this.listModel;
         }
 
-        public Boolean isCreatingConversation() {
-            if(createDialog == null) {
-                return false;
-            }
-        	return createDialog.isVisible();
+        public boolean isCreatingConversation() {
+            return createDialog != null && createDialog.isVisible();
         }
 
-        public Boolean isAdminSearching() {
-            if(adminDialog == null) {
-                return false;
-            }
-        	return adminDialog.isVisible();
+        public boolean isAdminSearching() {
+            return adminDialog != null && adminDialog.isVisible();
         }
         
         public DefaultListModel<ConversationMetadata> getAdminConversationModel() {
@@ -732,12 +724,11 @@ public class ClientUI {
             list.addListSelectionListener(e-> {
             	if (!e.getValueIsAdjusting()) {
     				if(list.getSelectedValue() != null) {
-    					controller.setCurrentConversationId(list.getSelectedValue().getConversationId());
-                        DefaultListModel<Message> conversationMessageModel = cards.main.conversationView.conversationMessageListModel;
-                        conversationMessageModel.clear();
-                        for(Message message: list.getSelectedValue().getMessages()) {
-                            conversationMessageModel.addElement(message);
-                        }
+    					Conversation selected = list.getSelectedValue();
+    					controller.setCurrentConversationId(selected.getConversationId());
+    					// delegates to ConversationView.setListModel so both the
+    					// participant label and the message list are updated together
+    					cards.main.conversationView.setListModel(selected);
     				}
             	}    					 				
             });           
