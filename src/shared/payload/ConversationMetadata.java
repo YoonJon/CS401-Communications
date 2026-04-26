@@ -21,5 +21,13 @@ public class ConversationMetadata implements ResponsePayload {
     public ArrayList<UserInfo> getParticipants() { return participants; }
     public ArrayList<UserInfo> getHistoricalParticipants() { return historicalParticipants; }
     public ConversationType getType() { return type; }
-    public String toString(){return "Conversation "+conversationId+": "+participants.toString();}
+    public String toString() {
+        String participantsText = participants.toString();
+        if (participantsText.length() >= 2
+                && participantsText.charAt(0) == '['
+                && participantsText.charAt(participantsText.length() - 1) == ']') {
+            participantsText = participantsText.substring(1, participantsText.length() - 1);
+        }
+        return participantsText;
+    }
 }

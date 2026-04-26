@@ -93,15 +93,22 @@ public class DataManager {
      */
     public DataManager(String dataRootPath) {
         File root = new File(dataRootPath);
+        // root directory
         this.dataRoot = root;
+        // server data directory
         this.serverDataDir = new File(root, "server_data");
+        // authorized users and admins file
         this.authorizedIdsDir = new File(serverDataDir, "authorized_ids");
         this.authorizedUsersFile = new File(authorizedIdsDir, "authorized_users.txt");
         this.authorizedAdminsFile = new File(authorizedIdsDir, "authorized_admins.txt");
+        // sequential ID counter persistence file in server_data
         this.serverConfigFile = new File(serverDataDir, "server_config.txt");
+        // conversation data directory
         this.conversationDataDir = new File(root, "conversation_data");
+        // user data directory
         this.userDataDir = new File(root, "user_data");
 
+        // in-memory state
         this.usersByUserID = new ConcurrentHashMap<>();
         this.usersByLoginName = new ConcurrentHashMap<>();
         this.conversationIDsByUserID = new ConcurrentHashMap<>();
@@ -569,7 +576,7 @@ public class DataManager {
         }
         return new Response(ResponseType.LOGIN_RESULT, new LoginResult(
             shared.enums.LoginStatus.SUCCESS,
-            User.createUserInfo(user),
+            user.toUserInfo(),
             conversationList));
     }
 
@@ -593,7 +600,7 @@ public class DataManager {
     }
 
     /**
-     * Stores read cursors on the {@link User} so the next {@link User#createUserInfo(User)} can restore unread
+     * Stores read cursors on the {@link User} so the next {@link User#toUserInfo()} can restore unread
      * markers on the next login. No concurrent consistency guarantees; the client may update UI
      * before or without relying on this response.
      */
@@ -608,7 +615,8 @@ public class DataManager {
         // update the user's last read sequence number for the conversation
         user.setLastRead(conversationID, lastSeenSequenceNumber);
         persistUser(user);
-        return new Response(ResponseType.READ_UPDATED, new ReadMessagesUpdated());
+        UserInfo updated = user.toUserInfo();
+        return new Response(ResponseType.READ_MESSAGES_UPDATED, new ReadMessagesUpdated(updated));
     }
 
     public Response handleCreateConversation(Request request) {

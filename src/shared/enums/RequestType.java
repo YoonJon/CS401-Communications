@@ -2,7 +2,7 @@ package shared.enums;
 
 public enum RequestType {
     MESSAGE,
-    UPDATE_READ,
+    UPDATE_READ_MESSAGES,
     REGISTER,
     LOGIN,
     LOGOUT,
