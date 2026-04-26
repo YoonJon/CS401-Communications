@@ -59,20 +59,6 @@ public class ServerController {
         }
     }
 
-    private static void keepAliveUntilInterrupted(ServerController serverController) {
-        CountDownLatch latch = new CountDownLatch(1);
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            latch.countDown();
-            serverController.close();
-        }, "server-shutdown"));
-        try {
-            latch.await();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            serverController.close();
-        }
-    }
-
     /*
      * Production entry point — always starts the broadcaster thread.
      * Use this constructor everywhere outside of tests.
