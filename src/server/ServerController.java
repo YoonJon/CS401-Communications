@@ -1,13 +1,12 @@
 package server;
 
-import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.AbstractMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import shared.enums.ResponseType;
 import shared.networking.ConnectionHandler;
@@ -27,46 +26,57 @@ public class ServerController {
     private Thread broadcasterThread;
 
     public static void main(String[] args) {
-        try {
-            String localhost = InetAddress.getLocalHost().getHostAddress();
-            ServerController serverController = new ServerController(localhost, 8080);
-            keepAliveUntilInterrupted(serverController);
-        } catch (UnknownHostException e) {
-            e.printStackTrace();
-        }
+        // First CLI arg is the data root path; port is fixed at 8080.
+        String dataRootPath = args.length > 0 ? args[0] : "data";
+        ServerController serverController = new ServerController(dataRootPath, 8080);
+        keepAliveUntilInterrupted(serverController);
     }
 
     private static void keepAliveUntilInterrupted(ServerController serverController) {
-        while (!Thread.currentThread().isInterrupted()) {
-            try {
-                Thread.sleep(1000L);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                serverController.close();
-                break;
-            }
+        CountDownLatch latch = new CountDownLatch(1);
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            latch.countDown();
+            serverController.close();
+        }, "server-shutdown"));
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            serverController.close();
         }
     }
 
     public ServerController(String dataRootPath, int port) {
+        this(dataRootPath, port, true);
+    }
+
+    /**
+     * Package-private: pass {@code startBroadcaster=false} in tests that need to
+     * inspect the raw response queue without a draining thread racing against assertions.
+     */
+    ServerController(String dataRootPath, int port, boolean startBroadcaster) {
         this.activeSessions = new ConcurrentHashMap<>();
         this.dataManager = new DataManager(dataRootPath);
         this.connectionListener = new ConnectionListener(port, this);
         this.responseQueue = new LinkedBlockingQueue<>();
-        startBroadcasterThread();
+        if (startBroadcaster) startBroadcasterThread();
         startConnectionListenerThread();
     }
 
     public void close() {
-        if (broadcasterThread != null) {
-            broadcasterThread.interrupt();
-        }
+        // 1. Stop accepting new connections first so no new responses are enqueued.
         if (connectionListener != null) {
             connectionListener.close();
         }
+        // 2. Stop the broadcaster after the listener is closed.
+        if (broadcasterThread != null) {
+            broadcasterThread.interrupt();
+        }
+        // 3. Flush and close persistent storage.
         if (dataManager != null) {
             dataManager.close();
         }
+        // 4. Close active client connections.
         for (ConnectionHandler handler : activeSessions.values()) {
             if (handler != null) {
                 handler.close();
@@ -106,6 +116,8 @@ public class ServerController {
                 return dataManager.handleJoinConversation(request);
             case LOGOUT:
                 removeSession(request.getSenderId());
+                // Null is intentional: ConnectionHandler.handleSessionTransition owns LOGOUT
+                // session cleanup and already guards against a null response before sending.
                 return null;
             default:
                 return null;
@@ -131,40 +143,26 @@ public class ServerController {
         }
     }
 
-    private void enqueueMessageBroadcast(Request request, Response response) {
-        if (!(response.getPayload() instanceof Message)) {
-            return;
-        }
-        Message message = (Message) response.getPayload();
-        ArrayList<UserInfo> participants = dataManager.getParticipantList(message.getConversationId());
+    private void enqueueToActiveParticipants(ArrayList<UserInfo> participants, Response response) {
         for (UserInfo participant : participants) {
-            if (participant == null || participant.getUserId() == null) {
-                continue;
+            if (participant == null || participant.getUserId() == null) continue;
+            String id = participant.getUserId();
+            if (hasActiveSession(id)) {
+                responseQueue.offer(new AbstractMap.SimpleImmutableEntry<>(id, response));
             }
-            String participantId = participant.getUserId();
-            if (!hasActiveSession(participantId)) {
-                continue;
-            }
-            responseQueue.offer(new AbstractMap.SimpleImmutableEntry<>(participantId, response));
         }
     }
 
+    private void enqueueMessageBroadcast(Request request, Response response) {
+        if (!(response.getPayload() instanceof Message)) return;
+        Message message = (Message) response.getPayload();
+        enqueueToActiveParticipants(dataManager.getParticipantList(message.getConversationId()), response);
+    }
+
     private void enqueueCreateConversationBroadcast(Response response) {
-        if (!(response.getPayload() instanceof Conversation)) {
-            return;
-        }
+        if (!(response.getPayload() instanceof Conversation)) return;
         Conversation conversation = (Conversation) response.getPayload();
-        ArrayList<UserInfo> participants = dataManager.getParticipantList(conversation.getConversationId());
-        for (UserInfo participant : participants) {
-            if (participant == null || participant.getUserId() == null) {
-                continue;
-            }
-            String participantId = participant.getUserId();
-            if (!hasActiveSession(participantId)) {
-                continue;
-            }
-            responseQueue.offer(new AbstractMap.SimpleImmutableEntry<>(participantId, response));
-        }
+        enqueueToActiveParticipants(dataManager.getParticipantList(conversation.getConversationId()), response);
     }
 
     private void enqueueAddParticipantBroadcast(Request request, Response response) {
@@ -174,26 +172,26 @@ public class ServerController {
         }
         Conversation conversation = (Conversation) response.getPayload();
         AddToConversationPayload payload = (AddToConversationPayload) request.getPayload();
-        Set<String> addedParticipantIds = new HashSet<>();
+        // addedIds comes from the request payload (who was requested to be added).
+        // For GROUP conversations the response ID equals the request's targetConversationId.
+        // For PRIVATE forks DataManager assigns a new ID to the forked conversation;
+        // payload.getParticipants() still correctly identifies the newly added users in both cases
+        // because DataManager only forks participants from the payload into the new conversation.
+        Set<String> addedIds = new HashSet<>();
         ArrayList<UserInfo> participantsToAdd = payload.getParticipants();
         if (participantsToAdd != null) {
-            for (UserInfo participant : participantsToAdd) {
-                if (participant != null && participant.getUserId() != null) {
-                    addedParticipantIds.add(participant.getUserId());
-                }
+            for (UserInfo p : participantsToAdd) {
+                if (p != null && p.getUserId() != null) addedIds.add(p.getUserId());
             }
         }
         Response metadataResponse = new Response(ResponseType.CONVERSATION, conversation.toMetadata());
         for (UserInfo participant : dataManager.getParticipantList(conversation.getConversationId())) {
-            if (participant == null || participant.getUserId() == null) {
-                continue;
-            }
-            String participantId = participant.getUserId();
-            if (!hasActiveSession(participantId)) {
-                continue;
-            }
-            Response delivery = addedParticipantIds.contains(participantId) ? response : metadataResponse;
-            responseQueue.offer(new AbstractMap.SimpleImmutableEntry<>(participantId, delivery));
+            if (participant == null || participant.getUserId() == null) continue;
+            String id = participant.getUserId();
+            if (!hasActiveSession(id)) continue;
+            // Newly added participants receive the full Conversation; existing members get metadata.
+            Response delivery = addedIds.contains(id) ? response : metadataResponse;
+            responseQueue.offer(new AbstractMap.SimpleImmutableEntry<>(id, delivery));
         }
     }
 
