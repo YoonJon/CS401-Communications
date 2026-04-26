@@ -71,16 +71,26 @@ public class ClientController {
 
     private volatile long lastServerActivityMillis = System.currentTimeMillis();
 
+    /*
+     * Entry point for the client application.
+     *
+     * Usage: java ClientController [host] [port]
+     *
+     *   host - IP address or hostname of the server to connect to.
+     *          Defaults to "localhost" if not provided.
+     *   port - TCP port the server is listening on.
+     *          Defaults to 8080 if not provided.
+     *          Must match the port the server was started with.
+     *          Configurable so clients can reach servers on different ports
+     *          across environments (dev, staging, prod).
+     *
+     * Example:
+     *   java ClientController 192.168.1.10 8080
+     */
     public static void main(String[] args) {
-        new ClientController("localhost", 8080);
-        while (!Thread.currentThread().isInterrupted()) {
-            try {
-                Thread.sleep(1000L);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
-            }
-        }
+        String host = args.length > 0 ? args[0] : "localhost";
+        int port = args.length > 1 ? Integer.parseInt(args[1]) : 8080;
+        new ClientController(host, port);
     }
 
     public ClientController(String hostIp, int hostPort) {
