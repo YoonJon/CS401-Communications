@@ -23,6 +23,21 @@ public class ServerController {
     private final LinkedBlockingQueue<Map.Entry<String, Response>> responseQueue;
     private Thread broadcasterThread;
 
+    /*
+     * Entry point for the server application.
+     *
+     * Usage: java ServerController [dataRootPath] [port]
+     *
+     *   dataRootPath - directory where persistent data (users, messages) is stored.
+     *                  Defaults to "data" if not provided.
+     *   port         - TCP port the server listens on for incoming client connections.
+     *                  Defaults to 8080 if not provided.
+     *                  Must be configurable so different environments (dev, staging, prod)
+     *                  and multiple server instances can each bind to their own port.
+     *
+     * Example:
+     *   java ServerController data 8080
+     */
     public static void main(String[] args) {
         // First CLI arg is the data root path; port is fixed at 8080.
         String dataRootPath = args.length > 0 ? args[0] : "data";
@@ -44,6 +59,24 @@ public class ServerController {
         }
     }
 
+    private static void keepAliveUntilInterrupted(ServerController serverController) {
+        CountDownLatch latch = new CountDownLatch(1);
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            latch.countDown();
+            serverController.close();
+        }, "server-shutdown"));
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            serverController.close();
+        }
+    }
+
+    /*
+     * Production entry point — always starts the broadcaster thread.
+     * Use this constructor everywhere outside of tests.
+     */
     public ServerController(String dataRootPath, int port) {
         this(dataRootPath, port, true);
     }
