@@ -41,7 +41,9 @@ public class ServerController {
     public static void main(String[] args) {
         // First CLI arg is the data root path; port is fixed at 8080.
         String dataRootPath = args.length > 0 ? args[0] : "data";
+        System.out.println("cwd is " + System.getProperty("user.dir"));
         ServerController serverController = new ServerController(dataRootPath, 8080);
+        System.out.println("Server started on port 8080");
         keepAliveUntilInterrupted(serverController);
     }
 
@@ -113,7 +115,7 @@ public class ServerController {
                 broadcastResponse(request, response);
                 return response;
             }
-            case UPDATE_READ:
+            case UPDATE_READ_MESSAGES:
                 return dataManager.handleUpdateReadMessages(request);
             case CREATE_CONVERSATION: {
                 Response response = dataManager.handleCreateConversation(request);

@@ -160,15 +160,7 @@ public class ClientController {
      * manual logout while the UI stays up). For full shutdown use {@link #close()}.
      */
     private synchronized void disconnectSocket() {
-        disconnectSocket(null);
-    }
-
-    /**
-     * Like {@link #disconnectSocket()}, but if {@code logoutUserId} is non-null and the connection is still
-     * up, sends {@link RequestType#LOGOUT} on the wire directly (not via {@link #requestQueue}) before
-     * tearing down the socket.
-     */
-    private synchronized void disconnectSocket(String logoutUserId) {
+        String logoutUserId = (loggedIn && currentUser != null) ? currentUser.getUserId() : null;
         if (logoutUserId != null && outputStream != null
                 && connectionStatus == ConnectionStatus.CONNECTED) {
             try {
@@ -208,133 +200,152 @@ public class ClientController {
     void processResponse(Response response) {
         if (response == null) return;
         switch (response.getType()) {
-
-            case LOGIN_RESULT: {
-                LoginResult lr = (LoginResult) response.getPayload();
-                switch (lr.getLoginStatus()) {
-                    case SUCCESS:
-                        loggedIn = true;
-                        currentUser = lr.getUserInfo();
-                        conversations = lr.getConversationList() != null
-                                ? lr.getConversationList() : new ArrayList<>();
-                        if (gui != null) {
-                            gui.showMainView();
-                        }
-                        break;
-                    case INVALID_CREDENTIALS:
-                    case NO_ACCOUNT_EXISTS:
-                    case DUPLICATE_SESSION:
-                        if (gui != null) gui.showLoginError(lr.getLoginStatus());
-                        break;
-                }
+            case LOGIN_RESULT:
+                handleLoginResultResponse(response);
                 break;
-            }
-
-            case REGISTER_RESULT: {
-                RegisterResult rr = (RegisterResult) response.getPayload();
-                switch (rr.getRegisterStatus()) {
-                    case SUCCESS:
-                        if (gui != null) gui.showLoginView();
-                        break;
-                    case USER_ID_TAKEN:
-                    case USER_ID_INVALID:
-                    case LOGIN_NAME_TAKEN:
-                    case LOGIN_NAME_INVALID:
-                        if (gui != null) gui.showRegisterError(rr.getRegisterStatus());
-                        break;
-                }
+            case REGISTER_RESULT:
+                handleRegisterResultResponse(response);
                 break;
-            }
-
-            case MESSAGE: {
-                // Move the matching conversation to front (most recent), then refresh the list view.
-                Message msg = (Message) response.getPayload();
-                for (int i = 0; i < conversations.size(); i++) {
-                    if (conversations.get(i).getConversationId() == msg.getConversationId()) {
-                        Conversation c = conversations.remove(i);
-                        c.append(msg);
-                        conversations.add(0, c);
-                        break;
-                    }
-                }
-                if (gui != null) {
-                    ArrayList<Conversation> snapshot = new ArrayList<>(conversations);
-                    DefaultListModel model = gui.getConversationListViewModel();
-                    SwingUtilities.invokeLater(() -> {
-                        model.clear();
-                        for (Conversation c : snapshot) model.addElement(c);
-                    });
-                }
+            case MESSAGE:
+                handleMessageResponse(response);
                 break;
-            }
-
-            case CONVERSATION: {
-                // Move to front regardless of whether it is new or an update (recency sort).
-                Conversation conv = (Conversation) response.getPayload();
-                conversations.removeIf(c -> c.getConversationId() == conv.getConversationId());
-                conversations.add(0, conv);
-                if (gui != null) {
-                    ArrayList<Conversation> snapshot = new ArrayList<>(conversations);
-                    DefaultListModel model = gui.getConversationListViewModel();
-                    SwingUtilities.invokeLater(() -> {
-                        model.clear();
-                        for (Conversation c : snapshot) model.addElement(c);
-                    });
-                }
+            case CONVERSATION:
+                handleConversationResponse(response);
                 break;
-            }
-
-            case LEAVE_RESULT: {
-                LeaveResult lr = (LeaveResult) response.getPayload();
-                long leftId = lr.getLeftConversationID();
-                conversations.removeIf(c -> c.getConversationId() == leftId);
-                
-                // If we just left the current conversation, switch to the most recent one
-                if (currentConversationId == leftId) {
-                    currentConversationId = conversations.isEmpty() ? -1 : conversations.get(0).getConversationId();
-                }
-                
-                if (gui != null) {
-                    ArrayList<Conversation> snapshot = new ArrayList<>(conversations);
-                    Conversation current = getCurrentConversation();
-                    DefaultListModel conversationListModel = gui.getConversationListViewModel();
-                    DefaultListModel<Message> conversationViewModel = gui.getConversationViewModel();
-                    
-                    SwingUtilities.invokeLater(() -> {
-                        // Update conversation list (sidebar)
-                        conversationListModel.clear();
-                        for (Conversation c : snapshot) conversationListModel.addElement(c);
-                        
-                        // Update conversation view (message panel) to show the new current conversation
-                        conversationViewModel.clear();
-                        if (current != null) {
-                            for (Message msg : current.getMessages()) {
-                                conversationViewModel.addElement(msg);
-                            }
-                        }
-                    });
-                }
+            case LEAVE_RESULT:
+                handleLeaveResultResponse(response);
                 break;
-            }
-
-            case ADMIN_CONVERSATION_RESULT: {
-                // AdminConversationResult carries ConversationMetadata — store it directly.
-                AdminConversationResult acr = (AdminConversationResult) response.getPayload();
-                currentAdminConversationSearch = new ArrayList<>(acr.getConversations());
+            case READ_MESSAGES_UPDATED:
+                handleReadMessagesUpdatedResponse(response);
                 break;
-            }
-
+            case ADMIN_CONVERSATION_RESULT:
+                handleAdminConversationResultResponse(response);
+                break;
             case CONNECTED:
                 connectionStatus = ConnectionStatus.CONNECTED;
                 break;
-
             case PONG:
                 lastServerActivityMillis = System.currentTimeMillis();
                 break;
-
             default:
                 break;
         }
+    }
+
+    private void handleLoginResultResponse(Response response) {
+        LoginResult lr = (LoginResult) response.getPayload();
+        switch (lr.getLoginStatus()) {
+            case SUCCESS:
+                loggedIn = true;
+                currentUser = lr.getUserInfo();
+                conversations = lr.getConversationList() != null
+                        ? lr.getConversationList() : new ArrayList<>();
+                if (gui != null) {
+                    gui.showMainView();
+                }
+                break;
+            case INVALID_CREDENTIALS:
+            case NO_ACCOUNT_EXISTS:
+            case DUPLICATE_SESSION:
+                if (gui != null) gui.showLoginError(lr.getLoginStatus());
+                break;
+        }
+    }
+
+    private void handleRegisterResultResponse(Response response) {
+        RegisterResult rr = (RegisterResult) response.getPayload();
+        switch (rr.getRegisterStatus()) {
+            case SUCCESS:
+                if (gui != null) gui.showLoginView();
+                break;
+            case USER_ID_TAKEN:
+            case USER_ID_INVALID:
+            case LOGIN_NAME_TAKEN:
+            case LOGIN_NAME_INVALID:
+                if (gui != null) gui.showRegisterError(rr.getRegisterStatus());
+                break;
+        }
+    }
+
+    private void handleMessageResponse(Response response) {
+        // Move the matching conversation to front (most recent), then refresh the list view.
+        Message msg = (Message) response.getPayload();
+        for (int i = 0; i < conversations.size(); i++) {
+            if (conversations.get(i).getConversationId() == msg.getConversationId()) {
+                Conversation c = conversations.remove(i);
+                c.append(msg);
+                conversations.add(0, c);
+                break;
+            }
+        }
+        if (gui != null) {
+            ArrayList<Conversation> snapshot = new ArrayList<>(conversations);
+            DefaultListModel<Conversation> model = gui.getConversationListViewModel();
+            SwingUtilities.invokeLater(() -> {
+                model.clear();
+                for (Conversation c : snapshot) model.addElement(c);
+            });
+        }
+    }
+
+    private void handleConversationResponse(Response response) {
+        // Move to front regardless of whether it is new or an update (recency sort).
+        Conversation conv = (Conversation) response.getPayload();
+        conversations.removeIf(c -> c.getConversationId() == conv.getConversationId());
+        conversations.add(0, conv);
+        if (gui != null) {
+            ArrayList<Conversation> snapshot = new ArrayList<>(conversations);
+            DefaultListModel<Conversation> model = gui.getConversationListViewModel();
+            SwingUtilities.invokeLater(() -> {
+                model.clear();
+                for (Conversation c : snapshot) model.addElement(c);
+            });
+        }
+    }
+
+    private void handleLeaveResultResponse(Response response) {
+        LeaveResult lr = (LeaveResult) response.getPayload();
+        long leftId = lr.getLeftConversationID();
+        conversations.removeIf(c -> c.getConversationId() == leftId);
+
+        // If we just left the current conversation, switch to the most recent one
+        if (currentConversationId == leftId) {
+            currentConversationId = conversations.isEmpty() ? -1 : conversations.get(0).getConversationId();
+        }
+
+        if (gui != null) {
+            ArrayList<Conversation> snapshot = new ArrayList<>(conversations);
+            Conversation current = getCurrentConversation();
+            DefaultListModel<Conversation> conversationListModel = gui.getConversationListViewModel();
+            DefaultListModel<Message> conversationViewModel = gui.getConversationViewModel();
+
+            SwingUtilities.invokeLater(() -> {
+                // Update conversation list (sidebar)
+                conversationListModel.clear();
+                for (Conversation c : snapshot) conversationListModel.addElement(c);
+
+                // Update conversation view (message panel) to show the new current conversation
+                conversationViewModel.clear();
+                if (current != null) {
+                    for (Message msg : current.getMessages()) {
+                        conversationViewModel.addElement(msg);
+                    }
+                }
+            });
+        }
+    }
+
+    private void handleReadMessagesUpdatedResponse(Response response) {
+        ReadMessagesUpdated updated = (ReadMessagesUpdated) response.getPayload();
+        if (updated != null && updated.getUpdatedUserInfo() != null) {
+            currentUser = updated.getUpdatedUserInfo();
+        }
+    }
+
+    private void handleAdminConversationResultResponse(Response response) {
+        // AdminConversationResult carries ConversationMetadata — store it directly.
+        AdminConversationResult acr = (AdminConversationResult) response.getPayload();
+        currentAdminConversationSearch = new ArrayList<>(acr.getConversations());
     }
 
     /** Lazily opens a TCP connection to the server and initializes the input and output streams*/
@@ -369,12 +380,12 @@ public class ClientController {
 
     /**
      * Clears local session (lists, queue, flags), shows login UI, sends {@link RequestType#LOGOUT} on the
-     * wire (if connected), then {@link #disconnectSocket(String)}. Session tracking lives outside
+     * wire (if connected), then {@link #disconnectSocket()}. Session tracking lives outside
      * {@code DataManager}.
      */
     public void logout() {
         if (!loggedIn || currentUser == null) return;
-        String userId = currentUser.getUserId();
+        disconnectSocket();
         loggedIn = false;
         currentUser = null;
         conversations.clear();
@@ -383,7 +394,6 @@ public class ClientController {
         currentDirectory.clear();
         requestQueue.clear();
         if (gui != null) gui.showLoginView();
-        disconnectSocket(userId);
     }
 
     /** Matches DataManager.handleSendMessage — payload: RawMessage(text, conversationId). */
@@ -419,6 +429,15 @@ public class ClientController {
         if (!loggedIn || currentUser == null) return;
         enqueueRequest(new Request(RequestType.LEAVE_CONVERSATION,
                 new LeaveConversationPayload(conversationId), currentUser.getUserId()));
+    }
+
+    /** Matches DataManager.handleUpdateReadMessages — payload: UpdateReadMessages(conversationId, lastSeenSequenceNumber). */
+    public void updateReadMessages(long conversationId, long lastSeenSequenceNumber) {
+        if (!loggedIn || currentUser == null) return;
+        enqueueRequest(new Request(
+                RequestType.UPDATE_READ_MESSAGES,
+                new UpdateReadMessages(conversationId, lastSeenSequenceNumber),
+                currentUser.getUserId()));
     }
 
     /** Matches DataManager.handleAdminConversationQuery — payload: AdminConversationQuery(userID). */

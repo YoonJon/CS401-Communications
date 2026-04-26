@@ -2,7 +2,7 @@ package shared.enums;
 
 public enum ResponseType {
     MESSAGE,
-    READ_UPDATED,
+    READ_MESSAGES_UPDATED,
     REGISTER_RESULT,
     LOGIN_RESULT,
     CONVERSATION,

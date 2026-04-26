@@ -120,13 +120,13 @@ class ServerControllerTest {
     @Test
     void updateReadDispatches() throws Exception {
         StubDataManager stub = new StubDataManager(testDataRoot().toString());
-        stub.responses.put(RequestType.UPDATE_READ, new Response(ResponseType.READ_UPDATED));
+        stub.responses.put(RequestType.UPDATE_READ_MESSAGES, new Response(ResponseType.READ_MESSAGES_UPDATED));
         server = buildServerWithStub(stub);
 
         Response response = server.processRequest(
-                new Request(RequestType.UPDATE_READ, new UpdateReadMessages(1L, 2L), "u1"));
-        assertEquals(ResponseType.READ_UPDATED, response.getType());
-        assertEquals(RequestType.UPDATE_READ, stub.lastCalled);
+                new Request(RequestType.UPDATE_READ_MESSAGES, new UpdateReadMessages(1L, 2L), "u1"));
+        assertEquals(ResponseType.READ_MESSAGES_UPDATED, response.getType());
+        assertEquals(RequestType.UPDATE_READ_MESSAGES, stub.lastCalled);
     }
 
     @Test
@@ -190,7 +190,7 @@ class ServerControllerTest {
         assertQueuedRecipients(queue, Set.of("u1", "u2", "u3"), Message.class);
 
         ArrayList<User.UserInfo> members = new ArrayList<>();
-        members.add(User.userInfo("u1", "Alice", UserType.USER));
+        members.add(new User("u1", "Alice", "u1_login", "pw", UserType.USER).toUserInfo());
         assertEquals(ResponseType.CONVERSATION, server.processRequest(
                 new Request(RequestType.CREATE_CONVERSATION, new CreateConversationPayload(members), "u1")).getType());
         assertQueuedRecipients(queue, Set.of("u1", "u2", "u3"), Conversation.class);
@@ -304,7 +304,7 @@ class ServerControllerTest {
     private static ArrayList<User.UserInfo> participants(String... ids) {
         ArrayList<User.UserInfo> out = new ArrayList<>();
         for (String id : ids) {
-            out.add(User.userInfo(id, id.toUpperCase(), UserType.USER));
+            out.add(new User(id, id.toUpperCase(), id + "_login", "pw", UserType.USER).toUserInfo());
         }
         return out;
     }
@@ -326,7 +326,7 @@ class ServerControllerTest {
         @Override public Response handleRegister(Request request) { return hit(RequestType.REGISTER); }
         @Override public Response handleLogin(Request request) { return hit(RequestType.LOGIN); }
         @Override public Response handleSendMessage(Request request) { return hit(RequestType.MESSAGE); }
-        @Override public Response handleUpdateReadMessages(Request request) { return hit(RequestType.UPDATE_READ); }
+        @Override public Response handleUpdateReadMessages(Request request) { return hit(RequestType.UPDATE_READ_MESSAGES); }
         @Override public Response handleCreateConversation(Request request) { return hit(RequestType.CREATE_CONVERSATION); }
         @Override public Response handleAddToConversation(Request request) { return hit(RequestType.ADD_PARTICIPANT); }
         @Override public Response handleLeaveConversation(Request request) { return hit(RequestType.LEAVE_CONVERSATION); }
