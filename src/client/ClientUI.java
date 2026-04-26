@@ -437,6 +437,44 @@ public class ClientUI {
             add(infoPane, BorderLayout.NORTH);
             
             // list is located on the middle of the window
+            list.setCellRenderer(new DefaultListCellRenderer() {
+                @Override
+                public Component getListCellRendererComponent(
+                        JList<?> list, Object value, int index,
+                        boolean isSelected, boolean cellHasFocus) {
+
+                    JLabel label = (JLabel) super.getListCellRendererComponent(
+                            list, value, index, isSelected, cellHasFocus);
+                    
+                    JPanel panel = new JPanel(new BorderLayout());
+                    
+                    Message msg = (Message) value;
+                                        
+                    long lastReadSeq = controller.getCurrentUserInfo().getLastRead(controller.getCurrentConversationId());
+                    
+                    // displaying the current user's messages on the right side
+                    if(msg.getSenderId().equals(controller.getCurrentUserInfo().getUserId())) {
+                    	label.setBackground(Color.LIGHT_GRAY);
+                    	label.setFont(label.getFont().deriveFont(Font.PLAIN));
+                        label.setText(msg.toString());
+                    	panel.add(label, BorderLayout.EAST);
+                    } else { // displaying the other participants' messages on the left side
+                    	if (msg.getSequenceNumber() > lastReadSeq ) {
+                            label.setFont(label.getFont().deriveFont(Font.BOLD));
+                            label.setText("● " + msg.toString());
+                        } else {
+                            label.setFont(label.getFont().deriveFont(Font.PLAIN));
+                            label.setText(msg.toString());
+                        }
+                    	panel.add(label, BorderLayout.WEST);
+                    }
+
+                    
+
+                    return label;
+                }
+            });
+            
             add(new JScrollPane(list), BorderLayout.CENTER);
             
             // sendPane is located on the bottom of the window 
