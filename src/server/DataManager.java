@@ -14,7 +14,6 @@ import shared.networking.User;
 import shared.networking.User.UserInfo;
 import shared.payload.*;
 
-
 /**
  * Server-side state and request handling for persisted data.
  * <p>
@@ -24,24 +23,19 @@ import shared.payload.*;
  */
 public class DataManager {
 
-    // --- Constants (server_config keys) ---
-
-    private static final String SERVER_CONFIG_MESSAGE_SEQUENCE_KEY = "messageSequenceCounter";
-    private static final String SERVER_CONFIG_CONVERSATION_ID_KEY = "conversationIdCounter";
-
     private static final long WRITER_SLEEP_MS = 100L;
 
     // --- Static counters (persisted in server_config.txt) ---
 
     /**
      * Authoritative monotonic message sequence counter; persisted under
-     * {@value #SERVER_CONFIG_MESSAGE_SEQUENCE_KEY} in {@code server_data/server_config.txt}.
+     * {@code messageSequenceCounter} in {@code server_data/server_config.txt}.
      */
     private static final AtomicLong messageSequenceCounter = new AtomicLong(0);
 
     /**
      * Monotonic numeric id assignment for new {@link Conversation} records; persisted under
-     * {@value #SERVER_CONFIG_CONVERSATION_ID_KEY} in {@code server_data/server_config.txt}.
+     * {@code conversationIdCounter} in {@code server_data/server_config.txt}.
      */
     private static final AtomicLong conversationIdCounter = new AtomicLong(0);
 
@@ -254,20 +248,20 @@ public class DataManager {
         try (InputStream in = new FileInputStream(serverConfigFile)) {
             props.load(in);
         }
-        String msg = props.getProperty(SERVER_CONFIG_MESSAGE_SEQUENCE_KEY);
+        String msg = props.getProperty("messageSequenceCounter");
         if (msg != null && !msg.isBlank()) {
             try {
                 messageSequenceCounter.set(Math.max(0L, Long.parseLong(msg.trim())));
             } catch (NumberFormatException e) {
-                System.err.println("WARNING: invalid " + SERVER_CONFIG_MESSAGE_SEQUENCE_KEY + " in server_config.txt: " + msg);
+                System.err.println("WARNING: invalid messageSequenceCounter in server_config.txt: " + msg);
             }
         }
-        String conv = props.getProperty(SERVER_CONFIG_CONVERSATION_ID_KEY);
+        String conv = props.getProperty("conversationIdCounter");
         if (conv != null && !conv.isBlank()) {
             try {
                 conversationIdCounter.set(Math.max(0L, Long.parseLong(conv.trim())));
             } catch (NumberFormatException e) {
-                System.err.println("WARNING: invalid " + SERVER_CONFIG_CONVERSATION_ID_KEY + " in server_config.txt: " + conv);
+                System.err.println("WARNING: invalid conversationIdCounter in server_config.txt: " + conv);
             }
         }
     }
@@ -275,8 +269,8 @@ public class DataManager {
     // persist the server counters to the server config file
     private void persistServerCounters() throws IOException {
         Properties props = new Properties();
-        props.setProperty(SERVER_CONFIG_MESSAGE_SEQUENCE_KEY, Long.toString(messageSequenceCounter.get()));
-        props.setProperty(SERVER_CONFIG_CONVERSATION_ID_KEY, Long.toString(conversationIdCounter.get()));
+        props.setProperty("messageSequenceCounter", Long.toString(messageSequenceCounter.get()));
+        props.setProperty("conversationIdCounter", Long.toString(conversationIdCounter.get()));
         try (OutputStream out = new FileOutputStream(serverConfigFile)) {
             props.store(out, "Server counters (message sequence and conversation id)");
         }
@@ -716,15 +710,7 @@ public class DataManager {
         return new Response(ResponseType.CONVERSATION, conversationsByConversationID.get(conversationId));
     }
 
-    // --- Queries ---
-
-    /**
-     * Returns the current participant list for a conversation. Intended for {@link ServerController}
-     * when routing responses (e.g. new messages) beyond the requester: after a handler updates
-     * in-memory state and persistence, the controller can resolve which user ids should receive
-     * the response and intersect that set with {@link ServerController#hasActiveSession(String)}
-     * (or equivalent) to distribute only to connected participants.
-     */
+    //Used to determine recipients for message and conversation distribution.
     public ArrayList<UserInfo> getParticipantList(long conversationId) {
         Conversation c = conversationsByConversationID.get(conversationId);
         if (c == null) {
