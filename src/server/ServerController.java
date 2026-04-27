@@ -14,7 +14,10 @@ import shared.networking.Response;
 import shared.networking.User.UserInfo;
 import shared.payload.AddToConversationPayload;
 import shared.payload.Conversation;
+import shared.payload.LoginCredentials;
+import shared.payload.LoginResult;
 import shared.payload.Message;
+import shared.enums.LoginStatus;
 
 public class ServerController {
     private Map<String, ConnectionHandler> activeSessions;
@@ -108,8 +111,15 @@ public class ServerController {
         switch (request.getType()) {
             case REGISTER:
                 return dataManager.handleRegister(request);
-            case LOGIN:
+            case LOGIN: {
+                LoginCredentials loginCredentials = (LoginCredentials) request.getPayload();
+                String loginName = loginCredentials == null ? null : loginCredentials.getLoginName();
+                String existingUserId = dataManager.getUserIdByLoginName(loginName);
+                if (existingUserId != null && hasActiveSession(existingUserId)) {
+                    return new Response(ResponseType.LOGIN_RESULT, new LoginResult(LoginStatus.DUPLICATE_SESSION));
+                }
                 return dataManager.handleLogin(request);
+            }
             case MESSAGE: {
                 Response response = dataManager.handleSendMessage(request);
                 broadcastResponse(request, response);
@@ -243,6 +253,10 @@ public class ServerController {
 
     public boolean hasActiveSession(String userId) {
         return activeSessions.containsKey(userId);
+    }
+
+    public boolean userExists(String loginName) {
+        return dataManager.userExists(loginName);
     }
 
     public void removeSession(String userId) {
