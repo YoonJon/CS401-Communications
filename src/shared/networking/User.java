@@ -19,7 +19,7 @@ import java.util.Objects;
  * <b>Registration:</b> the server derives {@link UserType} from {@code authorized_admins.txt} (same
  * list as in memory) and passes it into the public constructor; that value is persisted on this object.
  * <p>
- * <b>Wire snapshots:</b> build {@link UserInfo} only via {@link #createUserInfo(User)}, which copies
+ * <b>Wire snapshots:</b> build {@link UserInfo} only via {@link #toUserInfo()}, which copies
  * persisted fields including {@link #userType}. Rehydration uses {@link #fromFile}.
  */
 public class User implements Serializable {
@@ -33,7 +33,7 @@ public class User implements Serializable {
     private UserType userType;
     /**
      * Best-effort read cursors (conversation id → last seen message sequence). Used so
-     * {@link #createUserInfo(User)} can supply unread markers on login; clients may update their own UI
+     * {@link #toUserInfo()} can supply unread markers on login; clients may update their own UI
      * optimistically without waiting for the server. No concurrent-update guarantees.
      */
     private Map<Long, Long> lastRead;
@@ -57,24 +57,9 @@ public class User implements Serializable {
     public String getPassword() { return password; }
     public UserType getUserType() { return userType; }
 
-    /**
-     * Factory for protocol {@link UserInfo}: copies {@link #userId}, {@link #name}, persisted
-     * {@link #userType}, and {@link #lastRead} (defensive copy). Prefer this over
-     * {@link #userInfo(String, String, UserType, Map)} for live server snapshots.
-     */
-    public static UserInfo createUserInfo(User user) {
-        Objects.requireNonNull(user, "user");
-        return userInfo(user.getUserId(), user.getName(), user.getUserType(), new HashMap<>(user.lastRead));
-    }
-
-    /** Snapshot with empty read cursors (e.g. protocol fixtures). */
-    public static UserInfo userInfo(String userId, String name, UserType userType) {
-        return userInfo(userId, name, userType, new HashMap<>());
-    }
-
-    /** Snapshot; {@code lastRead} is copied defensively. */
-    public static UserInfo userInfo(String userId, String name, UserType userType, Map<Long, Long> lastRead) {
-        return new UserInfo(userId, name, userType, lastRead);
+    /** Snapshot of this persisted user for protocol payloads. */
+    public UserInfo toUserInfo() {
+        return new UserInfo(userId, name, userType, new HashMap<>(lastRead));
     }
 
     public long getLastRead(long conversationId) {
@@ -100,8 +85,7 @@ public class User implements Serializable {
     /**
      * Client-visible user snapshot (credentials never included).
      * <p>
-     * Prefer {@link User#createUserInfo(User)} for live accounts. Direct use of
-     * {@link User#userInfo(String, String, UserType)} is for tests and fixtures.
+     * Prefer {@link User#toUserInfo()} for live accounts.
      */
     public static class UserInfo implements Serializable {
         private static final long serialVersionUID = 1L;

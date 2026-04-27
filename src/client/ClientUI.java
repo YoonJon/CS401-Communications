@@ -73,6 +73,12 @@ public class ClientUI {
             UserInfo currentUser = controller.getCurrentUserInfo();
             boolean isAdmin = currentUser != null && currentUser.getUserType() == UserType.ADMIN;
             cards.main.directoryView.adminButton.setVisible(isAdmin);
+            // Refresh directory list from the latest controller-side cache on main-view entry.
+            DefaultListModel<UserInfo> directoryModel = cards.main.directoryView.getListModel();
+            directoryModel.clear();
+            for (UserInfo userInfo : controller.getFilteredDirectory("")) {
+                directoryModel.addElement(userInfo);
+            }
             cards.main.directoryView.revalidate();
             cards.main.directoryView.repaint();
             if (currentUser != null) {
@@ -590,6 +596,7 @@ public class ClientUI {
             
             
             // list is located center of the window with JScrollPane
+            list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
             add(new JScrollPane(list), BorderLayout.CENTER);
         
             
@@ -679,18 +686,31 @@ public class ClientUI {
             });
             
             // add action for selecting an item from the list
-            list.addListSelectionListener(e-> {
-            	if (!e.getValueIsAdjusting()) {
-						 selecting = list.getSelectedValue();
-						 // if the another window is not visible, shows the button
-						 if(selecting != null && createDialog != null && adminDialog != null && !createDialog.isVisible() && !adminDialog.isVisible()) {
-							 createConversationButton.setEnabled(true);
-							 // adminButton is always constructed; visibility is toggled at login time
-							 adminButton.setEnabled(true);
-						 } else if(createDialog != null && createDialog.isVisible()) { // if selectUser window is open
-							 createConversationUserWindow.addUser(selecting);
-						 }							
-			    }
+            list.getSelectionModel().addListSelectionListener(e -> {
+                UserInfo selectedValue = list.getSelectedValue();
+                if (e.getValueIsAdjusting()) {
+                    return;
+                }
+                selecting = selectedValue;
+                // if the another window is not visible, shows the button
+                if(selecting != null && createDialog != null && adminDialog != null && !createDialog.isVisible() && !adminDialog.isVisible()) {
+                    createConversationButton.setEnabled(true);
+                    // adminButton is always constructed; visibility is toggled at login time
+                    adminButton.setEnabled(true);
+                } else if(createDialog != null && createDialog.isVisible()) { // if selectUser window is open
+                    createConversationUserWindow.addUser(selecting);
+                }
+            });
+
+            // Helpful debug signal when user clicks an already-selected row.
+            list.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    int clickedIndex = list.locationToIndex(e.getPoint());
+                    if (clickedIndex >= 0) {
+                        list.setSelectedIndex(clickedIndex);
+                    }
+                }
             });
             
         }           

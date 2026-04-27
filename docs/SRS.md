@@ -473,7 +473,7 @@ enum ConversationType
 
 enum RequestType
     MESSAGE,
-    UPDATE_READ,
+    UPDATE_READ_MESSAGES,
     REGISTER,
     LOGIN,
     LOGOUT,
@@ -487,7 +487,7 @@ enum RequestType
 
 enum ResponseType
     MESSAGE
-    READ_UPDATED
+    READ_MESSAGES_UPDATED
     REGISTER_RESULT
     LOGIN_RESULT
     LOGOUT_RESULT

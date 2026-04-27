@@ -2,8 +2,9 @@ package shared.payload;
 
 import shared.networking.User.UserInfo;
 import shared.enums.ConversationType;
-import java.io.File;
+import java.io.*;
 import java.util.ArrayList;
+
 
 public class Conversation implements ResponsePayload {
     private final long conversationId;
@@ -91,13 +92,25 @@ public class Conversation implements ResponsePayload {
     public ArrayList<UserInfo> getParticipants() { return participants; }
     public ArrayList<UserInfo> getHistoricalParticipants() { return historicalParticipants; }
     public ConversationType getType() { return type; }
-    // TODO: format as a list of participants
-    public String toString(){return "Conversation "+conversationId+": "+participants.toString();}
+
+    public String toString() {
+        String participantsText = participants.toString();
+        if (participantsText.length() >= 2
+                && participantsText.charAt(0) == '['
+                && participantsText.charAt(participantsText.length() - 1) == ']') {
+            participantsText = participantsText.substring(1, participantsText.length() - 1);
+        }
+        return participantsText;
+    }
 
     public void append(Message m) { messages.add(m); }
 
     public static Conversation fromFile(File f) {
-        // TODO: deserialize from file
+        try (ObjectInputStream in = new ObjectInputStream(new FileInputStream(f))) {
+            return (Conversation) in.readObject();
+        } catch (IOException | ClassNotFoundException e) {
+            e.printStackTrace();
+        }
         return null;
     }
 }
