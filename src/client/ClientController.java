@@ -241,6 +241,8 @@ public class ClientController {
                 currentUser = lr.getUserInfo();
                 conversations = lr.getConversationList() != null
                         ? lr.getConversationList() : new ArrayList<>();
+                currentDirectory = lr.getDirectoryUserInfoList() != null
+                        ? lr.getDirectoryUserInfoList() : new ArrayList<>();
                 if (gui != null) {
                     gui.showMainView();
                 }
