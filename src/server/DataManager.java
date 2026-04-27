@@ -48,8 +48,9 @@ public class DataManager {
     /** Conversation id → user ids in that conversation. */
     private ConcurrentMap<Long, Set<String>> userIDsByConversationID;
     private ConcurrentMap<Long, Conversation> conversationsByConversationID;
-    private ConcurrentMap<String, String> authorizedUsers;
-    private CopyOnWriteArrayList<String> authorizedAdminIds;
+    private Map<String, String> authorizedUsers;
+    private ArrayList<String> authorizedAdminIds;
+    private CopyOnWriteArrayList<UserInfo> directoryUserInfos;
 
     // --- Paths & persistence bookkeeping (resolved at construction) ---
 
@@ -108,8 +109,9 @@ public class DataManager {
         this.conversationIDsByUserID = new ConcurrentHashMap<>();
         this.userIDsByConversationID = new ConcurrentHashMap<>();
         this.conversationsByConversationID = new ConcurrentHashMap<>();
-        this.authorizedUsers = new ConcurrentHashMap<>();
-        this.authorizedAdminIds = new CopyOnWriteArrayList<>();
+        this.authorizedUsers = new HashMap<>();
+        this.authorizedAdminIds = new ArrayList<>();
+        this.directoryUserInfos = new CopyOnWriteArrayList<>();
         this.dirtyUsers = ConcurrentHashMap.newKeySet();
         this.dirtyConversations = ConcurrentHashMap.newKeySet();
 
@@ -370,6 +372,7 @@ public class DataManager {
         } catch (ClassNotFoundException e) {
             e.printStackTrace();
         }
+        buildDirectoryAtStartup();
 
         try {
             loadServerCounters();
@@ -419,10 +422,47 @@ public class DataManager {
                     continue;
                 }
                 if (!line.isEmpty()) {
-                    authorizedAdminIds.addIfAbsent(line);
+                    if (!authorizedAdminIds.contains(line)) {
+                        authorizedAdminIds.add(line);
+                    }
                 }
             }
         }
+    }
+
+    /**
+     * Build the initial directory cache from users loaded at startup.
+     * Runtime updates are append-only via {@link #addUserToDirectory(User)}.
+     */
+    private void buildDirectoryAtStartup() {
+        ArrayList<UserInfo> snapshot = new ArrayList<>();
+        for (User user : usersByUserID.values()) {
+            if (user != null) {
+                snapshot.add(user.toUserInfo());
+            }
+        }
+        snapshot.sort(Comparator.comparing(UserInfo::getName));
+        directoryUserInfos.clear();
+        directoryUserInfos.addAll(snapshot);
+    }
+
+    private void addUserToDirectory(User user) {
+        if (user == null) {
+            return;
+        }
+        UserInfo newUserInfo = user.toUserInfo();
+        Comparator<UserInfo> byName = (left, right) ->
+                String.CASE_INSENSITIVE_ORDER.compare(left.getName(), right.getName());
+        int insertIndex = 0;
+        while (insertIndex < directoryUserInfos.size()
+                && byName.compare(directoryUserInfos.get(insertIndex), newUserInfo) <= 0) {
+            insertIndex++;
+        }
+        directoryUserInfos.add(insertIndex, newUserInfo);
+    }
+
+    private ArrayList<UserInfo> getDirectorySnapshot() {
+        return new ArrayList<>(directoryUserInfos);
     }
 
     // --- Internal conversation mutation (messages) ---
@@ -537,6 +577,7 @@ public class DataManager {
         User user = new User(userId, name, loginName, password, registrationType);
         usersByUserID.put(userId, user);
         usersByLoginName.put(loginName, user);
+        addUserToDirectory(user);
         persistUser(user);
         return new Response(ResponseType.REGISTER_RESULT, new RegisterResult(shared.enums.RegisterStatus.SUCCESS));
     }
@@ -571,7 +612,8 @@ public class DataManager {
         return new Response(ResponseType.LOGIN_RESULT, new LoginResult(
             shared.enums.LoginStatus.SUCCESS,
             user.toUserInfo(),
-            conversationList));
+            conversationList,
+            getDirectorySnapshot()));
     }
 
     public Response handleSendMessage(Request request) {
