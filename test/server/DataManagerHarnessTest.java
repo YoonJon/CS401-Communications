@@ -113,7 +113,7 @@ public class DataManagerHarnessTest {
     }
 
     private static User.UserInfo ui(String userId, String displayName) {
-        return User.userInfo(userId, displayName, UserType.USER);
+        return new User(userId, displayName, userId + "_login", "pw", UserType.USER).toUserInfo();
     }
 
     private static ArrayList<User.UserInfo> roster(User.UserInfo... parts) {
@@ -242,10 +242,10 @@ public class DataManagerHarnessTest {
         assertEquals("u1", sent.getSenderId(), "sender");
 
         // --- Update read (u2 marks read)
-        Response readResp = dm.handleUpdateReadMessages(new Request(RequestType.UPDATE_READ,
+        Response readResp = dm.handleUpdateReadMessages(new Request(RequestType.UPDATE_READ_MESSAGES,
                 new UpdateReadMessages(convPrivate12, sent.getSequenceNumber()),
                 "u2"));
-        assertEquals(ResponseType.READ_UPDATED, readResp.getType(), "read updated");
+        assertEquals(ResponseType.READ_MESSAGES_UPDATED, readResp.getType(), "read updated");
 
         // --- Group conversation u1,u2,u3
         Response createGroup = dm.handleCreateConversation(new Request(RequestType.CREATE_CONVERSATION,

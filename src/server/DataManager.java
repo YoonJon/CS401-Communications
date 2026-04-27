@@ -14,7 +14,6 @@ import shared.networking.User;
 import shared.networking.User.UserInfo;
 import shared.payload.*;
 
-
 /**
  * Server-side state and request handling for persisted data.
  * <p>
@@ -24,24 +23,19 @@ import shared.payload.*;
  */
 public class DataManager {
 
-    // --- Constants (server_config keys) ---
-
-    private static final String SERVER_CONFIG_MESSAGE_SEQUENCE_KEY = "messageSequenceCounter";
-    private static final String SERVER_CONFIG_CONVERSATION_ID_KEY = "conversationIdCounter";
-
     private static final long WRITER_SLEEP_MS = 100L;
 
     // --- Static counters (persisted in server_config.txt) ---
 
     /**
      * Authoritative monotonic message sequence counter; persisted under
-     * {@value #SERVER_CONFIG_MESSAGE_SEQUENCE_KEY} in {@code server_data/server_config.txt}.
+     * {@code messageSequenceCounter} in {@code server_data/server_config.txt}.
      */
     private static final AtomicLong messageSequenceCounter = new AtomicLong(0);
 
     /**
      * Monotonic numeric id assignment for new {@link Conversation} records; persisted under
-     * {@value #SERVER_CONFIG_CONVERSATION_ID_KEY} in {@code server_data/server_config.txt}.
+     * {@code conversationIdCounter} in {@code server_data/server_config.txt}.
      */
     private static final AtomicLong conversationIdCounter = new AtomicLong(0);
 
@@ -54,8 +48,9 @@ public class DataManager {
     /** Conversation id → user ids in that conversation. */
     private ConcurrentMap<Long, Set<String>> userIDsByConversationID;
     private ConcurrentMap<Long, Conversation> conversationsByConversationID;
-    private ConcurrentMap<String, String> authorizedUsers;
-    private CopyOnWriteArrayList<String> authorizedAdminIds;
+    private Map<String, String> authorizedUsers;
+    private ArrayList<String> authorizedAdminIds;
+    private CopyOnWriteArrayList<UserInfo> directoryUserInfos;
 
     // --- Paths & persistence bookkeeping (resolved at construction) ---
 
@@ -93,22 +88,30 @@ public class DataManager {
      */
     public DataManager(String dataRootPath) {
         File root = new File(dataRootPath);
+        // root directory
         this.dataRoot = root;
+        // server data directory
         this.serverDataDir = new File(root, "server_data");
+        // authorized users and admins file
         this.authorizedIdsDir = new File(serverDataDir, "authorized_ids");
         this.authorizedUsersFile = new File(authorizedIdsDir, "authorized_users.txt");
         this.authorizedAdminsFile = new File(authorizedIdsDir, "authorized_admins.txt");
+        // sequential ID counter persistence file in server_data
         this.serverConfigFile = new File(serverDataDir, "server_config.txt");
+        // conversation data directory
         this.conversationDataDir = new File(root, "conversation_data");
+        // user data directory
         this.userDataDir = new File(root, "user_data");
 
+        // in-memory state
         this.usersByUserID = new ConcurrentHashMap<>();
         this.usersByLoginName = new ConcurrentHashMap<>();
         this.conversationIDsByUserID = new ConcurrentHashMap<>();
         this.userIDsByConversationID = new ConcurrentHashMap<>();
         this.conversationsByConversationID = new ConcurrentHashMap<>();
-        this.authorizedUsers = new ConcurrentHashMap<>();
-        this.authorizedAdminIds = new CopyOnWriteArrayList<>();
+        this.authorizedUsers = new HashMap<>();
+        this.authorizedAdminIds = new ArrayList<>();
+        this.directoryUserInfos = new CopyOnWriteArrayList<>();
         this.dirtyUsers = ConcurrentHashMap.newKeySet();
         this.dirtyConversations = ConcurrentHashMap.newKeySet();
 
@@ -247,20 +250,20 @@ public class DataManager {
         try (InputStream in = new FileInputStream(serverConfigFile)) {
             props.load(in);
         }
-        String msg = props.getProperty(SERVER_CONFIG_MESSAGE_SEQUENCE_KEY);
+        String msg = props.getProperty("messageSequenceCounter");
         if (msg != null && !msg.isBlank()) {
             try {
                 messageSequenceCounter.set(Math.max(0L, Long.parseLong(msg.trim())));
             } catch (NumberFormatException e) {
-                System.err.println("WARNING: invalid " + SERVER_CONFIG_MESSAGE_SEQUENCE_KEY + " in server_config.txt: " + msg);
+                System.err.println("WARNING: invalid messageSequenceCounter in server_config.txt: " + msg);
             }
         }
-        String conv = props.getProperty(SERVER_CONFIG_CONVERSATION_ID_KEY);
+        String conv = props.getProperty("conversationIdCounter");
         if (conv != null && !conv.isBlank()) {
             try {
                 conversationIdCounter.set(Math.max(0L, Long.parseLong(conv.trim())));
             } catch (NumberFormatException e) {
-                System.err.println("WARNING: invalid " + SERVER_CONFIG_CONVERSATION_ID_KEY + " in server_config.txt: " + conv);
+                System.err.println("WARNING: invalid conversationIdCounter in server_config.txt: " + conv);
             }
         }
     }
@@ -268,8 +271,8 @@ public class DataManager {
     // persist the server counters to the server config file
     private void persistServerCounters() throws IOException {
         Properties props = new Properties();
-        props.setProperty(SERVER_CONFIG_MESSAGE_SEQUENCE_KEY, Long.toString(messageSequenceCounter.get()));
-        props.setProperty(SERVER_CONFIG_CONVERSATION_ID_KEY, Long.toString(conversationIdCounter.get()));
+        props.setProperty("messageSequenceCounter", Long.toString(messageSequenceCounter.get()));
+        props.setProperty("conversationIdCounter", Long.toString(conversationIdCounter.get()));
         try (OutputStream out = new FileOutputStream(serverConfigFile)) {
             props.store(out, "Server counters (message sequence and conversation id)");
         }
@@ -369,6 +372,7 @@ public class DataManager {
         } catch (ClassNotFoundException e) {
             e.printStackTrace();
         }
+        buildDirectoryAtStartup();
 
         try {
             loadServerCounters();
@@ -418,10 +422,47 @@ public class DataManager {
                     continue;
                 }
                 if (!line.isEmpty()) {
-                    authorizedAdminIds.addIfAbsent(line);
+                    if (!authorizedAdminIds.contains(line)) {
+                        authorizedAdminIds.add(line);
+                    }
                 }
             }
         }
+    }
+
+    /**
+     * Build the initial directory cache from users loaded at startup.
+     * Runtime updates are append-only via {@link #addUserToDirectory(User)}.
+     */
+    private void buildDirectoryAtStartup() {
+        ArrayList<UserInfo> snapshot = new ArrayList<>();
+        for (User user : usersByUserID.values()) {
+            if (user != null) {
+                snapshot.add(user.toUserInfo());
+            }
+        }
+        snapshot.sort(Comparator.comparing(UserInfo::getName));
+        directoryUserInfos.clear();
+        directoryUserInfos.addAll(snapshot);
+    }
+
+    private void addUserToDirectory(User user) {
+        if (user == null) {
+            return;
+        }
+        UserInfo newUserInfo = user.toUserInfo();
+        Comparator<UserInfo> byName = (left, right) ->
+                String.CASE_INSENSITIVE_ORDER.compare(left.getName(), right.getName());
+        int insertIndex = 0;
+        while (insertIndex < directoryUserInfos.size()
+                && byName.compare(directoryUserInfos.get(insertIndex), newUserInfo) <= 0) {
+            insertIndex++;
+        }
+        directoryUserInfos.add(insertIndex, newUserInfo);
+    }
+
+    private ArrayList<UserInfo> getDirectorySnapshot() {
+        return new ArrayList<>(directoryUserInfos);
     }
 
     // --- Internal conversation mutation (messages) ---
@@ -536,6 +577,7 @@ public class DataManager {
         User user = new User(userId, name, loginName, password, registrationType);
         usersByUserID.put(userId, user);
         usersByLoginName.put(loginName, user);
+        addUserToDirectory(user);
         persistUser(user);
         return new Response(ResponseType.REGISTER_RESULT, new RegisterResult(shared.enums.RegisterStatus.SUCCESS));
     }
@@ -569,8 +611,9 @@ public class DataManager {
         }
         return new Response(ResponseType.LOGIN_RESULT, new LoginResult(
             shared.enums.LoginStatus.SUCCESS,
-            User.createUserInfo(user),
-            conversationList));
+            user.toUserInfo(),
+            conversationList,
+            getDirectorySnapshot()));
     }
 
     public Response handleSendMessage(Request request) {
@@ -593,7 +636,7 @@ public class DataManager {
     }
 
     /**
-     * Stores read cursors on the {@link User} so the next {@link User#createUserInfo(User)} can restore unread
+     * Stores read cursors on the {@link User} so the next {@link User#toUserInfo()} can restore unread
      * markers on the next login. No concurrent consistency guarantees; the client may update UI
      * before or without relying on this response.
      */
@@ -608,7 +651,8 @@ public class DataManager {
         // update the user's last read sequence number for the conversation
         user.setLastRead(conversationID, lastSeenSequenceNumber);
         persistUser(user);
-        return new Response(ResponseType.READ_UPDATED, new ReadMessagesUpdated());
+        UserInfo updated = user.toUserInfo();
+        return new Response(ResponseType.READ_MESSAGES_UPDATED, new ReadMessagesUpdated(updated));
     }
 
     public Response handleCreateConversation(Request request) {
@@ -708,15 +752,7 @@ public class DataManager {
         return new Response(ResponseType.CONVERSATION, conversationsByConversationID.get(conversationId));
     }
 
-    // --- Queries ---
-
-    /**
-     * Returns the current participant list for a conversation. Intended for {@link ServerController}
-     * when routing responses (e.g. new messages) beyond the requester: after a handler updates
-     * in-memory state and persistence, the controller can resolve which user ids should receive
-     * the response and intersect that set with {@link ServerController#hasActiveSession(String)}
-     * (or equivalent) to distribute only to connected participants.
-     */
+    //Used to determine recipients for message and conversation distribution.
     public ArrayList<UserInfo> getParticipantList(long conversationId) {
         Conversation c = conversationsByConversationID.get(conversationId);
         if (c == null) {

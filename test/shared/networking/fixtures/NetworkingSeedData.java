@@ -104,19 +104,19 @@ public final class NetworkingSeedData {
     // =========================================================================
 
     public static UserInfo aliceInfo() {
-        return User.userInfo(ALICE_ID, ALICE_NAME, UserType.USER);
+        return new User(ALICE_ID, ALICE_NAME, ALICE_LOGIN, ALICE_PASSWORD, UserType.USER).toUserInfo();
     }
 
     public static UserInfo bobInfo() {
-        return User.userInfo(BOB_ID, BOB_NAME, UserType.USER);
+        return new User(BOB_ID, BOB_NAME, BOB_LOGIN, BOB_PASSWORD, UserType.USER).toUserInfo();
     }
 
     public static UserInfo carolInfo() {
-        return User.userInfo(CAROL_ID, CAROL_NAME, UserType.USER);
+        return new User(CAROL_ID, CAROL_NAME, CAROL_LOGIN, CAROL_PASSWORD, UserType.USER).toUserInfo();
     }
 
     public static UserInfo adminInfo() {
-        return User.userInfo(ADMIN_ID, ADMIN_NAME, UserType.ADMIN);
+        return new User(ADMIN_ID, ADMIN_NAME, ADMIN_LOGIN, ADMIN_PASSWORD, UserType.ADMIN).toUserInfo();
     }
 
     // =========================================================================
