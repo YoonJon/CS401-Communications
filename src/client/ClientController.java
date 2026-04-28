@@ -283,11 +283,19 @@ public class ClientController {
         }
         if (gui != null) {
             ArrayList<Conversation> snapshot = new ArrayList<>(conversations);
-            DefaultListModel<Conversation> model = gui.getConversationListViewModel();
+            DefaultListModel<Conversation> listModel = gui.getConversationListViewModel();
+            boolean isCurrentConv = msg.getConversationId() == currentConversationId;
+            DefaultListModel<Message> msgModel = isCurrentConv ? gui.getConversationViewModel() : null;
             SwingUtilities.invokeLater(() -> {
-                model.clear();
-                for (Conversation c : snapshot) model.addElement(c);
+                listModel.clear();
+                for (Conversation c : snapshot) listModel.addElement(c);
+                if (msgModel != null) {
+                    msgModel.addElement(msg);
+                }
             });
+            if (isCurrentConv) {
+                updateReadMessages(currentConversationId, msg.getSequenceNumber());
+            }
         }
     }
 
@@ -416,8 +424,14 @@ public class ClientController {
     /** Matches DataManager.handleCreateConversation — payload: CreateConversationPayload(participants). */
     public void createConversation(ArrayList<UserInfo> p) {
         if (!loggedIn || currentUser == null) return;
+        ArrayList<UserInfo> participants = new ArrayList<>(p);
+        boolean creatorPresent = false;
+        for (UserInfo u : participants) {
+            if (currentUser.getUserId().equals(u.getUserId())) { creatorPresent = true; break; }
+        }
+        if (!creatorPresent) participants.add(0, currentUser);
         enqueueRequest(new Request(RequestType.CREATE_CONVERSATION,
-                new CreateConversationPayload(p), currentUser.getUserId()));
+                new CreateConversationPayload(participants), currentUser.getUserId()));
     }
 
     /** Matches DataManager.handleAddToConversation — payload: AddToConversationPayload(participants, conversationId). */
