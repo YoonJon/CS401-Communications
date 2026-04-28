@@ -9,6 +9,8 @@ import javax.swing.event.*;
 
 import java.awt.*;
 import java.awt.event.*;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 
 public class ClientUI {
@@ -449,22 +451,38 @@ public class ClientUI {
                     JPanel panel = new JPanel(new BorderLayout());
                     
                     Message msg = (Message) value;
-                                        
+
+                    // Resolve sender's display name from conversation participants
+                    String senderName = msg.getSenderId();
+                    Conversation conv = controller.getCurrentConversation();
+                    if (conv != null) {
+                        for (UserInfo p : conv.getParticipants()) {
+                            if (p.getUserId().equals(msg.getSenderId())) {
+                                senderName = p.getName();
+                                break;
+                            }
+                        }
+                    }
+                    String ts = msg.getTimestamp().toInstant()
+                            .atZone(ZoneId.systemDefault())
+                            .format(DateTimeFormatter.ofPattern("LLL dd HH:mm"));
+                    String displayText = ts + " " + senderName + ": " + msg.getText();
+
                     long lastReadSeq = controller.getCurrentUserInfo().getLastRead(controller.getCurrentConversationId());
-                    
+
                     // displaying the current user's messages on the right side
                     if(msg.getSenderId().equals(controller.getCurrentUserInfo().getUserId())) {
                     	label.setBackground(Color.LIGHT_GRAY);
                     	label.setFont(label.getFont().deriveFont(Font.PLAIN));
-                        label.setText(msg.toString());
+                        label.setText(displayText);
                     	panel.add(label, BorderLayout.EAST);
                     } else { // displaying the other participants' messages on the left side
                     	if (msg.getSequenceNumber() > lastReadSeq ) {
                             label.setFont(label.getFont().deriveFont(Font.BOLD));
-                            label.setText("● " + msg.toString());
+                            label.setText("● " + displayText);
                         } else {
                             label.setFont(label.getFont().deriveFont(Font.PLAIN));
-                            label.setText(msg.toString());
+                            label.setText(displayText);
                         }
                     	panel.add(label, BorderLayout.WEST);
                     }
