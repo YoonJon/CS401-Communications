@@ -264,6 +264,7 @@ public class ClientController {
             case USER_ID_TAKEN:
             case USER_ID_INVALID:
             case LOGIN_NAME_TAKEN:
+            case LOGIN_NAME_INVALID:
                 if (gui != null) gui.showRegisterError(rr.getRegisterStatus());
                 break;
         }

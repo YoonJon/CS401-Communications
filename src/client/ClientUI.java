@@ -117,6 +117,9 @@ public class ClientUI {
             case LOGIN_NAME_TAKEN:
                 JOptionPane.showMessageDialog(frame, "Login name is already taken. Please try again.");
                 break;
+            case LOGIN_NAME_INVALID:
+                JOptionPane.showMessageDialog(frame, "Login name is invalid. Use only letters, numbers, hyphens, or underscores.");
+                break;
         }
     }
 
