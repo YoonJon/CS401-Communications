@@ -8,8 +8,6 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.util.*;
 import java.util.concurrent.LinkedBlockingDeque;
-import javax.swing.DefaultListModel;
-import javax.swing.SwingUtilities;
 import shared.enums.*;
 import shared.networking.*;
 import shared.networking.User.UserInfo;
@@ -283,17 +281,10 @@ public class ClientController {
         }
         if (gui != null) {
             ArrayList<Conversation> snapshot = new ArrayList<>(conversations);
-            DefaultListModel<Conversation> listModel = gui.getConversationListViewModel();
             boolean isCurrentConv = msg.getConversationId() == currentConversationId;
-            DefaultListModel<Message> msgModel = isCurrentConv ? gui.getConversationViewModel() : null;
-            SwingUtilities.invokeLater(() -> {
-                listModel.clear();
-                for (Conversation c : snapshot) listModel.addElement(c);
-                if (msgModel != null) {
-                    msgModel.addElement(msg);
-                }
-            });
+            gui.updateConversationListModel(snapshot);
             if (isCurrentConv) {
+                gui.appendMessageToConversationView(msg);
                 updateReadMessages(currentConversationId, msg.getSequenceNumber());
             }
         }
@@ -306,11 +297,7 @@ public class ClientController {
         conversations.add(0, conv);
         if (gui != null) {
             ArrayList<Conversation> snapshot = new ArrayList<>(conversations);
-            DefaultListModel<Conversation> model = gui.getConversationListViewModel();
-            SwingUtilities.invokeLater(() -> {
-                model.clear();
-                for (Conversation c : snapshot) model.addElement(c);
-            });
+            gui.updateConversationListModel(snapshot);
         }
     }
 
@@ -327,22 +314,10 @@ public class ClientController {
         if (gui != null) {
             ArrayList<Conversation> snapshot = new ArrayList<>(conversations);
             Conversation current = getCurrentConversation();
-            DefaultListModel<Conversation> conversationListModel = gui.getConversationListViewModel();
-            DefaultListModel<Message> conversationViewModel = gui.getConversationViewModel();
-
-            SwingUtilities.invokeLater(() -> {
-                // Update conversation list (sidebar)
-                conversationListModel.clear();
-                for (Conversation c : snapshot) conversationListModel.addElement(c);
-
-                // Update conversation view (message panel) to show the new current conversation
-                conversationViewModel.clear();
-                if (current != null) {
-                    for (Message msg : current.getMessages()) {
-                        conversationViewModel.addElement(msg);
-                    }
-                }
-            });
+            // Update conversation list (sidebar)
+            gui.updateConversationListModel(snapshot);
+            // Update conversation view (message panel) to show the new current conversation
+            gui.updateMessageListModel(current);
         }
     }
 
@@ -357,6 +332,9 @@ public class ClientController {
         // AdminConversationResult carries ConversationMetadata — store it directly.
         AdminConversationResult acr = (AdminConversationResult) response.getPayload();
         currentAdminConversationSearch = new ArrayList<>(acr.getConversations());
+        if (gui != null) {
+            gui.updateAdminConversationSearchModel(currentAdminConversationSearch);
+        }
     }
 
     /** Lazily opens a TCP connection to the server and initializes the input and output streams*/
@@ -478,19 +456,13 @@ public class ClientController {
     /** Filters local directory and refreshes the directory list model in the GUI. */
     public void searchDirectory(String query) {
         if (gui == null) return;
-        gui.getDirectoryViewModel().clear();
-        for (UserInfo u : getFilteredDirectory(query)) {
-            gui.getDirectoryViewModel().addElement(u);
-        }
+        gui.updateDirectoryModel(getFilteredDirectory(query));
     }
 
     /** Filters local conversation list and refreshes the conversation list model in the GUI. */
     public void searchConversationList(String query) {
         if (gui == null) return;
-        gui.getConversationListViewModel().clear();
-        for (Conversation c : getFilteredConversationList(query)) {
-            gui.getConversationListViewModel().addElement(c);
-        }
+        gui.updateConversationListModel(getFilteredConversationList(query));
     }
 
     public UserInfo getCurrentUserInfo() { return currentUser; }
