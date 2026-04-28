@@ -59,17 +59,24 @@ public class ClientUI {
 
     public void showLoginView() {
         SwingUtilities.invokeLater(() -> {
+            clearLoginAndRegisterFields();
             cards.main.directoryView.adminButton.setVisible(false);
             cards.main.directoryView.revalidate();
             cards.main.directoryView.repaint();
             cards.layout.show(cards, "login");
         });
     }
-    public void showRegisterView() { SwingUtilities.invokeLater(() -> cards.layout.show(cards, "register")); }
+    public void showRegisterView() { 
+        SwingUtilities.invokeLater(() -> {
+            clearLoginAndRegisterFields();
+            cards.layout.show(cards, "register");
+        }); 
+    }
     
     // currentUser is set by the time this is called
     public void showMainView() {
         SwingUtilities.invokeLater(() -> {
+            clearLoginAndRegisterFields();
             UserInfo currentUser = controller.getCurrentUserInfo();
             boolean isAdmin = currentUser != null && currentUser.getUserType() == UserType.ADMIN;
             cards.main.directoryView.adminButton.setVisible(isAdmin);
@@ -89,14 +96,42 @@ public class ClientUI {
         });
     }
 
+    private void clearLoginAndRegisterFields() {
+        cards.login.login_idField.setText("");
+        cards.login.passwordField.setText("");
+        cards.register.userId.setText("");
+        cards.register.name.setText("");
+        cards.register.loginName.setText("");
+        cards.register.password.setText("");
+        cards.register.passwordAgain.setText("");
+    }
+
     public void showRegisterError(RegisterStatus registerStatus) {
-    	// need to identify which status???
-        JOptionPane.showMessageDialog(frame, "Register is not completed. Start over again.");
+        switch (registerStatus) {
+            case USER_ID_TAKEN:
+                JOptionPane.showMessageDialog(frame, "User ID is already taken. Please try again.");
+                break;
+            case USER_ID_INVALID:
+                JOptionPane.showMessageDialog(frame, "User ID is invalid. Please try again.");
+                break;
+            case LOGIN_NAME_TAKEN:
+                JOptionPane.showMessageDialog(frame, "Login name is already taken. Please try again.");
+                break;
+        }
     }
 
     public void showLoginError(LoginStatus loginStatus) {
-    	// identify the cause??
-    	JOptionPane.showMessageDialog(frame, "Log in is failed. Start over again.");
+    	switch (loginStatus) {
+            case INVALID_CREDENTIALS:
+                JOptionPane.showMessageDialog(frame, "Invalid credentials. Please try again.");
+                break;
+            case NO_ACCOUNT_EXISTS:
+                JOptionPane.showMessageDialog(frame, "No account exists. Please create an account.");
+                break;
+            case DUPLICATE_SESSION:
+                JOptionPane.showMessageDialog(frame, "Duplicate session. Please log in again.");
+                break;
+        }
     }
 
     public DefaultListModel<UserInfo> getDirectoryViewModel() { return cards.main.directoryView.getListModel(); }
