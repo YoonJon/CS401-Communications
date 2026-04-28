@@ -1,0 +1,4 @@
+#Server counters (message sequence and conversation id)
+#Mon Apr 27 06:34:44 PDT 2026
+conversationIdCounter=0
+messageSequenceCounter=0

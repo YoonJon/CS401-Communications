@@ -202,29 +202,37 @@ public class DataManager {
      * then clears both dirty sets.
      */
     public void writeDirty() throws IOException {
-        Set<String> userIds = new HashSet<>(dirtyUsers);
-        Set<Long> conversationIds = new HashSet<>(dirtyConversations);
-        dirtyUsers.clear();
-        dirtyConversations.clear();
+        Set<String> userIdsSnapshot = new HashSet<>(dirtyUsers);
+        Set<Long> conversationIdsSnapshot = new HashSet<>(dirtyConversations);
 
-        for (String userId : userIds) {
+        for (String userId : userIdsSnapshot) {
             User u = usersByUserID.get(userId);
             if (u != null) {
                 try (FileOutputStream fos = new FileOutputStream(userPersistenceFile(userId));
-                     ObjectOutputStream oos = new ObjectOutputStream(fos)) {
+                    ObjectOutputStream oos = new ObjectOutputStream(fos)) {
                     oos.writeObject(u);
+                    dirtyUsers.remove(userId);
+                }catch(IOException e) {
+                    e.printStackTrace();
                 }
+            } else {
+                dirtyUsers.remove(userId);
             }
         }
-        for (Long conversationId : conversationIds) {
+        for (Long conversationId : conversationIdsSnapshot) {
             Conversation c = conversationsByConversationID.get(conversationId);
             if (c != null) {
                 synchronized (c) {
                     try (FileOutputStream fos = new FileOutputStream(conversationPersistenceFile(conversationId));
-                         ObjectOutputStream oos = new ObjectOutputStream(fos)) {
+                        ObjectOutputStream oos = new ObjectOutputStream(fos)) {
                         oos.writeObject(c);
+                        dirtyConversations.remove(conversationId);
+                    }catch(IOException e) {
+                        e.printStackTrace();
                     }
                 }
+            } else {
+                dirtyConversations.remove(conversationId);
             }
         }
     }
@@ -349,6 +357,7 @@ public class DataManager {
 	        	conversationsByConversationID.put(newConversation.getConversationId(),newConversation);
 	        	linkParticipantsToConversation(newConversation.getConversationId(), newConversation.getParticipants());
 	        }
+            in.close();
         }catch(IOException e) {
         	e.printStackTrace();
         }catch(ClassNotFoundException e) {
