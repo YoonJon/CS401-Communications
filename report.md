@@ -9,23 +9,13 @@
 ## Summary
 
 Compilation succeeds for 35 of 36 source files (JUnit 5 missing for `ClientUITest.java`).
-`javac -Xlint:all` produced **33 warnings** and manual review found **11 distinct bugs or conflicts** across 5 categories.
+`javac -Xlint:all` produced **33 warnings** and manual review found **9 distinct bugs or conflicts** across 5 categories.
 
 ---
 
 ## Critical Bugs
 
-### 1. PING/PONG handler missing — users auto-logout after 5 minutes
-
-**File:** `src/server/ServerController.java:108–143` / `src/client/ClientController.java:638–676`
-
-`ClientController` sends a `PING` request every 30 seconds and expects a `PONG` response to reset `lastServerActivityMillis`. After 5 minutes of inactivity the client calls `logout()`. The server's `processRequest` switch has no `case PING`, so it falls to `default: return null` — no `PONG` is ever sent. Because `lastServerActivityMillis` is only reset on `PONG`, even an actively messaging user will be logged out after 5 minutes.
-
-**Fix:** Add a `case PING` in `ServerController.processRequest` that returns a `new Response(ResponseType.PONG, null)`.
-
----
-
-### 2. `handleJoinConversation` does not add user to Conversation participants
+### 1. `handleJoinConversation` does not add user to Conversation participants
 
 **File:** `src/server/DataManager.java:747–753`
 
@@ -43,7 +33,7 @@ public Response handleJoinConversation(Request request) {
 
 ---
 
-### 3. Resource leak — `ObjectInputStream` never closed in conversation load loop
+### 2. Resource leak — `ObjectInputStream` never closed in conversation load loop
 
 **File:** `src/server/DataManager.java:343–356`
 
@@ -71,7 +61,7 @@ for (File f : listOfConversationFiles) {
 
 ---
 
-### 4. `writeDirty` clears dirty sets before writes complete — silent data loss on failure
+### 3. `writeDirty` clears dirty sets before writes complete — silent data loss on failure
 
 **File:** `src/server/DataManager.java:204–229`
 
@@ -92,7 +82,7 @@ If any file write fails mid-loop the dirty ID is already cleared, so the change 
 
 ## Functional Bugs
 
-### 5. `DUPLICATE_SESSION` status never returned
+### 4. `DUPLICATE_SESSION` status never returned
 
 **File:** `src/server/DataManager.java:586–617`
 
@@ -102,7 +92,7 @@ If any file write fails mid-loop the dirty ID is already cleared, so the change 
 
 ---
 
-### 6. `ServerController.main` ignores port argument — always binds to 8080
+### 5. `ServerController.main` ignores port argument — always binds to 8080
 
 **File:** `src/server/ServerController.java:41–46`
 
@@ -122,7 +112,7 @@ new ServerController(dataRootPath, port);
 
 ---
 
-### 7. Admin conversation results do not update the GUI
+### 6. Admin conversation results do not update the GUI
 
 **File:** `src/client/ClientController.java:348–352`
 
@@ -134,7 +124,7 @@ new ServerController(dataRootPath, port);
 
 ## Design / Consistency Issues
 
-### 8. Static counters shared across all `DataManager` instances
+### 7. Static counters shared across all `DataManager` instances
 
 **File:** `src/server/DataManager.java:34,40`
 
@@ -149,7 +139,7 @@ Being `static`, these counters are shared across every `DataManager` in the JVM.
 
 ---
 
-### 9. `UserInfo.setLastRead` mutates a supposedly immutable snapshot
+### 8. `UserInfo.setLastRead` mutates a supposedly immutable snapshot
 
 **File:** `src/shared/networking/User.java:117–119`
 
@@ -159,22 +149,7 @@ Being `static`, these counters are shared across every `DataManager` in the JVM.
 
 ---
 
-### 10. Passwords converted from `char[]` to `String` immediately
-
-**File:** `src/client/ClientController.java:374,380`
-
-```java
-public void register(String userId, String realName, String loginName, char[] password) {
-    RegisterCredentials creds = new RegisterCredentials(userId, loginName, new String(password), realName);
-```
-
-Accepting `char[]` is the standard secure pattern (arrays can be zeroed). Converting to `String` immediately puts the password in the string pool where it cannot be cleared, negating the security benefit.
-
-**Fix:** Zero the array after use (`Arrays.fill(password, '\0')`) or accept `String` directly and document that the caller is responsible for clearing.
-
----
-
-### 11. `LOGIN_NAME_INVALID` status is unreachable
+### 9. `LOGIN_NAME_INVALID` status is unreachable
 
 **File:** `src/server/DataManager.java:558–582` / `src/shared/enums/RegisterStatus.java`
 
@@ -186,7 +161,7 @@ Accepting `char[]` is the standard secure pattern (arrays can be zeroed). Conver
 
 ## Compilation Issue
 
-### 12. `ClientUITest.java` — JUnit 5 dependency missing
+### 10. `ClientUITest.java` — JUnit 5 dependency missing
 
 **File:** `src/client/ClientUITest.java`
 
@@ -210,15 +185,13 @@ The file imports `org.junit.jupiter.api.Assertions` and `org.junit.jupiter.api.T
 
 | Priority | Issue |
 |---|---|
-| High | #1 — PING/PONG missing (users auto-logout) |
-| High | #2 — `handleJoinConversation` broken |
-| High | #3 — File handle leak in `loadData` |
-| High | #4 — `writeDirty` data loss on write failure |
-| Medium | #5 — No duplicate session detection |
-| Medium | #6 — Port argument ignored in `main` |
-| Medium | #7 — Admin results don't update GUI |
-| Low | #8 — Static counters shared across instances |
-| Low | #9 — `UserInfo` mutability inconsistency |
-| Low | #10 — Password `char[]` immediately stringified |
-| Low | #11 — `LOGIN_NAME_INVALID` unreachable |
-| Info | #12 — `ClientUITest` uncompilable / empty |
+| High | #1 — `handleJoinConversation` broken |
+| High | #2 — File handle leak in `loadData` |
+| High | #3 — `writeDirty` data loss on write failure |
+| Medium | #4 — No duplicate session detection |
+| Medium | #5 — Port argument ignored in `main` |
+| Medium | #6 — Admin results don't update GUI |
+| Low | #7 — Static counters shared across instances |
+| Low | #8 — `UserInfo` mutability inconsistency |
+| Low | #9 — `LOGIN_NAME_INVALID` unreachable |
+| Info | #10 — `ClientUITest` uncompilable / empty |
