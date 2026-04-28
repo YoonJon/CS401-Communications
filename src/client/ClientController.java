@@ -285,8 +285,6 @@ public class ClientController {
             gui.updateConversationListModel(snapshot);
             if (isCurrentConv) {
                 gui.appendMessageToConversationView(msg);
-            }
-            if (isCurrentConv) {
                 updateReadMessages(currentConversationId, msg.getSequenceNumber());
             }
         }
@@ -334,6 +332,9 @@ public class ClientController {
         // AdminConversationResult carries ConversationMetadata — store it directly.
         AdminConversationResult acr = (AdminConversationResult) response.getPayload();
         currentAdminConversationSearch = new ArrayList<>(acr.getConversations());
+        if (gui != null) {
+            gui.updateAdminConversationSearchModel(currentAdminConversationSearch);
+        }
     }
 
     /** Lazily opens a TCP connection to the server and initializes the input and output streams*/

@@ -189,6 +189,20 @@ public class ClientUI {
         SwingUtilities.invokeLater(() -> conversationMessageModel.addElement(message));
     }
 
+    public void updateAdminConversationSearchModel(ArrayList<ConversationMetadata> conversations) {
+        SwingUtilities.invokeLater(() -> {
+            if (cards.main.directoryView.adminConversationSearchWindow == null
+                    || cards.main.directoryView.adminConversationSearchWindow.model == null) {
+                return;
+            }
+            DefaultListModel<ConversationMetadata> model = cards.main.directoryView.adminConversationSearchWindow.model;
+            model.clear();
+            for (ConversationMetadata conversation : conversations) {
+                model.addElement(conversation);
+            }
+        });
+    }
+
     // =========================================================================
     class ScreenCards extends JPanel {
         CardLayout layout;
