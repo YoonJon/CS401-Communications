@@ -21,6 +21,9 @@ public class ClientUI {
     private ClientController controller;
     private JFrame frame;
     private ScreenCards cards;
+    private DefaultListModel<UserInfo> directoryModel;
+    private DefaultListModel<Message> conversationMessageModel;
+    private DefaultListModel<Conversation> conversationListModel;
     /** Fires on the EDT every 5s to compare wall clock to {@link #lastUserActivityMillis}. */
     private final Timer userIdlePollTimer;
 
@@ -33,6 +36,9 @@ public class ClientUI {
         frame = new JFrame();
         frame.setTitle("Communication Application");
         cards = new ScreenCards();
+        directoryModel = cards.main.directoryView.getListModel();
+        conversationMessageModel = cards.main.conversationView.getListModel();
+        conversationListModel = cards.main.conversationListView.getListModel();
         frame.add(cards);
         frame.pack();                 
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -84,16 +90,14 @@ public class ClientUI {
             boolean isAdmin = currentUser != null && currentUser.getUserType() == UserType.ADMIN;
             cards.main.directoryView.adminButton.setVisible(isAdmin);
             // Refresh directory list from the latest controller-side cache on main-view entry.
-            DefaultListModel<UserInfo> directoryModel = cards.main.directoryView.getListModel();
             directoryModel.clear();
             for (UserInfo userInfo : controller.getFilteredDirectory("")) {
                 directoryModel.addElement(userInfo);
             }
             // Populate conversation list from login result.
-            DefaultListModel<Conversation> convModel = cards.main.conversationListView.getListModel();
-            convModel.clear();
+            conversationListModel.clear();
             for (Conversation c : controller.getFilteredConversationList("")) {
-                convModel.addElement(c);
+                conversationListModel.addElement(c);
             }
             cards.main.directoryView.revalidate();
             cards.main.directoryView.repaint();
@@ -146,22 +150,44 @@ public class ClientUI {
         }
     }
 
-    public DefaultListModel<UserInfo> getDirectoryViewModel() { return cards.main.directoryView.getListModel(); }
-    public DefaultListModel<Message> getConversationViewModel() { return cards.main.conversationView.getListModel(); }
-    public DefaultListModel<Conversation> getConversationListViewModel() { return cards.main.conversationListView.getListModel(); }
-    
-    public DefaultListModel<ConversationMetadata> getAdminConversationSearchWindowModel() {
-        if (cards.main.directoryView.adminConversationSearchWindow == null
-                || cards.main.directoryView.adminConversationSearchWindow.model == null) {
-            return new DefaultListModel<>();
-        }
-        return cards.main.directoryView.adminConversationSearchWindow.model;
-    }
-
     public boolean isSelectingUsers() {
         return cards.main.directoryView.isCreatingConversation() || cards.main.conversationView.isAddingUser();
     }
     public boolean isAdminSearchingConversation() { return cards.main.directoryView.isAdminSearching(); }
+
+    public void updateDirectoryModel(ArrayList<UserInfo> users) {
+        SwingUtilities.invokeLater(() -> {
+            directoryModel.clear();
+            for (UserInfo user : users) {
+                directoryModel.addElement(user);
+            }
+        });
+    }
+
+    public void updateConversationListModel(ArrayList<Conversation> conversations) {
+        SwingUtilities.invokeLater(() -> {
+            conversationListModel.clear();
+            for (Conversation conversation : conversations) {
+                conversationListModel.addElement(conversation);
+            }
+        });
+    }
+
+    public void updateMessageListModel(Conversation conversation) {
+        SwingUtilities.invokeLater(() -> {
+            conversationMessageModel.clear();
+            if (conversation == null) {
+                return;
+            }
+            for (Message message : conversation.getMessages()) {
+                conversationMessageModel.addElement(message);
+            }
+        });
+    }
+
+    public void appendMessageToConversationView(Message message) {
+        SwingUtilities.invokeLater(() -> conversationMessageModel.addElement(message));
+    }
 
     // =========================================================================
     class ScreenCards extends JPanel {
