@@ -348,16 +348,15 @@ public class DataManager {
         if (listOfConversationFiles == null) {
             listOfConversationFiles = new File[0];
         }
-        ObjectInputStream in = null;
         try {
 	        for (File f : listOfConversationFiles) {
-	        	FileInputStream fs = new FileInputStream(f);
-	        	in = new ObjectInputStream(fs);
-	        	Conversation newConversation = (Conversation) in.readObject();
-	        	conversationsByConversationID.put(newConversation.getConversationId(),newConversation);
-	        	linkParticipantsToConversation(newConversation.getConversationId(), newConversation.getParticipants());
+                try (FileInputStream fs = new FileInputStream(f);
+                     ObjectInputStream in = new ObjectInputStream(fs)) {
+                    Conversation newConversation = (Conversation) in.readObject();
+                    conversationsByConversationID.put(newConversation.getConversationId(), newConversation);
+                    linkParticipantsToConversation(newConversation.getConversationId(), newConversation.getParticipants());
+                }
 	        }
-            in.close();
         }catch(IOException e) {
         	e.printStackTrace();
         }catch(ClassNotFoundException e) {
