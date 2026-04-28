@@ -114,10 +114,7 @@ public class User implements Serializable {
             return lastRead.getOrDefault(conversationId, 0L);
         }
 
-        public void setLastRead(long conversationId, long sequenceNumber) {
-            lastRead.put(conversationId, sequenceNumber);
-        }
-
+        @Override
         public String toString(){return name+" ("+userId+")";}
     }
 }

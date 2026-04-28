@@ -44,8 +44,9 @@ public class ServerController {
     public static void main(String[] args) {
         // First CLI arg is the data root path; port is fixed at 8080.
         String dataRootPath = args.length > 0 ? args[0] : "data";
+        String port = args.length > 1 ? args[1] : "8080";
         System.out.println("cwd is " + System.getProperty("user.dir"));
-        ServerController serverController = new ServerController(dataRootPath, 8080);
+        ServerController serverController = new ServerController(dataRootPath, Integer.parseInt(port));
         System.out.println("Server started on port 8080");
         keepAliveUntilInterrupted(serverController);
     }

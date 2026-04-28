@@ -578,6 +578,10 @@ public class DataManager {
         if(usersByUserID.containsKey(userId)) {
             return new Response(ResponseType.REGISTER_RESULT, new RegisterResult(shared.enums.RegisterStatus.USER_ID_TAKEN));
         }
+        // check if the login name is valid (non-empty, alphanumeric/underscores/hyphens only)
+        if(loginName == null || loginName.isBlank() || !loginName.matches("[a-zA-Z0-9_\\-]+")) {
+            return new Response(ResponseType.REGISTER_RESULT, new RegisterResult(shared.enums.RegisterStatus.LOGIN_NAME_INVALID));
+        }
         // check if the login name is already taken
         if(usersByLoginName.containsKey(loginName)) {
             return new Response(ResponseType.REGISTER_RESULT, new RegisterResult(shared.enums.RegisterStatus.LOGIN_NAME_TAKEN));
