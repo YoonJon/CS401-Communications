@@ -590,7 +590,7 @@ public class DataManager {
 
         // check if the user exists
         if(!usersByLoginName.containsKey(loginName)) {
-            return new Response(ResponseType.LOGIN_RESULT, new LoginResult(shared.enums.LoginStatus.INVALID_CREDENTIALS));
+            return new Response(ResponseType.LOGIN_RESULT, new LoginResult(shared.enums.LoginStatus.NO_ACCOUNT_EXISTS));
         }
 
         // check if the password is correct
@@ -759,5 +759,14 @@ public class DataManager {
             return new ArrayList<>();
         }
         return c.getParticipants();
+    }
+
+    public boolean userExists(String loginName) {
+        return loginName != null && usersByLoginName.containsKey(loginName);
+    }
+
+    public String getUserIdByLoginName(String loginName) {
+        User user = usersByLoginName.get(loginName);
+        return user == null ? null : user.getUserId();
     }
 }
