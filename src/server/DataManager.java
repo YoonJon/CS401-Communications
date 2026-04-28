@@ -31,13 +31,13 @@ public class DataManager {
      * Authoritative monotonic message sequence counter; persisted under
      * {@code messageSequenceCounter} in {@code server_data/server_config.txt}.
      */
-    private static final AtomicLong messageSequenceCounter = new AtomicLong(0);
+    private final AtomicLong messageSequenceCounter = new AtomicLong(0);
 
     /**
      * Monotonic numeric id assignment for new {@link Conversation} records; persisted under
      * {@code conversationIdCounter} in {@code server_data/server_config.txt}.
      */
-    private static final AtomicLong conversationIdCounter = new AtomicLong(0);
+    private final AtomicLong conversationIdCounter = new AtomicLong(0);
 
     // --- In-memory authoritative state ---
 
@@ -171,12 +171,12 @@ public class DataManager {
     /**
      * Returns the next message sequence number. Thread-safe.
      */
-    static long nextMessageSequenceNumber() {
+    long nextMessageSequenceNumber() {
         return messageSequenceCounter.incrementAndGet();
     }
 
     /** Returns the next conversation id (monotonic long). Thread-safe. */
-    static long nextConversationId() {
+    long nextConversationId() {
         return conversationIdCounter.incrementAndGet();
     }
 
