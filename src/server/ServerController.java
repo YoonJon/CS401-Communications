@@ -185,7 +185,15 @@ public class ServerController {
     private void enqueueMessageBroadcast(Request request, Response response) {
         if (!(response.getPayload() instanceof Message)) return;
         Message message = (Message) response.getPayload();
-        enqueueToActiveParticipants(dataManager.getParticipantList(message.getConversationId()), response);
+        String senderId = request.getSenderId();
+        for (UserInfo participant : dataManager.getParticipantList(message.getConversationId())) {
+            if (participant == null || participant.getUserId() == null) continue;
+            String id = participant.getUserId();
+            if (id.equals(senderId)) continue; // sender already gets the response via direct return
+            if (hasActiveSession(id)) {
+                responseQueue.offer(new AbstractMap.SimpleImmutableEntry<>(id, response));
+            }
+        }
     }
 
     private void enqueueCreateConversationBroadcast(Response response) {

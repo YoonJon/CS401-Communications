@@ -9,6 +9,7 @@ import javax.swing.event.*;
 
 import java.awt.*;
 import java.awt.event.*;
+import java.util.ArrayList;
 
 public class ClientUI {
 
@@ -85,6 +86,12 @@ public class ClientUI {
             directoryModel.clear();
             for (UserInfo userInfo : controller.getFilteredDirectory("")) {
                 directoryModel.addElement(userInfo);
+            }
+            // Populate conversation list from login result.
+            DefaultListModel<Conversation> convModel = cards.main.conversationListView.getListModel();
+            convModel.clear();
+            for (Conversation c : controller.getFilteredConversationList("")) {
+                convModel.addElement(c);
             }
             cards.main.directoryView.revalidate();
             cards.main.directoryView.repaint();
@@ -398,6 +405,7 @@ public class ClientUI {
         JTextField text;
         JButton sendButton;
         JDialog addDialog;
+        SelectUserWindow addUserWindow;
 
         ConversationView() {
         	participantsLabel = new JLabel();
@@ -461,9 +469,7 @@ public class ClientUI {
                     	panel.add(label, BorderLayout.WEST);
                     }
 
-                    
-
-                    return label;
+                    return panel;
                 }
             });
             
@@ -486,10 +492,11 @@ public class ClientUI {
                     return;
                 }
 
-                SelectUserWindow panel = new SelectUserWindow();
+                addUserWindow = new SelectUserWindow(
+                    users -> controller.addToConversation(users, controller.getCurrentConversationId()));
 
                 addDialog = new JDialog(frame, "Select User", false);
-                addDialog.add(panel);
+                addDialog.add(addUserWindow);
                 addDialog.setSize(300, 400);
                 addDialog.setLocationRelativeTo(frame);
                 addDialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
@@ -542,6 +549,7 @@ public class ClientUI {
                     return;
                 }
             	controller.sendMessage(controller.getCurrentConversation().getConversationId(), text.getText());
+                text.setText("");
             });
                       
         }
@@ -561,6 +569,7 @@ public class ClientUI {
                 for(int i = 0; i < currConv.getMessages().size(); i++) {
                     conversationMessageListModel.addElement(currConv.getMessages().get(i));
                 }
+                text.setEnabled(true);
         	});
         }
         
@@ -675,7 +684,7 @@ public class ClientUI {
                     return;
                 }
                
-            	createConversationUserWindow = new SelectUserWindow();
+            	createConversationUserWindow = new SelectUserWindow(users -> controller.createConversation(users));
                 createDialog = new JDialog(frame, "Select User", false);
                 createDialog.add(createConversationUserWindow);
                 createDialog.setSize(300, 400);
@@ -731,12 +740,15 @@ public class ClientUI {
                 }
                 selecting = selectedValue;
                 // if the another window is not visible, shows the button
-                if(selecting != null && createDialog != null && adminDialog != null && !createDialog.isVisible() && !adminDialog.isVisible()) {
+                if(selecting != null && (createDialog == null || !createDialog.isVisible()) && (adminDialog == null || !adminDialog.isVisible())
+                        && (cards.main.conversationView.addDialog == null || !cards.main.conversationView.addDialog.isVisible())) {
                     createConversationButton.setEnabled(true);
                     // adminButton is always constructed; visibility is toggled at login time
                     adminButton.setEnabled(true);
                 } else if(createDialog != null && createDialog.isVisible()) { // if selectUser window is open
                     createConversationUserWindow.addUser(selecting);
+                } else if(cards.main.conversationView.addDialog != null && cards.main.conversationView.addDialog.isVisible()) {
+                    if(selecting != null) cards.main.conversationView.addUserWindow.addUser(selecting);
                 }
             });
 
@@ -825,8 +837,12 @@ public class ClientUI {
     					// delegates to ConversationView.setListModel so both the
     					// participant label and the message list are updated together
     					cards.main.conversationView.setListModel(selected);
+    					if (!selected.getMessages().isEmpty()) {
+    					    Message last = selected.getMessages().get(selected.getMessages().size() - 1);
+    					    controller.updateReadMessages(selected.getConversationId(), last.getSequenceNumber());
+    					}
     				}
-            	}    					 				
+            	}
             });           
         }
         
@@ -847,9 +863,10 @@ public class ClientUI {
         JButton removeButton;
         JButton okButton;
         JButton cancelButton;
-    
-        
-        SelectUserWindow() {
+        private final java.util.function.Consumer<ArrayList<UserInfo>> onConfirm;
+
+        SelectUserWindow(java.util.function.Consumer<ArrayList<UserInfo>> onConfirm) {
+            this.onConfirm = onConfirm;
             removeButton = new JButton("Remove");
             removeButton.setEnabled(false);
             okButton = new JButton("OK");
@@ -881,10 +898,12 @@ public class ClientUI {
         	// add action to OK button
             okButton.addActionListener(e -> {
             	if(model.size() != 0) {
-                	// sent the list
+                    ArrayList<UserInfo> selected = new ArrayList<>();
+                    for (int i = 0; i < model.size(); i++) selected.add(model.get(i));
+                    onConfirm.accept(selected);
             	}
                 Window window = SwingUtilities.getWindowAncestor(this);
-                window.dispose();            
+                window.dispose();
             });
             
             // add action to cancel button
