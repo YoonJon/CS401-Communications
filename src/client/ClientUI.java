@@ -180,6 +180,29 @@ public class ClientUI {
         });
     }
 
+    /** Escapes HTML special chars, wraps the result in {@code <html><body style='width:Npx'>...},
+     *  and emits a JLabel-ready string. Shared between {@link ConversationView.MessageCellRenderer}
+     *  and the admin viewer's read-only renderer so wrapping width math stays in one place. */
+    static String escapeAndWrapHtml(String raw, int maxPx) {
+        if (raw == null) raw = "";
+        StringBuilder sb = new StringBuilder(raw.length() + 16);
+        for (int i = 0; i < raw.length(); i++) {
+            char c = raw.charAt(i);
+            switch (c) {
+                case '&':  sb.append("&amp;");  break;
+                case '<':  sb.append("&lt;");   break;
+                case '>':  sb.append("&gt;");   break;
+                case '"':  sb.append("&quot;"); break;
+                case '\'': sb.append("&#39;");  break;
+                case '\n': sb.append("<br/>");  break;
+                case '\r': /* skip */            break;
+                default:   sb.append(c);
+            }
+        }
+        int safe = Math.max(80, maxPx);
+        return "<html><body style='width:" + safe + "px'>" + sb + "</body></html>";
+    }
+
     /** #141: wrap a password field with a Show/Hide toggle button. The wrapper JPanel takes the
      *  field's place in any layout; the field reference itself is unchanged. */
     private static JPanel passwordFieldWithToggle(JPasswordField field) {
@@ -389,6 +412,17 @@ public class ClientUI {
             for (ConversationMetadata conversation : conversations) {
                 model.addElement(conversation);
             }
+        });
+    }
+
+    /** Routes a silent admin read into the right pane of the open admin viewer. No-op if
+     *  the viewer dialog isn't open (defensive — late responses after dialog close are dropped). */
+    public void showAdminConversationView(Conversation conv) {
+        if (conv == null) return;
+        SwingUtilities.invokeLater(() -> {
+            DirectoryView dv = cards.main.directoryView;
+            if (dv.adminConversationSearchWindow == null) return;
+            dv.adminConversationSearchWindow.loadConversation(conv);
         });
     }
 
@@ -806,25 +840,6 @@ public class ClientUI {
                 return this;
             }
 
-            private static String escapeAndWrapHtml(String raw, int maxPx) {
-                if (raw == null) raw = "";
-                StringBuilder sb = new StringBuilder(raw.length() + 16);
-                for (int i = 0; i < raw.length(); i++) {
-                    char c = raw.charAt(i);
-                    switch (c) {
-                        case '&':  sb.append("&amp;");  break;
-                        case '<':  sb.append("&lt;");   break;
-                        case '>':  sb.append("&gt;");   break;
-                        case '"':  sb.append("&quot;"); break;
-                        case '\'': sb.append("&#39;");  break;
-                        case '\n': sb.append("<br/>");  break;
-                        case '\r': /* skip */            break;
-                        default:   sb.append(c);
-                    }
-                }
-                int safe = Math.max(80, maxPx);
-                return "<html><body style='width:" + safe + "px'>" + sb + "</body></html>";
-            }
         }
 
         ConversationView() {
@@ -1108,8 +1123,10 @@ public class ClientUI {
             createConversationButton.setEnabled(false);
 
             // construct admin button unconditionally and enable later if the user is admin
-            // #127: clearer label + tooltip explaining the prerequisite (a user must be selected).
-            adminButton = new JButton("View Conversations");
+            // #127: tooltip explains the prerequisite (a user must be selected). Label kept
+            // as "Admin" per the silent-viewer feature; the dialog itself shows what the
+            // admin is doing.
+            adminButton = new JButton("Admin");
             adminButton.setToolTipText("Select a user in the directory, then click to view their conversations");
             adminButton.setEnabled(false);
             adminButton.setVisible(false);
@@ -1238,7 +1255,7 @@ public class ClientUI {
             	adminConversationSearchWindow= new AdminConversationSearchWindow();
                 adminDialog = new JDialog(frame, "Searching Conversations", false);
                 adminDialog.add(adminConversationSearchWindow);
-                adminDialog.setSize(300, 400);
+                adminDialog.setSize(900, 600);
                 adminDialog.setLocationRelativeTo(frame);
                 adminDialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
                 bindEscapeToDispose(adminDialog);
@@ -1524,8 +1541,8 @@ public class ClientUI {
         JTextField searchField;
         DefaultListModel<ConversationMetadata> model = new DefaultListModel<>();
         JList<ConversationMetadata> list = new JList<>(model);
-        JButton okButton;
-        JButton cancelButton;
+        JButton closeButton;
+        ViewerPanel viewerPanel;
 
         // #126: render each search result as "[ID: N] TYPE • K participant(s) • last active <ts>"
         // (or "no messages yet"). Modeled on ConversationCellRenderer above.
@@ -1559,33 +1576,164 @@ public class ClientUI {
             }
         }
 
+        // Read-only renderer for the right-pane message list. Holds a local Conversation
+        // reference (set by ViewerPanel before populating the model) and resolves sender
+        // names from that conversation's historicalParticipants — does NOT touch
+        // controller.getCurrentConversation()/Id/UserInfo. No unread-bold logic; admins
+        // have no read pointer in the viewed conversation.
+        private final class AdminMessageCellRenderer extends JPanel implements ListCellRenderer<Message> {
+            private final JLabel label = new JLabel();
+            private Conversation viewedConv;
+
+            AdminMessageCellRenderer() {
+                setLayout(new BorderLayout());
+                setOpaque(true);
+                label.setOpaque(true);
+                label.setBorder(BorderFactory.createCompoundBorder(
+                        new LineBorder(new Color(180, 180, 180), 1, true),
+                        BorderFactory.createEmptyBorder(4, 10, 4, 10)));
+            }
+
+            void setConversation(Conversation conv) { this.viewedConv = conv; }
+
+            @Override
+            public Component getListCellRendererComponent(
+                    JList<? extends Message> list, Message msg, int index,
+                    boolean isSelected, boolean cellHasFocus) {
+                String senderName = null;
+                if (viewedConv != null) {
+                    for (UserInfo p : viewedConv.getHistoricalParticipants()) {
+                        if (p.getUserId().equals(msg.getSenderId())) {
+                            senderName = p.getName();
+                            break;
+                        }
+                    }
+                }
+                if (senderName == null) senderName = "(former participant)";
+
+                ZonedDateTime zdt = msg.getTimestamp().toInstant().atZone(ZoneId.systemDefault());
+                DateTimeFormatter dtf = zdt.getYear() == ZonedDateTime.now().getYear()
+                        ? DateTimeFormatter.ofPattern("LLL dd, HH:mm", java.util.Locale.ENGLISH)
+                        : DateTimeFormatter.ofPattern("LLL dd yyyy, HH:mm", java.util.Locale.ENGLISH);
+                String ts = zdt.format(dtf);
+                String rawText = msg.getText() == null ? "" : msg.getText();
+                String displayText = ts + " " + senderName + ": " + rawText;
+
+                int listW = list.getWidth();
+                int wrapPx = listW > 0 ? (int) (listW * 0.70) : 360;
+
+                removeAll();
+                setBackground(list.getBackground());
+                label.setBackground(list.getBackground());
+                label.setFont(label.getFont().deriveFont(Font.PLAIN));
+                label.setText(escapeAndWrapHtml(displayText, wrapPx));
+                add(label, BorderLayout.WEST);
+                return this;
+            }
+        }
+
+        // Right pane of the split: read-only message viewer for the selected conversation.
+        // Starts on a placeholder; replaced by the message scroll list once a conversation
+        // is loaded. No input field, no Send/Add/Leave buttons.
+        final class ViewerPanel extends JPanel {
+            JLabel participantsLabel = new JLabel(" ");
+            DefaultListModel<Message> msgModel = new DefaultListModel<>();
+            JList<Message> msgList = new JList<>(msgModel);
+            JLabel placeholder = new JLabel("Select a conversation to preview", SwingConstants.CENTER);
+            JScrollPane scroll;
+            AdminMessageCellRenderer renderer = new AdminMessageCellRenderer();
+            boolean populated = false;
+
+            ViewerPanel() {
+                setLayout(new BorderLayout());
+                setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+                participantsLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 8, 0));
+                add(participantsLabel, BorderLayout.NORTH);
+
+                msgList.setCellRenderer(renderer);
+                scroll = new JScrollPane(msgList);
+                scroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+                scroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+                msgList.addComponentListener(new ComponentAdapter() {
+                    @Override public void componentResized(ComponentEvent e) {
+                        msgList.setFixedCellHeight(10);
+                        msgList.setFixedCellHeight(-1);
+                    }
+                });
+
+                add(placeholder, BorderLayout.CENTER);
+            }
+
+            void loadConversation(Conversation conv) {
+                if (conv == null) return;
+                renderer.setConversation(conv);
+                ArrayList<UserInfo> active = conv.getParticipants();
+                ArrayList<UserInfo> historical = conv.getHistoricalParticipants();
+                StringBuilder names = new StringBuilder();
+                ArrayList<UserInfo> sourceList = (!active.isEmpty()) ? historical : historical;
+                for (int i = 0; i < sourceList.size(); i++) {
+                    if (i > 0) names.append(", ");
+                    names.append(sourceList.get(i).getName());
+                }
+                String prefix = active.isEmpty() ? "Former participants: " : "Participants: ";
+                participantsLabel.setText(prefix + (sourceList.isEmpty() ? "(none)" : names.toString()));
+
+                msgModel.clear();
+                ArrayList<Message> messages = conv.getMessages();
+                if (messages.isEmpty()) {
+                    placeholder.setText("No messages yet");
+                    if (populated) {
+                        remove(scroll);
+                        add(placeholder, BorderLayout.CENTER);
+                        populated = false;
+                    }
+                } else {
+                    for (Message m : messages) msgModel.addElement(m);
+                    if (!populated) {
+                        remove(placeholder);
+                        add(scroll, BorderLayout.CENTER);
+                        populated = true;
+                    }
+                    SwingUtilities.invokeLater(() -> {
+                        msgList.setFixedCellHeight(10);
+                        msgList.setFixedCellHeight(-1);
+                        int last = msgModel.getSize() - 1;
+                        if (last >= 0) msgList.ensureIndexIsVisible(last);
+                    });
+                }
+                revalidate();
+                repaint();
+            }
+        }
+
         AdminConversationSearchWindow() {
             searchField = makePlaceholderField("Search conversations...", 15);
-            // #129: button label tells the user what clicking actually does, and starts disabled
-            // so it can't be clicked before a row is selected.
-            okButton = new JButton("Join Conversation");
-            okButton.setEnabled(false);
-            okButton.setFocusTraversalKeysEnabled(false);
-            cancelButton = new JButton("Cancel");
+            closeButton = new JButton("Close");
 
             setLayout(new BorderLayout());
             setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-            // searchField is located on the upper side of the window
-            add(searchField, BorderLayout.NORTH);
-
+            // LEFT pane — search field + conversation list
+            JPanel leftPanel = new JPanel(new BorderLayout());
+            leftPanel.add(searchField, BorderLayout.NORTH);
             // #126: install the custom cell renderer so each row shows ID, type, count, recency.
             list.setCellRenderer(new AdminConversationCellRenderer());
+            leftPanel.add(new JScrollPane(list), BorderLayout.CENTER);
 
-            // the list is located on the center of the window
-            add(new JScrollPane(list), BorderLayout.CENTER);
+            // RIGHT pane — read-only message viewer
+            viewerPanel = new ViewerPanel();
 
-            // buttons are located on the bottom of the window
-        	JPanel buttonPane = new JPanel(new FlowLayout());
-        	buttonPane.add(okButton);
-        	buttonPane.add(cancelButton);
+            // Split-pane combines list + viewer
+            JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftPanel, viewerPanel);
+            split.setDividerLocation(320);
+            split.setResizeWeight(0.0);
+            add(split, BorderLayout.CENTER);
 
-        	add(buttonPane, BorderLayout.SOUTH);
+            // Close at the bottom right
+            JPanel buttonPane = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+            buttonPane.add(closeButton);
+            add(buttonPane, BorderLayout.SOUTH);
 
             // #55/#124: seed from the controller's cache. If the ADMIN_CONVERSATION_RESULT
             // response arrived before this window was constructed (race on fast loopback),
@@ -1611,46 +1759,29 @@ public class ClientUI {
                 }
             });
 
-        	// add action for selecting an item from the list
-            list.addListSelectionListener(e-> {
-            	if (!e.getValueIsAdjusting()) {
-						 ConversationMetadata selecting = list.getSelectedValue();
-						 // if the another window is not visible, shows the buttons
-						 okButton.setEnabled(selecting != null);
-			    }
-            });
-
-        	// add action to okButton — #125: confirm before join, then optimistic feedback.
-            okButton.addActionListener(e -> {
+            // Selecting a row pulls the full conversation silently — no Join button.
+            list.addListSelectionListener(e -> {
+                if (e.getValueIsAdjusting()) return;
                 ConversationMetadata sel = list.getSelectedValue();
-                if (sel == null) return;
-                int n = sel.getParticipants() != null ? sel.getParticipants().size() : 0;
-                int confirm = JOptionPane.showConfirmDialog(
-                    AdminConversationSearchWindow.this,
-                    "Join conversation #" + sel.getConversationId()
-                        + " (" + n + " participant(s))?",
-                    "Confirm Join", JOptionPane.YES_NO_OPTION);
-                if (confirm != JOptionPane.YES_OPTION) return;
-
-                controller.joinConversation(sel.getConversationId());
-                JOptionPane.showMessageDialog(
-                    AdminConversationSearchWindow.this,
-                    "Join request sent for conversation #" + sel.getConversationId() + ".",
-                    "Joining...", JOptionPane.INFORMATION_MESSAGE);
-                Window window = SwingUtilities.getWindowAncestor(this);
-                window.dispose();
+                if (sel != null) {
+                    controller.adminViewConversation(sel.getConversationId());
+                }
             });
 
-            // add action to cancelButton
-            cancelButton.addActionListener(e -> {
-            	model.clear();
+            // Close button just disposes the dialog; existing windowClosed handler does cleanup.
+            closeButton.addActionListener(e -> {
                 Window window = SwingUtilities.getWindowAncestor(this);
-                window.dispose();
+                if (window != null) window.dispose();
             });
         }
 
         public DefaultListModel<ConversationMetadata> getAdminConversationSearch() {
         	return model;
+        }
+
+        /** #193 entry point — called from ClientUI.showAdminConversationView. */
+        public void loadConversation(Conversation conv) {
+            viewerPanel.loadConversation(conv);
         }
 
     }

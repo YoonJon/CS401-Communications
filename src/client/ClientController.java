@@ -227,6 +227,9 @@ public class ClientController {
             case ADMIN_CONVERSATION_RESULT:
                 handleAdminConversationResultResponse(response);
                 break;
+            case ADMIN_VIEW_CONVERSATION_RESULT:
+                handleAdminViewConversationResultResponse(response);
+                break;
             case CONVERSATION_METADATA:
                 handleConversationMetadataResponse(response);
                 break;
@@ -400,6 +403,16 @@ public class ClientController {
         }
     }
 
+    /** Routes the admin's silent read into the open admin viewer panel. Does not touch
+     *  {@code conversations} or {@code currentConversationId}, so the viewed conversation
+     *  never enters the admin's own sidebar. */
+    private void handleAdminViewConversationResultResponse(Response response) {
+        Object payload = response.getPayload();
+        if (gui != null && payload instanceof Conversation) {
+            gui.showAdminConversationView((Conversation) payload);
+        }
+    }
+
     /** Lazily opens a TCP connection to the server and initializes the input and output streams*/
     private synchronized void ensureConnected() throws IOException {
         if (connectionStatus == ConnectionStatus.CONNECTED) return;
@@ -518,6 +531,15 @@ public class ClientController {
         if (!loggedIn || currentUser == null || currentUser.getUserType() != UserType.ADMIN) return;
         enqueueRequest(new Request(RequestType.ADMIN_CONVERSATION_QUERY,
                 new AdminConversationQuery(userID), currentUser.getUserId()));
+    }
+
+    /** Matches DataManager.handleAdminViewConversation — payload: AdminViewConversationQuery(conversationId).
+     *  Pulls a full read-only snapshot for the admin viewer; server does NOT mutate the
+     *  participant list, so other clients are unaware of the lookup. */
+    public void adminViewConversation(long conversationId) {
+        if (!loggedIn || currentUser == null || currentUser.getUserType() != UserType.ADMIN) return;
+        enqueueRequest(new Request(RequestType.ADMIN_VIEW_CONVERSATION,
+                new AdminViewConversationQuery(conversationId), currentUser.getUserId()));
     }
 
     /** Matches DataManager.handleJoinConversation — payload: JoinConversationPayload(conversationId). */
