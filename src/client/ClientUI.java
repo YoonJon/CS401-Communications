@@ -111,6 +111,11 @@ public class ClientUI {
     }
 
     public void showLoginView() {
+        showLoginView(null);
+    }
+
+    /** #139B: pre-fill login id (e.g. with the just-registered loginName) before showing the screen. */
+    public void showLoginView(String prefilledLoginId) {
         SwingUtilities.invokeLater(() -> {
             // Fix 5: dispose any open dialogs before switching to login
             DirectoryView dv = cards.main.directoryView;
@@ -120,6 +125,9 @@ public class ClientUI {
             if (cv.addDialog != null && cv.addDialog.isVisible()) cv.addDialog.dispose();
 
             clearLoginAndRegisterFields();
+            if (prefilledLoginId != null && !prefilledLoginId.isEmpty()) {
+                cards.login.login_idField.setText(prefilledLoginId);
+            }
             cards.main.directoryView.adminButton.setVisible(false);
             cards.main.directoryView.revalidate();
             cards.main.directoryView.repaint();
@@ -172,6 +180,28 @@ public class ClientUI {
         });
     }
 
+    /** #141: wrap a password field with a Show/Hide toggle button. The wrapper JPanel takes the
+     *  field's place in any layout; the field reference itself is unchanged. */
+    private static JPanel passwordFieldWithToggle(JPasswordField field) {
+        JPanel wrap = new JPanel(new BorderLayout(2, 0));
+        JButton toggle = new JButton("Show");
+        toggle.setMargin(new Insets(0, 6, 0, 6));
+        toggle.setFocusable(true);
+        char defaultEcho = field.getEchoChar();
+        toggle.addActionListener(e -> {
+            if (field.getEchoChar() == 0) {
+                field.setEchoChar(defaultEcho == 0 ? '•' : defaultEcho);
+                toggle.setText("Show");
+            } else {
+                field.setEchoChar((char) 0);
+                toggle.setText("Hide");
+            }
+        });
+        wrap.add(field, BorderLayout.CENTER);
+        wrap.add(toggle, BorderLayout.EAST);
+        return wrap;
+    }
+
     private void clearLoginAndRegisterFields() {
         cards.login.login_idField.setText("");
         cards.login.passwordField.setText("");
@@ -183,34 +213,76 @@ public class ClientUI {
     }
 
     public void showRegisterError(RegisterStatus registerStatus) {
-        switch (registerStatus) {
-            case USER_ID_TAKEN:
-                JOptionPane.showMessageDialog(frame, "User ID is already taken. Please try again.");
-                break;
-            case USER_ID_INVALID:
-                JOptionPane.showMessageDialog(frame, "User ID is invalid. Please try again.");
-                break;
-            case LOGIN_NAME_TAKEN:
-                JOptionPane.showMessageDialog(frame, "Login name is already taken. Please try again.");
-                break;
-            case LOGIN_NAME_INVALID:
-                JOptionPane.showMessageDialog(frame, "Login name is invalid. Use only letters, numbers, hyphens, or underscores.");
-                break;
-        }
+        SwingUtilities.invokeLater(() -> {
+            String msg;
+            switch (registerStatus) {
+                case USER_ID_TAKEN:
+                    msg = "Employee ID is already registered. Please try again.";
+                    break;
+                case USER_ID_INVALID:
+                    // Server returns this status when the Employee ID isn't in the authorized
+                    // list OR the User Name doesn't match the name on file for that ID.
+                    msg = "Employee ID and User Name don't match the authorized list. "
+                        + "Please verify both fields and try again.";
+                    break;
+                case LOGIN_NAME_TAKEN:
+                    msg = "Login ID is already taken. Please try again.";
+                    break;
+                case LOGIN_NAME_INVALID:
+                    msg = "Login ID is invalid. Use only letters, numbers, hyphens, or underscores.";
+                    break;
+                default:
+                    return;
+            }
+            JOptionPane.showMessageDialog(frame, msg, "Registration Error", JOptionPane.ERROR_MESSAGE);
+        });
     }
 
     public void showLoginError(LoginStatus loginStatus) {
-    	switch (loginStatus) {
-            case INVALID_CREDENTIALS:
-                JOptionPane.showMessageDialog(frame, "Invalid credentials. Please try again.");
-                break;
-            case NO_ACCOUNT_EXISTS:
-                JOptionPane.showMessageDialog(frame, "No account exists. Please create an account.");
-                break;
-            case DUPLICATE_SESSION:
-                JOptionPane.showMessageDialog(frame, "Duplicate session. Please log in again.");
-                break;
-        }
+        SwingUtilities.invokeLater(() -> {
+            // #139A: always clear the password on login failure.
+            cards.login.passwordField.setText("");
+            String msg;
+            String title = "Login Error";
+            switch (loginStatus) {
+                case INVALID_CREDENTIALS:
+                    msg = "Invalid credentials. Please try again.";
+                    break;
+                case NO_ACCOUNT_EXISTS:
+                    msg = "No account exists. Please create an account.";
+                    break;
+                case DUPLICATE_SESSION:
+                    // #144: coherent, actionable copy that doesn't contradict itself.
+                    title = "Session Already Active";
+                    msg = "You are already logged in from another location. Please log out of "
+                        + "that session first, then try again. If you closed the app without "
+                        + "logging out, the previous session may still be active on the server.";
+                    break;
+                default:
+                    return;
+            }
+            JOptionPane.showMessageDialog(frame, msg, title, JOptionPane.ERROR_MESSAGE);
+        });
+    }
+
+    /** #138: shown when the server is unreachable so the user isn't stuck staring at a hung UI. */
+    public void showNetworkError() {
+        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                frame,
+                "Cannot reach the server. Please check that the server is running and try again.",
+                "Connection Error",
+                JOptionPane.ERROR_MESSAGE));
+    }
+
+    /** #140/#142: drives the visible "submit in flight" state for both login and register. */
+    public void setLoginInFlight(boolean inFlight) {
+        SwingUtilities.invokeLater(() -> {
+            if (cards == null) return; // pre-EDT init guard
+            cards.login.loginButton.setEnabled(!inFlight);
+            cards.login.loginButton.setText(inFlight ? "Logging in..." : "Login");
+            cards.register.createButton.setEnabled(!inFlight);
+            cards.register.createButton.setText(inFlight ? "Creating..." : "Create Account");
+        });
     }
 
     public boolean isSelectingUsers() {
@@ -422,6 +494,16 @@ public class ClientUI {
         	createButton = new JButton("Create Account");
         	backButton = new JButton("Back");
 
+        	// #143: tooltips clarify which ID is which.
+        	userId.setToolTipText("Your organization-assigned employee ID. Must be pre-authorized.");
+        	loginName.setToolTipText("Choose a username for logging in. Letters, numbers, hyphens, or underscores only.");
+
+        	// #146: heading at the top of the form.
+        	JLabel heading = new JLabel("Register / Create Account", SwingConstants.CENTER);
+        	heading.setFont(heading.getFont().deriveFont(Font.BOLD, heading.getFont().getSize() + 6f));
+        	heading.setBorder(BorderFactory.createEmptyBorder(20, 0, 10, 0));
+        	add(heading, BorderLayout.NORTH);
+
         	// layout for  the buttons
             JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 0));
             buttonPanel.add(createButton);
@@ -432,10 +514,10 @@ public class ClientUI {
             gridConst.insets = new Insets(5, 5, 5, 5);
             gridConst.fill = GridBagConstraints.HORIZONTAL;
 
-            // put the label for User ID
+            // #143: "User ID" → "Employee ID" (organization-assigned, validated against authorized list).
             gridConst.gridx = 0;
             gridConst.gridy = 0;
-            inputPanel.add(new JLabel("User ID"), gridConst);
+            inputPanel.add(new JLabel("Employee ID"), gridConst);
 
             // put the text field on the right side of the label
             gridConst.gridx = 1;
@@ -466,18 +548,18 @@ public class ClientUI {
             gridConst.gridy = 3;
             inputPanel.add(new JLabel("Password"), gridConst);
 
-            // put the password text field on the right side of the label
+            // #141: password text field with Show/Hide toggle on the right side of the label
             gridConst.gridx = 1;
-            inputPanel.add(password, gridConst);
+            inputPanel.add(passwordFieldWithToggle(password), gridConst);
 
             // put the label for the password (confirmation)
             gridConst.gridx = 0;
             gridConst.gridy = 4;
             inputPanel.add(new JLabel("Confirm Password"), gridConst);
 
-            // put the password text field (confirmation) on the right side of the label
+            // #141: confirmation password field also gets a toggle
             gridConst.gridx = 1;
-            inputPanel.add(passwordAgain, gridConst);
+            inputPanel.add(passwordFieldWithToggle(passwordAgain), gridConst);
 
             // put the button layout below the fields
             gridConst.gridx = 1;
@@ -487,28 +569,28 @@ public class ClientUI {
             // locate these parts at the center of the window
             add(inputPanel, BorderLayout.CENTER);
 
-            // add an action when click "Create Account" button
-            createButton.addActionListener(e -> {
-            	char[] pwd1 = password.getPassword();
-            	char[] pwd2 = passwordAgain.getPassword();
-            	// if the passwords are the same, send the information to clientController
-            	if(java.util.Arrays.equals(pwd1, pwd2)) {
-            		controller.register(userId.getText(), name.getText(), loginName.getText(), password.getPassword());
-            	} else {
-            		// if not, show the error message
-            		// Fix 4: use frame as parent instead of null
-            		JOptionPane.showMessageDialog(frame, "Passwords don't match. Type them again.", "Error", JOptionPane.ERROR_MESSAGE);
-            	}
-            	// fill with 0 for secure reason
-            	java.util.Arrays.fill(pwd1, '0');
+            // #137: extract submit lambda so Enter on any field also fires it.
+            ActionListener createAction = e -> {
+                char[] pwd1 = password.getPassword();
+                char[] pwd2 = passwordAgain.getPassword();
+                if (java.util.Arrays.equals(pwd1, pwd2)) {
+                    controller.register(userId.getText(), name.getText(), loginName.getText(), password.getPassword());
+                } else {
+                    // Fix 4: use frame as parent instead of null
+                    JOptionPane.showMessageDialog(frame, "Passwords don't match. Type them again.", "Error", JOptionPane.ERROR_MESSAGE);
+                }
+                java.util.Arrays.fill(pwd1, '0');
                 java.util.Arrays.fill(pwd2, '0');
-            });
+            };
+            createButton.addActionListener(createAction);
+            userId.addActionListener(createAction);
+            name.addActionListener(createAction);
+            loginName.addActionListener(createAction);
+            password.addActionListener(createAction);
+            passwordAgain.addActionListener(createAction);
 
-            // add an action when click
-            backButton.addActionListener(e -> {
-            	// go back to login window
-            	cards.layout.show(cards, "login");
-            });
+            // #148: route through showLoginView so clearLoginAndRegisterFields() is called.
+            backButton.addActionListener(e -> showLoginView());
         }
     }
 
@@ -528,6 +610,16 @@ public class ClientUI {
             passwordField = new JPasswordField(15);
             loginButton = new JButton("Login");
             createButton = new JButton("Create Account");
+
+            // #143: tooltip clarifies the field is the login username, not the Employee ID.
+            login_idField.setToolTipText("Your chosen login username (not your Employee ID).");
+
+            // #146: heading at the top of the form.
+            JLabel heading = new JLabel("Login", SwingConstants.CENTER);
+            heading.setFont(heading.getFont().deriveFont(Font.BOLD, heading.getFont().getSize() + 6f));
+            heading.setBorder(BorderFactory.createEmptyBorder(20, 0, 10, 0));
+            add(heading, BorderLayout.NORTH);
+
             JPanel inputPanel = new JPanel(new GridBagLayout());
             GridBagConstraints gridConst = new GridBagConstraints();
             gridConst.insets = new Insets(5, 5, 5, 5);
@@ -545,9 +637,9 @@ public class ClientUI {
             gridConst.gridx = 0;
             gridConst.gridy = 1;
             inputPanel.add(new JLabel("Password"), gridConst);
-            // add text field on the right side of the label
+            // #141: password text field with Show/Hide toggle on the right side of the label
             gridConst.gridx = 1;
-            inputPanel.add(passwordField, gridConst);
+            inputPanel.add(passwordFieldWithToggle(passwordField), gridConst);
             // add login button next to the fields
             gridConst.gridx = 2;
             gridConst.gridy = 0;
@@ -574,9 +666,8 @@ public class ClientUI {
             login_idField.addActionListener(loginAction);
             passwordField.addActionListener(loginAction);
 
-            createButton.addActionListener(e -> {
-            	cards.layout.show(cards, "register");
-            });
+            // #148 (symmetric): route through showRegisterView so fields are cleared.
+            createButton.addActionListener(e -> showRegisterView());
         }
     }
 
@@ -827,7 +918,17 @@ public class ClientUI {
                     public void windowClosed(WindowEvent e) {
                         addDialog = null;
                     }
+                    // #149: focus the list on open so Tab order is correct and Delete works.
+                    @Override
+                    public void windowOpened(WindowEvent e) {
+                        addUserWindow.list.requestFocusInWindow();
+                    }
                 });
+
+                // Single-user picker fix: clear directory selection so the first click
+                // always emits a fresh ListSelectionEvent (see createConversationButton).
+                cards.main.directoryView.list.clearSelection();
+                cards.main.directoryView.selecting = null;
 
                 addDialog.setVisible(true);
 
@@ -1102,7 +1203,19 @@ public class ClientUI {
                     public void windowClosed(WindowEvent e) {
                         createDialog = null;
                     }
+                    // #149: focus the list on open so Tab order is correct and Delete works.
+                    @Override
+                    public void windowOpened(WindowEvent e) {
+                        createConversationUserWindow.list.requestFocusInWindow();
+                    }
                 });
+
+                // Single-user picker fix: clear directory selection so the first click
+                // always emits a fresh ListSelectionEvent. Without this, when the directory
+                // has exactly one user, Swing auto-selects index 0 on render, and a click
+                // on that already-selected row is a no-op — addUser is never called.
+                list.clearSelection();
+                selecting = null;
 
                 createDialog.setVisible(true);
 
@@ -1384,6 +1497,17 @@ public class ClientUI {
 						 // if the another window is not visible, shows the button
 						 removeButton.setEnabled(selecting != null);
 			    }
+            });
+
+            // #149: Delete key on the list invokes Remove (so the button is reachable by keyboard).
+            list.getInputMap(JComponent.WHEN_FOCUSED)
+                    .put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), "removeSelected");
+            list.getInputMap(JComponent.WHEN_FOCUSED)
+                    .put(KeyStroke.getKeyStroke(KeyEvent.VK_BACK_SPACE, 0), "removeSelected");
+            list.getActionMap().put("removeSelected", new AbstractAction() {
+                @Override public void actionPerformed(ActionEvent e) {
+                    if (removeButton.isEnabled()) removeButton.doClick();
+                }
             });
         }
 

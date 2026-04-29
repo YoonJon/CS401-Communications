@@ -4,6 +4,7 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketException;
 import java.util.*;
@@ -53,6 +54,10 @@ public class ClientController {
 
     private boolean loggedIn;
     private UserInfo currentUser;
+    /** #140/#142: true while a LOGIN or REGISTER request is enqueued and unresolved. */
+    private volatile boolean authInFlight = false;
+    /** #139: cached on register() so handleRegisterResultResponse can pre-fill the login screen. */
+    private volatile String lastRegisteredLoginName = null;
 
     // -------------------------------------------------------------------------
     // Client-side caches backing list views / filters
@@ -238,6 +243,8 @@ public class ClientController {
 
     private void handleLoginResultResponse(Response response) {
         LoginResult lr = (LoginResult) response.getPayload();
+        authInFlight = false;
+        if (gui != null) gui.setLoginInFlight(false);
         switch (lr.getLoginStatus()) {
             case SUCCESS:
                 loggedIn = true;
@@ -260,9 +267,12 @@ public class ClientController {
 
     private void handleRegisterResultResponse(Response response) {
         RegisterResult rr = (RegisterResult) response.getPayload();
+        authInFlight = false;
+        if (gui != null) gui.setLoginInFlight(false);
         switch (rr.getRegisterStatus()) {
             case SUCCESS:
-                if (gui != null) gui.showLoginView();
+                // #139B: pre-fill the just-registered loginName on the login screen.
+                if (gui != null) gui.showLoginView(lastRegisteredLoginName);
                 break;
             case USER_ID_TAKEN:
             case USER_ID_INVALID:
@@ -387,7 +397,9 @@ public class ClientController {
     private synchronized void ensureConnected() throws IOException {
         if (connectionStatus == ConnectionStatus.CONNECTED) return;
         connectionStatus = ConnectionStatus.CONNECTING;
-        socket = new Socket(hostIp, hostPort);
+        // #138: bounded connect timeout so unreachable server fails fast instead of hanging ~75s.
+        socket = new Socket();
+        socket.connect(new InetSocketAddress(hostIp, hostPort), CONNECT_TIMEOUT_MS);
         // OOS must be created and flushed BEFORE OIS on both sides to avoid header deadlock
         // (mirrors the convention in ConnectionHandler on the server).
         outputStream = new ObjectOutputStream(socket.getOutputStream());
@@ -397,18 +409,27 @@ public class ClientController {
         lastServerActivityMillis = System.currentTimeMillis();
     }
 
+    private static final int CONNECT_TIMEOUT_MS = 7000;
+
     // -------------------------------------------------------------------------
     // Public action methods — each maps 1-to-1 with a DataManager handler.
     // -------------------------------------------------------------------------
 
     /** Matches DataManager.handleRegister — payload: RegisterCredentials(userId, loginName, password, name). */
     public void register(String userId, String realName, String loginName, char[] password) {
+        if (authInFlight) return; // #140: drop rapid duplicate clicks
+        authInFlight = true;
+        lastRegisteredLoginName = loginName;
+        if (gui != null) gui.setLoginInFlight(true);
         RegisterCredentials creds = new RegisterCredentials(userId, loginName, new String(password), realName);
         enqueueRequest(new Request(RequestType.REGISTER, creds, null));
     }
 
     /** Matches DataManager.handleLogin — payload: LoginCredentials(loginName, password). */
     public void login(String loginName, char[] password) {
+        if (authInFlight) return; // #140: drop rapid duplicate clicks
+        authInFlight = true;
+        if (gui != null) gui.setLoginInFlight(true);
         LoginCredentials creds = new LoginCredentials(loginName, new String(password));
         enqueueRequest(new Request(RequestType.LOGIN, creds, null));
     }
@@ -617,8 +638,18 @@ public class ClientController {
                     ensureConnected();
                     sendRequest(r);
                 } catch (IOException e) {
-                    requestQueue.addFirst(r);
                     connectionStatus = ConnectionStatus.NOT_CONNECTED;
+                    if (authInFlight) {
+                        // #138: drop the queued auth request and notify the user instead of
+                        // silently retrying the unreachable server forever.
+                        authInFlight = false;
+                        if (gui != null) {
+                            gui.setLoginInFlight(false);
+                            gui.showNetworkError();
+                        }
+                    } else {
+                        requestQueue.addFirst(r);
+                    }
                     e.printStackTrace();
                     try {
                         Thread.sleep(300L);
