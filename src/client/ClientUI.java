@@ -6,10 +6,12 @@ import shared.payload.*;
 
 import javax.swing.*;
 import javax.swing.event.*;
+import javax.swing.border.LineBorder;
 
 import java.awt.*;
 import java.awt.event.*;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 
@@ -155,8 +157,13 @@ public class ClientUI {
             cards.main.directoryView.revalidate();
             cards.main.directoryView.repaint();
             if (currentUser != null) {
-                cards.main.directoryView.profileUserIdLabel.setText(currentUser.getUserId());
-                cards.main.directoryView.profileNameLabel.setText(currentUser.getName());
+                JLabel nameL = cards.main.directoryView.profileNameLabel;
+                JLabel idL   = cards.main.directoryView.profileUserIdLabel;
+                nameL.setText(currentUser.getName());
+                nameL.setFont(nameL.getFont().deriveFont(Font.BOLD, nameL.getFont().getSize() + 2f));
+                idL.setText(currentUser.getUserId());
+                idL.setFont(idL.getFont().deriveFont(Font.PLAIN, idL.getFont().getSize() - 1f));
+                idL.setForeground(Color.GRAY);
             }
             cards.layout.show(cards, "main");
             // Fix 2b: repack and re-center after switching to main card
@@ -259,8 +266,17 @@ public class ClientUI {
             if (conversation == null) {
                 return;
             }
-            for (Message message : conversation.getMessages()) {
+            ArrayList<Message> msgs = conversation.getMessages();
+            for (Message message : msgs) {
                 conversationMessageModel.addElement(message);
+            }
+            if (!msgs.isEmpty()) {
+                Message last = msgs.get(msgs.size() - 1);
+                UserInfo me = controller.getCurrentUserInfo();
+                if (me != null) {
+                    me.setLastRead(conversation.getConversationId(), last.getSequenceNumber());
+                }
+                controller.updateReadMessages(conversation.getConversationId(), last.getSequenceNumber());
             }
         });
     }
@@ -284,6 +300,10 @@ public class ClientUI {
                 frame.toFront();
             }
         });
+    }
+
+    public void repaintMessageList() {
+        SwingUtilities.invokeLater(() -> cards.main.conversationView.list.repaint());
     }
 
     public void updateAdminConversationSearchModel(ArrayList<ConversationMetadata> conversations) {
@@ -613,13 +633,15 @@ public class ClientUI {
 
         // Fix 6: cell renderer fields — reuse panel and label instead of creating new ones each call
         private final class MessageCellRenderer extends JPanel implements ListCellRenderer<Message> {
-            private final JPanel panel = new JPanel(new BorderLayout());
             private final JLabel label = new JLabel();
 
             MessageCellRenderer() {
                 setLayout(new BorderLayout());
+                setOpaque(true);
                 label.setOpaque(true);
-                panel.setOpaque(true);
+                label.setBorder(BorderFactory.createCompoundBorder(
+                        new LineBorder(new Color(180, 180, 180), 1, true),
+                        BorderFactory.createEmptyBorder(4, 10, 4, 10)));
             }
 
             @Override
@@ -629,49 +651,88 @@ public class ClientUI {
 
                 Message msg = value;
 
-                // Resolve sender's display name from conversation participants
+                // Resolve sender's display name.
+                // Short-circuit to own name first so own messages always render correctly
+                // even if the cached conversation's participants list is stale or empty.
+                // Use historicalParticipants (not participants) so removed users still show their name.
                 String senderName = null;
-                Conversation conv = controller.getCurrentConversation();
-                if (conv != null) {
-                    for (UserInfo p : conv.getParticipants()) {
-                        if (p.getUserId().equals(msg.getSenderId())) {
-                            senderName = p.getName();
-                            break;
+                UserInfo me = controller.getCurrentUserInfo();
+                if (me != null && me.getUserId() != null && me.getUserId().equals(msg.getSenderId())) {
+                    senderName = me.getName();
+                }
+                if (senderName == null) {
+                    Conversation conv = controller.getCurrentConversation();
+                    if (conv != null) {
+                        for (UserInfo p : conv.getHistoricalParticipants()) {
+                            if (p.getUserId().equals(msg.getSenderId())) {
+                                senderName = p.getName();
+                                break;
+                            }
                         }
                     }
                 }
-                // Fix 4: fall back to "(former participant)" if sender is not in current participant list
+                // Last-resort fallback if even the historical roster has no record of this sender.
                 if (senderName == null) {
                     senderName = "(former participant)";
                 }
-                String ts = msg.getTimestamp().toInstant()
-                        .atZone(ZoneId.systemDefault())
-                        .format(DateTimeFormatter.ofPattern("LLL dd HH:mm"));
-                String displayText = ts + " " + senderName + ": " + msg.getText();
+                ZonedDateTime zdt = msg.getTimestamp().toInstant().atZone(ZoneId.systemDefault());
+                DateTimeFormatter dtf = zdt.getYear() == ZonedDateTime.now().getYear()
+                        ? DateTimeFormatter.ofPattern("LLL dd, HH:mm", java.util.Locale.ENGLISH)
+                        : DateTimeFormatter.ofPattern("LLL dd yyyy, HH:mm", java.util.Locale.ENGLISH);
+                String ts = zdt.format(dtf);
+                String rawText = msg.getText() == null ? "" : msg.getText();
+                String displayText = ts + " " + senderName + ": " + rawText;
 
                 long lastReadSeq = controller.getCurrentUserInfo().getLastRead(controller.getCurrentConversationId());
 
-                // Reset panel — remove any prior child so we can re-add in correct position
-                panel.removeAll();
+                // Remove prior label so we can re-add in the correct position
+                removeAll();
+                setBackground(list.getBackground());
+
+                // Compute the wrap width from the JList's current width.
+                // 70% of list width keeps the bubble within the viewport even with scrollbar margin.
+                int listW = list.getWidth();
+                int wrapPx = listW > 0 ? (int) (listW * 0.70) : 360;
 
                 // displaying the current user's messages on the right side
                 if (msg.getSenderId().equals(controller.getCurrentUserInfo().getUserId())) {
-                    label.setBackground(Color.LIGHT_GRAY);
+                    label.setBackground(new Color(0xDC, 0xF8, 0xC6));
                     label.setFont(label.getFont().deriveFont(Font.PLAIN));
-                    label.setText(displayText);
-                    panel.add(label, BorderLayout.EAST);
+                    label.setText(escapeAndWrapHtml(displayText, wrapPx));
+                    add(label, BorderLayout.EAST);
                 } else { // displaying the other participants' messages on the left side
+                    label.setBackground(list.getBackground());
                     if (msg.getSequenceNumber() > lastReadSeq) {
                         label.setFont(label.getFont().deriveFont(Font.BOLD));
-                        label.setText("● " + displayText);
+                        label.setText(escapeAndWrapHtml("● " + displayText, wrapPx));
                     } else {
                         label.setFont(label.getFont().deriveFont(Font.PLAIN));
-                        label.setText(displayText);
+                        label.setText(escapeAndWrapHtml(displayText, wrapPx));
                     }
-                    panel.add(label, BorderLayout.WEST);
+                    add(label, BorderLayout.WEST);
                 }
 
-                return panel;
+                return this;
+            }
+
+            private static String escapeAndWrapHtml(String raw, int maxPx) {
+                if (raw == null) raw = "";
+                StringBuilder sb = new StringBuilder(raw.length() + 16);
+                for (int i = 0; i < raw.length(); i++) {
+                    char c = raw.charAt(i);
+                    switch (c) {
+                        case '&':  sb.append("&amp;");  break;
+                        case '<':  sb.append("&lt;");   break;
+                        case '>':  sb.append("&gt;");   break;
+                        case '"':  sb.append("&quot;"); break;
+                        case '\'': sb.append("&#39;");  break;
+                        case '\n': sb.append("<br/>");  break;
+                        case '\r': /* skip */            break;
+                        default:   sb.append(c);
+                    }
+                }
+                int safe = Math.max(80, maxPx);
+                return "<html><body style='width:" + safe + "px'>" + sb + "</body></html>";
             }
         }
 
@@ -711,18 +772,34 @@ public class ClientUI {
             // Fix 6: install the reusable cell renderer
             list.setCellRenderer(new MessageCellRenderer());
 
+            // Fix #183: re-invalidate cell height cache when JList is resized so HTML wrap recomputes.
+            list.addComponentListener(new ComponentAdapter() {
+                @Override public void componentResized(ComponentEvent e) {
+                    list.setFixedCellHeight(10);
+                    list.setFixedCellHeight(-1);
+                }
+            });
+
             // Fix 8: create a layered center panel with the placeholder on top when no conversation
             JPanel centerPanel = new JPanel(new BorderLayout());
-            centerPanel.add(new JScrollPane(list), BorderLayout.CENTER);
+            JScrollPane messageScrollPane = new JScrollPane(list);
+            messageScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+            messageScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+            centerPanel.add(messageScrollPane, BorderLayout.CENTER);
             placeholderLabel.setVisible(true);
             centerPanel.add(placeholderLabel, BorderLayout.SOUTH);
             add(centerPanel, BorderLayout.CENTER);
 
             // sendPane is located on the bottom of the window
+            JLabel charCountLabel = new JLabel("0/500");
+            charCountLabel.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 4));
             JPanel sendPane = new JPanel(new BorderLayout());
             sendPane.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 0));
             sendPane.add(text, BorderLayout.CENTER);
-            sendPane.add(sendButton, BorderLayout.EAST);
+            JPanel sendRight = new JPanel(new BorderLayout());
+            sendRight.add(charCountLabel, BorderLayout.WEST);
+            sendRight.add(sendButton, BorderLayout.EAST);
+            sendPane.add(sendRight, BorderLayout.EAST);
 
             add(sendPane, BorderLayout.SOUTH);
 
@@ -765,10 +842,37 @@ public class ClientUI {
             	}
             });
 
+            // 500-char hard cap
+            ((javax.swing.text.AbstractDocument) text.getDocument()).setDocumentFilter(
+                    new javax.swing.text.DocumentFilter() {
+                        private static final int MAX = 500;
+                        @Override
+                        public void insertString(FilterBypass fb, int offset, String s, javax.swing.text.AttributeSet a)
+                                throws javax.swing.text.BadLocationException {
+                            if (fb.getDocument().getLength() + s.length() <= MAX)
+                                super.insertString(fb, offset, s, a);
+                        }
+                        @Override
+                        public void replace(FilterBypass fb, int offset, int length, String s, javax.swing.text.AttributeSet a)
+                                throws javax.swing.text.BadLocationException {
+                            int newLen = fb.getDocument().getLength() - length + (s == null ? 0 : s.length());
+                            if (newLen <= MAX)
+                                super.replace(fb, offset, length, s, a);
+                            else {
+                                int allowed = MAX - fb.getDocument().getLength() + length;
+                                if (allowed > 0 && s != null)
+                                    super.replace(fb, offset, length, s.substring(0, allowed), a);
+                            }
+                        }
+                    });
+
             // add action to text field (detecting if there is a text)
             text.getDocument().addDocumentListener(new DocumentListener() {
 
                 private void update() {
+                    int len = text.getText().length();
+                    charCountLabel.setText(len + "/500");
+                    charCountLabel.setForeground(len >= 500 ? Color.RED : UIManager.getColor("Label.foreground"));
                     sendButton.setEnabled(!text.getText().trim().isEmpty());
                 }
 
@@ -789,16 +893,18 @@ public class ClientUI {
             });
 
             // add action to send button
-            sendButton.addActionListener(e -> {
-                if(controller.getCurrentConversation() == null) {
-                    return;
-                }
-            	controller.sendMessage(controller.getCurrentConversation().getConversationId(), text.getText());
-                text.setText("");
-            });
+            sendButton.addActionListener(e -> doSend());
 
-            text.addActionListener(e -> sendButton.doClick());
+            text.addActionListener(e -> doSend());
 
+        }
+
+        private void doSend() {
+            if (controller.getCurrentConversation() == null) return;
+            String msg = text.getText();
+            if (msg.trim().isEmpty()) return;
+            controller.sendMessage(controller.getCurrentConversation().getConversationId(), msg);
+            text.setText("");
         }
 
         public void setListModel(Conversation currConv) {
@@ -1186,11 +1292,13 @@ public class ClientUI {
     					controller.setCurrentConversationId(selected.getConversationId());
     					// delegates to ConversationView.setListModel so both the
     					// participant label and the message list are updated together
-    					cards.main.conversationView.setListModel(selected);
     					if (!selected.getMessages().isEmpty()) {
     					    Message last = selected.getMessages().get(selected.getMessages().size() - 1);
+    					    controller.getCurrentUserInfo().setLastRead(
+    					            selected.getConversationId(), last.getSequenceNumber());
     					    controller.updateReadMessages(selected.getConversationId(), last.getSequenceNumber());
     					}
+    					cards.main.conversationView.setListModel(selected);
     				}
             	}
             });

@@ -370,6 +370,7 @@ public class ClientController {
         ReadMessagesUpdated updated = (ReadMessagesUpdated) response.getPayload();
         if (updated != null && updated.getUpdatedUserInfo() != null) {
             currentUser = updated.getUpdatedUserInfo();
+            if (gui != null) gui.repaintMessageList();
         }
     }
 

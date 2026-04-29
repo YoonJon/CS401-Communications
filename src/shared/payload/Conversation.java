@@ -49,7 +49,9 @@ public class Conversation implements ResponsePayload {
                 continue;
             }
             participants.add(u);
-            historicalParticipants.add(u);
+            if (historicalParticipants != null) {
+                historicalParticipants.add(u);
+            }
         }
     }
 
@@ -84,7 +86,7 @@ public class Conversation implements ResponsePayload {
         return new ConversationMetadata(
             conversationId,
             new ArrayList<>(participants),
-            new ArrayList<>(historicalParticipants),
+            getHistoricalParticipants(),
             type
         );
     }
@@ -92,7 +94,9 @@ public class Conversation implements ResponsePayload {
     public long getConversationId() { return conversationId; }
     public synchronized ArrayList<Message> getMessages() { return new ArrayList<>(messages); }
     public synchronized ArrayList<UserInfo> getParticipants() { return new ArrayList<>(participants); }
-    public synchronized ArrayList<UserInfo> getHistoricalParticipants() { return new ArrayList<>(historicalParticipants); }
+    public synchronized ArrayList<UserInfo> getHistoricalParticipants() {
+        return historicalParticipants != null ? new ArrayList<>(historicalParticipants) : new ArrayList<>(participants);
+    }
     public ConversationType getType() { return type; }
 
     @Override
