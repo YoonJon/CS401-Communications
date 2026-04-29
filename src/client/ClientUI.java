@@ -6,12 +6,18 @@ import shared.payload.*;
 
 import javax.swing.*;
 import javax.swing.event.*;
+import javax.swing.text.AbstractDocument;
+import javax.swing.text.AttributeSet;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.DocumentFilter;
 
 import java.awt.*;
 import java.awt.event.*;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Locale;
 
 public class ClientUI {
 
@@ -607,19 +613,30 @@ public class ClientUI {
         JButton sendButton;
         JDialog addDialog;
         SelectUserWindow addUserWindow;
+        // Fix #163: live character counter label
+        JLabel charCountLabel;
+        // Fix #163: hard cap on message length
+        private static final int MAX_MESSAGE_LEN = 500;
 
         // Fix 8: placeholder label shown when no conversation is selected
         private final JLabel placeholderLabel = new JLabel("Select a conversation to start chatting", SwingConstants.CENTER);
 
-        // Fix 6: cell renderer fields — reuse panel and label instead of creating new ones each call
+        // Fix 6: cell renderer — distinct colored bubbles that keep preferred width (FlowLayout), adaptive timestamp
         private final class MessageCellRenderer extends JPanel implements ListCellRenderer<Message> {
-            private final JPanel panel = new JPanel(new BorderLayout());
-            private final JLabel label = new JLabel();
+            private final JPanel wrapper = new JPanel();
+            private final JLabel bubble = new JLabel();
+            private final Color OWN_BG = new Color(0xDC, 0xF8, 0xC6);
+            private final Color OTHER_BG = new Color(0xFF, 0xFF, 0xFF);
+            private final Color BUBBLE_BORDER = new Color(0xCC, 0xCC, 0xCC);
+            private final DateTimeFormatter SAME_YEAR_FMT =
+                    DateTimeFormatter.ofPattern("MMM dd, HH:mm", Locale.ENGLISH);
+            private final DateTimeFormatter OTHER_YEAR_FMT =
+                    DateTimeFormatter.ofPattern("MMM dd yyyy, HH:mm", Locale.ENGLISH);
 
             MessageCellRenderer() {
                 setLayout(new BorderLayout());
-                label.setOpaque(true);
-                panel.setOpaque(true);
+                bubble.setOpaque(true);
+                wrapper.setOpaque(false);
             }
 
             @Override
@@ -644,34 +661,46 @@ public class ClientUI {
                 if (senderName == null) {
                     senderName = "(former participant)";
                 }
-                String ts = msg.getTimestamp().toInstant()
-                        .atZone(ZoneId.systemDefault())
-                        .format(DateTimeFormatter.ofPattern("LLL dd HH:mm"));
+
+                // Fix #161: adaptive timestamp — show year only for messages not from this calendar year
+                ZonedDateTime zdt = msg.getTimestamp().toInstant().atZone(ZoneId.systemDefault());
+                int currentYear = ZonedDateTime.now(ZoneId.systemDefault()).getYear();
+                String ts = (zdt.getYear() == currentYear)
+                        ? zdt.format(SAME_YEAR_FMT)
+                        : zdt.format(OTHER_YEAR_FMT);
                 String displayText = ts + " " + senderName + ": " + msg.getText();
 
                 long lastReadSeq = controller.getCurrentUserInfo().getLastRead(controller.getCurrentConversationId());
 
-                // Reset panel — remove any prior child so we can re-add in correct position
-                panel.removeAll();
+                // Fix #164: reset wrapper each call, use FlowLayout so bubble stays at preferred width
+                wrapper.removeAll();
 
-                // displaying the current user's messages on the right side
-                if (msg.getSenderId().equals(controller.getCurrentUserInfo().getUserId())) {
-                    label.setBackground(Color.LIGHT_GRAY);
-                    label.setFont(label.getFont().deriveFont(Font.PLAIN));
-                    label.setText(displayText);
-                    panel.add(label, BorderLayout.EAST);
-                } else { // displaying the other participants' messages on the left side
+                boolean isOwn = msg.getSenderId().equals(controller.getCurrentUserInfo().getUserId());
+
+                if (isOwn) {
+                    wrapper.setLayout(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+                    bubble.setBackground(OWN_BG);
+                    bubble.setFont(bubble.getFont().deriveFont(Font.PLAIN));
+                    bubble.setText(displayText);
+                } else {
+                    wrapper.setLayout(new FlowLayout(FlowLayout.LEFT, 0, 0));
+                    bubble.setBackground(OTHER_BG);
                     if (msg.getSequenceNumber() > lastReadSeq) {
-                        label.setFont(label.getFont().deriveFont(Font.BOLD));
-                        label.setText("● " + displayText);
+                        bubble.setFont(bubble.getFont().deriveFont(Font.BOLD));
+                        bubble.setText("● " + displayText);
                     } else {
-                        label.setFont(label.getFont().deriveFont(Font.PLAIN));
-                        label.setText(displayText);
+                        bubble.setFont(bubble.getFont().deriveFont(Font.PLAIN));
+                        bubble.setText(displayText);
                     }
-                    panel.add(label, BorderLayout.WEST);
                 }
 
-                return panel;
+                // Fix #164: padded border + thin rounded outline gives visible bubble shape
+                bubble.setBorder(BorderFactory.createCompoundBorder(
+                        BorderFactory.createLineBorder(BUBBLE_BORDER, 1, true),
+                        BorderFactory.createEmptyBorder(6, 10, 6, 10)));
+
+                wrapper.add(bubble);
+                return wrapper;
             }
         }
 
@@ -722,7 +751,50 @@ public class ClientUI {
             JPanel sendPane = new JPanel(new BorderLayout());
             sendPane.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 0));
             sendPane.add(text, BorderLayout.CENTER);
-            sendPane.add(sendButton, BorderLayout.EAST);
+
+            // Fix #163: counter label + send button grouped on the right
+            charCountLabel = new JLabel("0/" + MAX_MESSAGE_LEN);
+            charCountLabel.setForeground(Color.GRAY);
+            charCountLabel.setBorder(BorderFactory.createEmptyBorder(0, 6, 0, 6));
+            JPanel rightSendPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+            rightSendPanel.add(charCountLabel);
+            rightSendPanel.add(sendButton);
+            sendPane.add(rightSendPanel, BorderLayout.EAST);
+
+            // Fix #163: DocumentFilter caps inserts/replaces at MAX_MESSAGE_LEN
+            ((AbstractDocument) text.getDocument()).setDocumentFilter(new DocumentFilter() {
+                @Override
+                public void insertString(FilterBypass fb, int offset, String str, AttributeSet attr)
+                        throws BadLocationException {
+                    if (str == null) return;
+                    int allowed = MAX_MESSAGE_LEN - fb.getDocument().getLength();
+                    if (allowed <= 0) return;
+                    super.insertString(fb, offset, str.length() <= allowed ? str : str.substring(0, allowed), attr);
+                }
+                @Override
+                public void replace(FilterBypass fb, int offset, int length, String str, AttributeSet attrs)
+                        throws BadLocationException {
+                    if (str == null) str = "";
+                    int allowed = MAX_MESSAGE_LEN - (fb.getDocument().getLength() - length);
+                    if (allowed <= 0) {
+                        super.replace(fb, offset, length, "", attrs);
+                        return;
+                    }
+                    super.replace(fb, offset, length, str.length() <= allowed ? str : str.substring(0, allowed), attrs);
+                }
+            });
+
+            // Fix #163: live counter updates on every document change
+            text.getDocument().addDocumentListener(new DocumentListener() {
+                private void refresh() {
+                    int len = text.getDocument().getLength();
+                    charCountLabel.setText(len + "/" + MAX_MESSAGE_LEN);
+                    charCountLabel.setForeground(len >= MAX_MESSAGE_LEN ? Color.RED : Color.GRAY);
+                }
+                @Override public void insertUpdate(DocumentEvent e) { refresh(); }
+                @Override public void removeUpdate(DocumentEvent e) { refresh(); }
+                @Override public void changedUpdate(DocumentEvent e) { refresh(); }
+            });
 
             add(sendPane, BorderLayout.SOUTH);
 
@@ -802,25 +874,22 @@ public class ClientUI {
         }
 
         public void setListModel(Conversation currConv) {
-            // Fix 3: exclude self, show up to 3 names, append "+N more" if needed
+            // Fix #166: build participant string off-EDT using String.join, then push to EDT via invokeLater
             UserInfo me = controller.getCurrentUserInfo();
             String myId = (me != null) ? me.getUserId() : null;
-            ArrayList<UserInfo> others = new ArrayList<>();
+            ArrayList<String> otherNames = new ArrayList<>();
             for (UserInfo p : currConv.getParticipants()) {
                 if (!p.getUserId().equals(myId)) {
-                    others.add(p);
+                    otherNames.add(p.getName());
                 }
             }
-            StringBuilder memberSb = new StringBuilder();
-            int limit = Math.min(3, others.size());
-            for (int i = 0; i < limit; i++) {
-                if (i > 0) memberSb.append(", ");
-                memberSb.append(others.get(i).getName());
-            }
-            if (others.size() > 3) {
-                memberSb.append(" +").append(others.size() - 3).append(" more");
-            }
-            final String finalMember = memberSb.toString();
+            int total = otherNames.size();
+            int limit = Math.min(3, total);
+            String joined = String.join(", ", otherNames.subList(0, limit));
+            final String finalMember = (total > 3)
+                    ? joined + " +" + (total - 3) + " more"
+                    : joined;
+
         	SwingUtilities.invokeLater(() -> {
         		participantsLabel.setText(finalMember);
                 conversationMessageListModel.clear();
@@ -888,6 +957,12 @@ public class ClientUI {
         	profileUserIdLabel = new JLabel();
         	profileNameLabel = new JLabel();
 
+            // Fix #136: visual hierarchy — name bold/larger on top, userID smaller/gray below
+            Font baseFont = profileNameLabel.getFont();
+            profileNameLabel.setFont(baseFont.deriveFont(Font.BOLD, baseFont.getSize2D() + 2f));
+            profileUserIdLabel.setFont(baseFont.deriveFont(Font.PLAIN, baseFont.getSize2D() - 1f));
+            profileUserIdLabel.setForeground(Color.GRAY);
+
             // Fix 5: picker mode banner — hidden by default
             pickerBannerLabel = new JLabel("Selecting participants — click to add", SwingConstants.CENTER);
             pickerBannerLabel.setForeground(new Color(0, 100, 180));
@@ -899,6 +974,8 @@ public class ClientUI {
             createConversationButton = new JButton("Create Conversation");
             // gray-out until select the user
             createConversationButton.setEnabled(false);
+            // Fix #133: tooltip explains why the button starts disabled
+            createConversationButton.setToolTipText("Select a user to start a conversation");
 
             // construct admin button unconditionally and enable later if the user is admin
             adminButton = new JButton("Admin");
@@ -917,10 +994,11 @@ public class ClientUI {
 
             gridConst.gridx = 0;
             gridConst.gridy = 0;
-            userPane.add(profileUserIdLabel, gridConst);
+            // Fix #136: name (bold, larger) on top; userID (smaller, gray) below
+            userPane.add(profileNameLabel, gridConst);
 
             gridConst.gridy = 1;
-            userPane.add(profileNameLabel, gridConst);
+            userPane.add(profileUserIdLabel, gridConst);
 
             gridConst.gridy = 2;
             userPane.add(searchField, gridConst);
