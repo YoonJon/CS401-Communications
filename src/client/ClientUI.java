@@ -925,6 +925,11 @@ public class ClientUI {
                     }
                 });
 
+                // Single-user picker fix: clear directory selection so the first click
+                // always emits a fresh ListSelectionEvent (see createConversationButton).
+                cards.main.directoryView.list.clearSelection();
+                cards.main.directoryView.selecting = null;
+
                 addDialog.setVisible(true);
 
             });
@@ -1204,6 +1209,13 @@ public class ClientUI {
                         createConversationUserWindow.list.requestFocusInWindow();
                     }
                 });
+
+                // Single-user picker fix: clear directory selection so the first click
+                // always emits a fresh ListSelectionEvent. Without this, when the directory
+                // has exactly one user, Swing auto-selects index 0 on render, and a click
+                // on that already-selected row is a no-op — addUser is never called.
+                list.clearSelection();
+                selecting = null;
 
                 createDialog.setVisible(true);
 
