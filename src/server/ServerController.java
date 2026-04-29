@@ -14,6 +14,7 @@ import shared.networking.Response;
 import shared.networking.User.UserInfo;
 import shared.payload.AddToConversationPayload;
 import shared.payload.Conversation;
+import shared.payload.ConversationMetadata;
 import shared.payload.LoginCredentials;
 import shared.payload.LoginResult;
 import shared.payload.Message;
@@ -137,8 +138,17 @@ public class ServerController {
                 broadcastResponse(request, response);
                 return response;
             }
-            case LEAVE_CONVERSATION:
-                return dataManager.handleLeaveConversation(request);
+            case LEAVE_CONVERSATION: {
+                // Capture the conversation id before the leaver is removed so we can
+                // look up the remaining participants and notify them afterward.
+                long leavingConvId = ((shared.payload.LeaveConversationPayload) request.getPayload())
+                        .getTargetConversationId();
+                Response leaveResponse = dataManager.handleLeaveConversation(request);
+                // After handleLeaveConversation the leaver is already removed from the
+                // participant roster, so getParticipantList now returns only the remaining members.
+                enqueueLeaveConversationBroadcast(leavingConvId, request.getSenderId());
+                return leaveResponse;
+            }
             case ADMIN_CONVERSATION_QUERY:
                 return dataManager.handleAdminConversationQuery(request);
             case JOIN_CONVERSATION:
@@ -162,7 +172,7 @@ public class ServerController {
                 enqueueMessageBroadcast(request, response);
                 break;
             case CREATE_CONVERSATION:
-                enqueueCreateConversationBroadcast(response);
+                enqueueCreateConversationBroadcast(request.getSenderId(), response);
                 break;
             case ADD_PARTICIPANT:
                 enqueueAddParticipantBroadcast(request, response);
@@ -196,10 +206,29 @@ public class ServerController {
         }
     }
 
-    private void enqueueCreateConversationBroadcast(Response response) {
+    private void enqueueCreateConversationBroadcast(String requesterId, Response response) {
         if (!(response.getPayload() instanceof Conversation)) return;
         Conversation conversation = (Conversation) response.getPayload();
-        enqueueToActiveParticipants(dataManager.getParticipantList(conversation.getConversationId()), response);
+        for (UserInfo participant : dataManager.getParticipantList(conversation.getConversationId())) {
+            if (participant == null || participant.getUserId() == null) continue;
+            String id = participant.getUserId();
+            if (id.equals(requesterId)) continue; // requester already gets the response via direct return
+            if (hasActiveSession(id)) {
+                responseQueue.offer(new AbstractMap.SimpleImmutableEntry<>(id, response));
+            }
+        }
+    }
+
+    private void enqueueLeaveConversationBroadcast(long conversationId, String leaverId) {
+        // getParticipantList returns the roster AFTER the leaver was removed, so every
+        // entry here is a remaining participant — no need to skip by leaverId.
+        ArrayList<UserInfo> remaining = dataManager.getParticipantList(conversationId);
+        if (remaining.isEmpty()) return;
+        Conversation conversation = dataManager.getConversation(conversationId);
+        if (conversation == null) return;
+        ConversationMetadata metadata = conversation.toMetadata();
+        Response metadataResponse = new Response(ResponseType.CONVERSATION_METADATA, metadata);
+        enqueueToActiveParticipants(remaining, metadataResponse);
     }
 
     private void enqueueAddParticipantBroadcast(Request request, Response response) {

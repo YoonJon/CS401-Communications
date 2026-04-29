@@ -661,7 +661,7 @@ public class DataManager {
 
     public Response handleCreateConversation(Request request) {
         CreateConversationPayload createConversationPayload = (CreateConversationPayload) request.getPayload();
-        ArrayList<UserInfo> participants = createConversationPayload.getParticipants();
+        ArrayList<UserInfo> participants = new ArrayList<>(createConversationPayload.getParticipants());
         // Caller must supply at least one participant; empty creates are rejected until error payloads exist.
         if (participants == null || participants.isEmpty()) {
             return null;
@@ -754,6 +754,11 @@ public class DataManager {
         String userId = request.getSenderId();
         linkUserToConversation(userId, conversationId);
         return new Response(ResponseType.CONVERSATION, conversationsByConversationID.get(conversationId));
+    }
+
+    /** Returns the {@link Conversation} for the given id, or {@code null} if not found. */
+    public Conversation getConversation(long conversationId) {
+        return conversationsByConversationID.get(conversationId);
     }
 
     //Used to determine recipients for message and conversation distribution.
