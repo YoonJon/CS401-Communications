@@ -1690,7 +1690,25 @@ public class ClientUI {
                 super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
                 if (value instanceof ConversationMetadata) {
                     ConversationMetadata m = (ConversationMetadata) value;
-                    int n = m.getParticipants() != null ? m.getParticipants().size() : 0;
+                    ArrayList<UserInfo> active = m.getParticipants();
+                    ArrayList<UserInfo> historical = m.getHistoricalParticipants();
+                    boolean orphan = (active == null || active.isEmpty());
+                    ArrayList<UserInfo> sourceList = !orphan ? active : historical;
+
+                    String who;
+                    if (sourceList == null || sourceList.isEmpty()) {
+                        who = "0 participant(s)";
+                    } else {
+                        StringBuilder sb = new StringBuilder();
+                        if (orphan) sb.append("(left) ");
+                        for (int i = 0; i < sourceList.size(); i++) {
+                            if (i > 0) sb.append(", ");
+                            UserInfo p = sourceList.get(i);
+                            sb.append(p.getName()).append(" (").append(p.getUserId()).append(')');
+                        }
+                        who = sb.toString();
+                    }
+
                     String activity;
                     long ts = m.getLastMessageTimestampMillis();
                     if (ts <= 0L) {
@@ -1705,7 +1723,7 @@ public class ClientUI {
                     }
                     setText("[ID: " + m.getConversationId() + "]  "
                             + m.getType() + "  •  "
-                            + n + " participant(s)  •  "
+                            + who + "  •  "
                             + activity);
                 }
                 return this;
@@ -1807,7 +1825,7 @@ public class ClientUI {
                 ArrayList<UserInfo> active = conv.getParticipants();
                 ArrayList<UserInfo> historical = conv.getHistoricalParticipants();
                 StringBuilder names = new StringBuilder();
-                ArrayList<UserInfo> sourceList = (!active.isEmpty()) ? historical : historical;
+                ArrayList<UserInfo> sourceList = !active.isEmpty() ? active : historical;
                 for (int i = 0; i < sourceList.size(); i++) {
                     if (i > 0) names.append(", ");
                     names.append(sourceList.get(i).getName());

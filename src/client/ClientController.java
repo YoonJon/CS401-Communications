@@ -622,20 +622,30 @@ public class ClientController {
         return c.getMessages().get(c.getMessages().size() - 1).getSequenceNumber();
     }
 
-    /** Returns admin search results filtered by participant id or name. */
+    /** Returns admin search results filtered by participant id or name,
+     *  matching both active and historical participants so orphaned
+     *  conversations (everyone has left) remain searchable. */
     public ArrayList<ConversationMetadata> getFilteredAdminConversationSearch(String q) {
         if (q == null || q.isBlank()) return new ArrayList<>(currentAdminConversationSearch);
         ArrayList<ConversationMetadata> filtered = new ArrayList<>();
         String query = q.toLowerCase();
         for (ConversationMetadata m : currentAdminConversationSearch) {
-            for (UserInfo p : m.getParticipants()) {
-                if (p.getName().toLowerCase().contains(query) || p.getUserId().toLowerCase().contains(query)) {
-                    filtered.add(m);
-                    break;
-                }
+            if (matchesParticipant(m.getParticipants(), query)
+                    || matchesParticipant(m.getHistoricalParticipants(), query)) {
+                filtered.add(m);
             }
         }
         return filtered;
+    }
+
+    private static boolean matchesParticipant(ArrayList<UserInfo> people, String query) {
+        if (people == null) return false;
+        for (UserInfo p : people) {
+            if (p.getName().toLowerCase().contains(query) || p.getUserId().toLowerCase().contains(query)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public void setCurrentConversationId(long conversationId) { this.currentConversationId = conversationId; }
