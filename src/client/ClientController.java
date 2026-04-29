@@ -8,6 +8,7 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.util.*;
 import java.util.concurrent.LinkedBlockingDeque;
+import javax.swing.SwingUtilities;
 import shared.enums.*;
 import shared.networking.*;
 import shared.networking.User.UserInfo;
@@ -57,7 +58,7 @@ public class ClientController {
     // Client-side caches backing list views / filters
     // -------------------------------------------------------------------------
 
-    private ArrayList<Conversation> conversations;
+    private List<Conversation> conversations;
     /** -1 means no conversation selected. */
     private long currentConversationId = -1;
     private ArrayList<UserInfo> currentDirectory;
@@ -98,7 +99,7 @@ public class ClientController {
         this.connectionStatus = ConnectionStatus.NOT_CONNECTED;
         this.requestQueue = new LinkedBlockingDeque<>();
         this.loggedIn = false;
-        this.conversations = new ArrayList<>();
+        this.conversations = Collections.synchronizedList(new ArrayList<>());
         this.currentDirectory = new ArrayList<>();
         this.currentAdminConversationSearch = new ArrayList<>();
         this.gui = new ClientUI(this);
@@ -134,7 +135,7 @@ public class ClientController {
         this.connectionStatus = ConnectionStatus.NOT_CONNECTED;
         this.requestQueue = new LinkedBlockingDeque<>();
         this.loggedIn = false;
-        this.conversations = new ArrayList<>();
+        this.conversations = Collections.synchronizedList(new ArrayList<>());
         this.currentDirectory = new ArrayList<>();
         this.currentAdminConversationSearch = new ArrayList<>();
         this.gui = guiOverride;
@@ -198,6 +199,7 @@ public class ClientController {
     /** Package-private so tests can drive response handling directly without a live socket. */
     void processResponse(Response response) {
         if (response == null) return;
+        lastServerActivityMillis = System.currentTimeMillis();
         switch (response.getType()) {
             case LOGIN_RESULT:
                 handleLoginResultResponse(response);
@@ -220,6 +222,9 @@ public class ClientController {
             case ADMIN_CONVERSATION_RESULT:
                 handleAdminConversationResultResponse(response);
                 break;
+            case CONVERSATION_METADATA:
+                handleConversationMetadataResponse(response);
+                break;
             case CONNECTED:
                 connectionStatus = ConnectionStatus.CONNECTED;
                 break;
@@ -237,8 +242,8 @@ public class ClientController {
             case SUCCESS:
                 loggedIn = true;
                 currentUser = lr.getUserInfo();
-                conversations = lr.getConversationList() != null
-                        ? lr.getConversationList() : new ArrayList<>();
+                conversations = Collections.synchronizedList(
+                        lr.getConversationList() != null ? lr.getConversationList() : new ArrayList<>());
                 currentDirectory = lr.getDirectoryUserInfoList() != null
                         ? lr.getDirectoryUserInfoList() : new ArrayList<>();
                 if (gui != null) {
@@ -271,17 +276,21 @@ public class ClientController {
     private void handleMessageResponse(Response response) {
         // Move the matching conversation to front (most recent), then refresh the list view.
         Message msg = (Message) response.getPayload();
-        for (int i = 0; i < conversations.size(); i++) {
-            if (conversations.get(i).getConversationId() == msg.getConversationId()) {
-                Conversation c = conversations.remove(i);
-                c.append(msg);
-                conversations.add(0, c);
-                break;
+        ArrayList<Conversation> snapshot;
+        boolean isCurrentConv;
+        synchronized (conversations) {
+            for (int i = 0; i < conversations.size(); i++) {
+                if (conversations.get(i).getConversationId() == msg.getConversationId()) {
+                    Conversation c = conversations.remove(i);
+                    c.append(msg);
+                    conversations.add(0, c);
+                    break;
+                }
             }
+            snapshot = new ArrayList<>(conversations);
+            isCurrentConv = msg.getConversationId() == currentConversationId;
         }
         if (gui != null) {
-            ArrayList<Conversation> snapshot = new ArrayList<>(conversations);
-            boolean isCurrentConv = msg.getConversationId() == currentConversationId;
             gui.updateConversationListModel(snapshot);
             if (isCurrentConv) {
                 gui.appendMessageToConversationView(msg);
@@ -292,27 +301,63 @@ public class ClientController {
 
     private void handleConversationResponse(Response response) {
         // Move to front regardless of whether it is new or an update (recency sort).
+        // Track whether this conversation was already known so we can auto-open new ones.
         Conversation conv = (Conversation) response.getPayload();
-        conversations.removeIf(c -> c.getConversationId() == conv.getConversationId());
-        conversations.add(0, conv);
+        boolean isNew;
+        ArrayList<Conversation> snapshot;
+        synchronized (conversations) {
+            isNew = conversations.removeIf(c -> c.getConversationId() == conv.getConversationId()) == false;
+            conversations.add(0, conv);
+            snapshot = new ArrayList<>(conversations);
+        }
         if (gui != null) {
-            ArrayList<Conversation> snapshot = new ArrayList<>(conversations);
             gui.updateConversationListModel(snapshot);
+            if (isNew) {
+                // Auto-open the newly created conversation in the center panel.
+                setCurrentConversationId(conv.getConversationId());
+                SwingUtilities.invokeLater(() -> gui.updateMessageListModel(conv));
+                // TODO: call gui.selectConversationInList(conv) once that method exists on ClientUI
+            }
+        }
+    }
+
+    private void handleConversationMetadataResponse(Response response) {
+        ConversationMetadata meta = (ConversationMetadata) response.getPayload();
+        ArrayList<Conversation> snapshot;
+        synchronized (conversations) {
+            boolean found = false;
+            for (Conversation c : conversations) {
+                if (c.getConversationId() == meta.getConversationId()) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                System.err.println("CONVERSATION_METADATA: no matching conversation for id=" + meta.getConversationId());
+                return;
+            }
+            snapshot = new ArrayList<>(conversations);
+        }
+        if (gui != null) {
+            final ArrayList<Conversation> snap = snapshot;
+            SwingUtilities.invokeLater(() -> gui.updateConversationListModel(snap));
         }
     }
 
     private void handleLeaveResultResponse(Response response) {
         LeaveResult lr = (LeaveResult) response.getPayload();
         long leftId = lr.getLeftConversationID();
-        conversations.removeIf(c -> c.getConversationId() == leftId);
+        ArrayList<Conversation> snapshot;
+        synchronized (conversations) {
+            conversations.removeIf(c -> c.getConversationId() == leftId);
 
-        // If we just left the current conversation, switch to the most recent one
-        if (currentConversationId == leftId) {
-            currentConversationId = conversations.isEmpty() ? -1 : conversations.get(0).getConversationId();
+            // If we just left the current conversation, switch to the most recent one
+            if (currentConversationId == leftId) {
+                currentConversationId = conversations.isEmpty() ? -1 : conversations.get(0).getConversationId();
+            }
+            snapshot = new ArrayList<>(conversations);
         }
-
         if (gui != null) {
-            ArrayList<Conversation> snapshot = new ArrayList<>(conversations);
             Conversation current = getCurrentConversation();
             // Update conversation list (sidebar)
             gui.updateConversationListModel(snapshot);
@@ -488,18 +533,20 @@ public class ClientController {
 
     /** Returns conversations where any participant's id or name matches {@code query}. */
     public ArrayList<Conversation> getFilteredConversationList(String query) {
-        if (query == null || query.isBlank()) return new ArrayList<>(conversations);
-        ArrayList<Conversation> filtered = new ArrayList<>();
-        String q = query.toLowerCase();
-        for (Conversation c : conversations) {
-            for (UserInfo p : c.getParticipants()) {
-                if (p.getName().toLowerCase().contains(q) || p.getUserId().toLowerCase().contains(q)) {
-                    filtered.add(c);
-                    break;
+        synchronized (conversations) {
+            if (query == null || query.isBlank()) return new ArrayList<>(conversations);
+            ArrayList<Conversation> filtered = new ArrayList<>();
+            String q = query.toLowerCase();
+            for (Conversation c : conversations) {
+                for (UserInfo p : c.getParticipants()) {
+                    if (p.getName().toLowerCase().contains(q) || p.getUserId().toLowerCase().contains(q)) {
+                        filtered.add(c);
+                        break;
+                    }
                 }
             }
+            return filtered;
         }
-        return filtered;
     }
 
     /** Returns admin search results filtered by participant id or name. */
@@ -524,8 +571,10 @@ public class ClientController {
     /** Returns the full {@link Conversation} object for the currently selected conversation, or null. */
     public Conversation getCurrentConversation() {
         if (currentConversationId == -1) return null;
-        for (Conversation c : conversations) {
-            if (c.getConversationId() == currentConversationId) return c;
+        synchronized (conversations) {
+            for (Conversation c : conversations) {
+                if (c.getConversationId() == currentConversationId) return c;
+            }
         }
         return null;
     }
