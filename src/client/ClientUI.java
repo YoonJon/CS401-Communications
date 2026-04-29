@@ -42,6 +42,44 @@ public class ClientUI {
 
         // Fix 3: wrap ALL frame setup in invokeLater so it runs on the EDT.
         SwingUtilities.invokeLater(() -> {
+            try {
+                UIManager.setLookAndFeel("javax.swing.plaf.nimbus.NimbusLookAndFeel");
+            } catch (Exception ignored) {
+                // If Nimbus is unavailable, keep current LAF and continue.
+            }
+
+            // Temporary dark-mode test theme (global UI defaults).
+            UIManager.put("control", new Color(43, 43, 43));
+            UIManager.put("info", new Color(60, 63, 65));
+            UIManager.put("nimbusBase", new Color(60, 63, 65));
+            UIManager.put("nimbusAlertYellow", new Color(248, 187, 0));
+            UIManager.put("nimbusDisabledText", new Color(128, 128, 128));
+            UIManager.put("nimbusFocus", new Color(115, 164, 209));
+            UIManager.put("nimbusGreen", new Color(176, 179, 50));
+            UIManager.put("nimbusInfoBlue", new Color(66, 139, 221));
+            UIManager.put("nimbusLightBackground", new Color(43, 43, 43));
+            UIManager.put("nimbusOrange", new Color(191, 98, 4));
+            UIManager.put("nimbusRed", new Color(169, 46, 34));
+            UIManager.put("nimbusSelectedText", new Color(255, 255, 255));
+            UIManager.put("nimbusSelectionBackground", new Color(75, 110, 175));
+            UIManager.put("text", new Color(220, 220, 220));
+            UIManager.put("Panel.background", new Color(43, 43, 43));
+            UIManager.put("Label.foreground", new Color(220, 220, 220));
+            UIManager.put("TextField.background", new Color(60, 63, 65));
+            UIManager.put("TextField.foreground", new Color(220, 220, 220));
+            UIManager.put("TextField.caretForeground", new Color(220, 220, 220));
+            UIManager.put("TextArea.background", new Color(60, 63, 65));
+            UIManager.put("TextArea.foreground", new Color(220, 220, 220));
+            UIManager.put("TextArea.caretForeground", new Color(220, 220, 220));
+            UIManager.put("Button.background", new Color(60, 63, 65));
+            UIManager.put("Button.foreground", new Color(220, 220, 220));
+            UIManager.put("List.background", new Color(43, 43, 43));
+            UIManager.put("List.foreground", new Color(220, 220, 220));
+            UIManager.put("List.selectionBackground", new Color(75, 110, 175));
+            UIManager.put("List.selectionForeground", new Color(255, 255, 255));
+            UIManager.put("OptionPane.background", new Color(43, 43, 43));
+            UIManager.put("OptionPane.messageForeground", new Color(220, 220, 220));
+
             frame = new JFrame();
             frame.setTitle(BASE_TITLE);
             frame.setIconImage(createAppIcon());
@@ -824,7 +862,11 @@ public class ClientUI {
 
                 // displaying the current user's messages on the right side
                 if (isOwnMessage) {
-                    bubble.setBackground(new Color(0xDC, 0xF8, 0xC6));
+                    bubble.setBackground(new Color(66, 95, 120));
+                    headerArea.setBackground(bubble.getBackground());
+                    bodyArea.setBackground(bubble.getBackground());
+                    headerArea.setForeground(new Color(235, 235, 235));
+                    bodyArea.setForeground(new Color(235, 235, 235));
                     headerArea.setText(header);
                     headerArea.setFont(list.getFont().deriveFont(Font.PLAIN));
                     bodyArea.setFont(list.getFont().deriveFont(Font.PLAIN));
@@ -833,6 +875,10 @@ public class ClientUI {
                     add(bubble, BorderLayout.EAST);
                 } else { // displaying the other participants' messages on the left side
                     bubble.setBackground(list.getBackground());
+                    headerArea.setBackground(bubble.getBackground());
+                    bodyArea.setBackground(bubble.getBackground());
+                    headerArea.setForeground(new Color(220, 220, 220));
+                    bodyArea.setForeground(new Color(220, 220, 220));
                     if (msg.getSequenceNumber() > lastReadSeq) {
                         headerArea.setFont(list.getFont().deriveFont(Font.BOLD));
                         bodyArea.setFont(list.getFont().deriveFont(Font.PLAIN));
