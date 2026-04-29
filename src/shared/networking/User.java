@@ -118,6 +118,19 @@ public class User implements Serializable {
             lastRead.put(conversationId, sequenceNumber);
         }
 
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof UserInfo)) return false;
+            UserInfo other = (UserInfo) o;
+            return Objects.equals(userId, other.userId);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(userId);
+        }
+
         public String toString(){return name+" ("+userId+")";}
     }
 }
