@@ -31,13 +31,18 @@ public class ClientUI {
     /** Optional: end session after this much in-app UI idle time (0 disables). Default 30 minutes. */
     private static final long USER_IDLE_LOGOUT_AFTER_MS = 30L * 60L * 1000L;
 
+    private int unreadWhileAway = 0;
+    private volatile boolean suppressActivationReset = false;
+    private static final String BASE_TITLE = "Communication Application";
+
     public ClientUI(ClientController controller) {
         this.controller = controller;
 
         // Fix 3: wrap ALL frame setup in invokeLater so it runs on the EDT.
         SwingUtilities.invokeLater(() -> {
             frame = new JFrame();
-            frame.setTitle("Communication Application");
+            frame.setTitle(BASE_TITLE);
+            frame.setIconImage(createAppIcon());
             // Fix 2a: enforce minimum window size
             frame.setMinimumSize(new java.awt.Dimension(900, 600));
             cards = new ScreenCards();
@@ -49,6 +54,36 @@ public class ClientUI {
             frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
             frame.setLocationRelativeTo(null);
             frame.setVisible(true);
+
+            frame.addWindowListener(new WindowAdapter() {
+                @Override public void windowActivated(WindowEvent e) {
+                    if (suppressActivationReset) {
+                        suppressActivationReset = false;
+                        return;
+                    }
+                    unreadWhileAway = 0;
+                    frame.setTitle(BASE_TITLE);
+                }
+            });
+
+            JRootPane rp = frame.getRootPane();
+            InputMap im = rp.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+            ActionMap am = rp.getActionMap();
+            im.put(KeyStroke.getKeyStroke(KeyEvent.VK_L, InputEvent.CTRL_DOWN_MASK), "shortcutLogout");
+            im.put(KeyStroke.getKeyStroke(KeyEvent.VK_N, InputEvent.CTRL_DOWN_MASK), "shortcutNewConv");
+            am.put("shortcutLogout", new AbstractAction() {
+                @Override public void actionPerformed(ActionEvent e) {
+                    if (controller.isLoggedIn()) controller.logout();
+                }
+            });
+            am.put("shortcutNewConv", new AbstractAction() {
+                @Override public void actionPerformed(ActionEvent e) {
+                    if (controller.isLoggedIn()
+                            && cards.main.directoryView.createConversationButton.isEnabled()) {
+                        cards.main.directoryView.createConversationButton.doClick();
+                    }
+                }
+            });
 
             Toolkit.getDefaultToolkit().addAWTEventListener(
                 e -> {
@@ -238,6 +273,16 @@ public class ClientUI {
                 int last = cards.main.conversationView.list.getModel().getSize() - 1;
                 if (last >= 0) cards.main.conversationView.list.ensureIndexIsVisible(last);
             });
+            // Issue #176: notify user when window is not active
+            UserInfo me = controller.getCurrentUserInfo();
+            boolean fromOther = me != null && !message.getSenderId().equals(me.getUserId());
+            if (fromOther && !frame.isActive()) {
+                unreadWhileAway++;
+                frame.setTitle(BASE_TITLE + " (" + unreadWhileAway + " new)");
+                Toolkit.getDefaultToolkit().beep();
+                suppressActivationReset = true;
+                frame.toFront();
+            }
         });
     }
 
@@ -253,6 +298,66 @@ public class ClientUI {
                 model.addElement(conversation);
             }
         });
+    }
+
+    private JTextField makePlaceholderField(String placeholder, int cols) {
+        return new PlaceholderTextField(placeholder, cols);
+    }
+
+    private void bindEscapeToDispose(JDialog dialog) {
+        JRootPane rp = dialog.getRootPane();
+        KeyStroke esc = KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0);
+        rp.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(esc, "closeDialog");
+        rp.getActionMap().put("closeDialog", new AbstractAction() {
+            @Override public void actionPerformed(ActionEvent evt) { dialog.dispose(); }
+        });
+    }
+
+    private Image createAppIcon() {
+        int size = 32;
+        java.awt.image.BufferedImage img =
+            new java.awt.image.BufferedImage(size, size, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = img.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setColor(new Color(33, 150, 243));
+        g.fillOval(0, 0, size, size);
+        g.setColor(Color.WHITE);
+        g.fillRoundRect(6, 7, 20, 14, 6, 6);
+        int[] xs = {10, 10, 16};
+        int[] ys = {19, 26, 20};
+        g.fillPolygon(xs, ys, 3);
+        g.dispose();
+        return img;
+    }
+
+    private static class PlaceholderTextField extends JTextField {
+        private final String placeholder;
+
+        PlaceholderTextField(String placeholder, int columns) {
+            super(columns);
+            this.placeholder = placeholder;
+            addFocusListener(new java.awt.event.FocusAdapter() {
+                @Override public void focusGained(java.awt.event.FocusEvent e) { repaint(); }
+                @Override public void focusLost(java.awt.event.FocusEvent e) { repaint(); }
+            });
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            if (getText().isEmpty() && !isFocusOwner()) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
+                        RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                g2.setColor(Color.GRAY);
+                g2.setFont(getFont().deriveFont(Font.ITALIC));
+                Insets ins = getInsets();
+                int x = ins.left + 2;
+                int y = g2.getFontMetrics().getAscent() + ins.top;
+                g2.drawString(placeholder, x, y);
+                g2.dispose();
+            }
+        }
     }
 
     // =========================================================================
@@ -444,9 +549,10 @@ public class ClientUI {
             add(inputPanel, BorderLayout.CENTER);
 
 
-            loginButton.addActionListener(e -> {
-            	controller.login(login_idField.getText(), passwordField.getPassword());
-            });
+            ActionListener loginAction = e -> controller.login(login_idField.getText(), passwordField.getPassword());
+            loginButton.addActionListener(loginAction);
+            login_idField.addActionListener(loginAction);
+            passwordField.addActionListener(loginAction);
 
             createButton.addActionListener(e -> {
             	cards.layout.show(cards, "register");
@@ -637,6 +743,7 @@ public class ClientUI {
                 addDialog.setSize(300, 400);
                 addDialog.setLocationRelativeTo(frame);
                 addDialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+                bindEscapeToDispose(addDialog);
 
                 addDialog.addWindowListener(new WindowAdapter() {
                     @Override
@@ -689,6 +796,8 @@ public class ClientUI {
             	controller.sendMessage(controller.getCurrentConversation().getConversationId(), text.getText());
                 text.setText("");
             });
+
+            text.addActionListener(e -> sendButton.doClick());
 
         }
 
@@ -785,7 +894,7 @@ public class ClientUI {
             pickerBannerLabel.setFont(pickerBannerLabel.getFont().deriveFont(Font.BOLD));
             pickerBannerLabel.setVisible(false);
 
-            searchField = new JTextField(15);
+            searchField = makePlaceholderField("Search users...", 15);
             logoutButton = new JButton("Log Out");
             createConversationButton = new JButton("Create Conversation");
             // gray-out until select the user
@@ -880,6 +989,7 @@ public class ClientUI {
                 createDialog.setSize(300, 400);
                 createDialog.setLocationRelativeTo(frame);
                 createDialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+                bindEscapeToDispose(createDialog);
 
                 createDialog.addWindowListener(new WindowAdapter() {
                     @Override
@@ -910,6 +1020,7 @@ public class ClientUI {
                 adminDialog.setSize(300, 400);
                 adminDialog.setLocationRelativeTo(frame);
                 adminDialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+                bindEscapeToDispose(adminDialog);
 
                 adminDialog.addWindowListener(new WindowAdapter() {
                     @Override
@@ -1035,7 +1146,7 @@ public class ClientUI {
         }
 
         ConversationListView() {
-        	searchField = new JTextField(15);
+        	searchField = makePlaceholderField("Search conversations...", 15);
 
 
             // searchField is located on the upper of the window.
@@ -1190,7 +1301,7 @@ public class ClientUI {
         JButton cancelButton;
 
         AdminConversationSearchWindow() {
-            searchField = new JTextField(15);
+            searchField = makePlaceholderField("Search conversations...", 15);
             okButton = new JButton("OK");
             okButton.setFocusTraversalKeysEnabled(false);
             cancelButton = new JButton("Cancel");
