@@ -1,11 +1,13 @@
 package shared.payload;
 
 import java.util.ArrayList;
+import java.util.Collections;
 
 import shared.enums.LoginStatus;
 import shared.networking.User.UserInfo;
 
 public class LoginResult implements ResponsePayload {
+    private static final long serialVersionUID = 1L;
     private final LoginStatus result;
     private final UserInfo userInfo;
     private final ArrayList<Conversation> conversationList;
@@ -30,6 +32,6 @@ public class LoginResult implements ResponsePayload {
 
     public LoginStatus getLoginStatus() { return result; }
     public UserInfo getUserInfo() { return userInfo; }
-    public ArrayList<Conversation> getConversationList() { return conversationList; }
+    public java.util.List<Conversation> getConversationList() { return conversationList != null ? conversationList : Collections.emptyList(); }
     public ArrayList<UserInfo> getDirectoryUserInfoList() { return new ArrayList<>(directoryUserInfoList); }
 }

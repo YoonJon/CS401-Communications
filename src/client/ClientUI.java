@@ -15,10 +15,10 @@ import java.util.ArrayList;
 
 public class ClientUI {
 
-    /** Last time a global key/mouse AWT event was observed (UI “user active”). */
+    /** Last time a global key/mouse AWT event was observed (UI "user active"). */
     private volatile long lastUserActivityMillis = System.currentTimeMillis();
 
-    private ClientController controller;
+    private final ClientController controller;
     private JFrame frame;
     private ScreenCards cards;
     private DefaultListModel<UserInfo> directoryModel;
@@ -33,24 +33,31 @@ public class ClientUI {
 
     public ClientUI(ClientController controller) {
         this.controller = controller;
-        frame = new JFrame();
-        frame.setTitle("Communication Application");
-        cards = new ScreenCards();
-        directoryModel = cards.main.directoryView.getListModel();
-        conversationMessageModel = cards.main.conversationView.getListModel();
-        conversationListModel = cards.main.conversationListView.getListModel();
-        frame.add(cards);
-        frame.pack();                 
-        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        frame.setLocationRelativeTo(null);       
-        frame.setVisible(true);
 
-        Toolkit.getDefaultToolkit().addAWTEventListener(
-            e -> {
-                lastUserActivityMillis = System.currentTimeMillis();
-            },
-            AWTEvent.KEY_EVENT_MASK | AWTEvent.MOUSE_EVENT_MASK
-        );
+        // Fix 3: wrap ALL frame setup in invokeLater so it runs on the EDT.
+        SwingUtilities.invokeLater(() -> {
+            frame = new JFrame();
+            frame.setTitle("Communication Application");
+            // Fix 2a: enforce minimum window size
+            frame.setMinimumSize(new java.awt.Dimension(900, 600));
+            cards = new ScreenCards();
+            directoryModel = cards.main.directoryView.getListModel();
+            conversationMessageModel = cards.main.conversationView.getListModel();
+            conversationListModel = cards.main.conversationListView.getListModel();
+            frame.add(cards);
+            frame.pack();
+            frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+            frame.setLocationRelativeTo(null);
+            frame.setVisible(true);
+
+            Toolkit.getDefaultToolkit().addAWTEventListener(
+                e -> {
+                    lastUserActivityMillis = System.currentTimeMillis();
+                },
+                AWTEvent.KEY_EVENT_MASK | AWTEvent.MOUSE_EVENT_MASK
+            );
+        });
+
         userIdlePollTimer = new Timer(USER_IDLE_POLL_MS, e -> onUserIdlePollTick());
         userIdlePollTimer.setRepeats(true);
         userIdlePollTimer.start();
@@ -68,6 +75,13 @@ public class ClientUI {
 
     public void showLoginView() {
         SwingUtilities.invokeLater(() -> {
+            // Fix 5: dispose any open dialogs before switching to login
+            DirectoryView dv = cards.main.directoryView;
+            ConversationView cv = cards.main.conversationView;
+            if (dv.createDialog != null && dv.createDialog.isVisible()) dv.createDialog.dispose();
+            if (dv.adminDialog != null && dv.adminDialog.isVisible()) dv.adminDialog.dispose();
+            if (cv.addDialog != null && cv.addDialog.isVisible()) cv.addDialog.dispose();
+
             clearLoginAndRegisterFields();
             cards.main.directoryView.adminButton.setVisible(false);
             cards.main.directoryView.revalidate();
@@ -75,13 +89,13 @@ public class ClientUI {
             cards.layout.show(cards, "login");
         });
     }
-    public void showRegisterView() { 
+    public void showRegisterView() {
         SwingUtilities.invokeLater(() -> {
             clearLoginAndRegisterFields();
             cards.layout.show(cards, "register");
-        }); 
+        });
     }
-    
+
     // currentUser is set by the time this is called
     public void showMainView() {
         SwingUtilities.invokeLater(() -> {
@@ -90,9 +104,13 @@ public class ClientUI {
             boolean isAdmin = currentUser != null && currentUser.getUserType() == UserType.ADMIN;
             cards.main.directoryView.adminButton.setVisible(isAdmin);
             // Refresh directory list from the latest controller-side cache on main-view entry.
+            // Fix 6: exclude the logged-in user from the directory picker list
+            String myId = (currentUser != null) ? currentUser.getUserId() : null;
             directoryModel.clear();
             for (UserInfo userInfo : controller.getFilteredDirectory("")) {
-                directoryModel.addElement(userInfo);
+                if (myId == null || !userInfo.getUserId().equals(myId)) {
+                    directoryModel.addElement(userInfo);
+                }
             }
             // Populate conversation list from login result.
             conversationListModel.clear();
@@ -106,6 +124,9 @@ public class ClientUI {
                 cards.main.directoryView.profileNameLabel.setText(currentUser.getName());
             }
             cards.layout.show(cards, "main");
+            // Fix 2b: repack and re-center after switching to main card
+            frame.pack();
+            frame.setLocationRelativeTo(null);
         });
     }
 
@@ -166,9 +187,33 @@ public class ClientUI {
 
     public void updateConversationListModel(ArrayList<Conversation> conversations) {
         SwingUtilities.invokeLater(() -> {
+            // Fix 7: preserve selection across model rebuild
+            JList<Conversation> convList = cards.main.conversationListView.list;
+            Conversation selected = convList.getSelectedValue();
+            Long selectedId = (selected != null) ? selected.getConversationId() : null;
+
+            // Fix 1: sort by last message timestamp descending (most recent first)
+            conversations.sort((a, b) -> {
+                ArrayList<Message> aMsgs = a.getMessages();
+                ArrayList<Message> bMsgs = b.getMessages();
+                long aTime = aMsgs.isEmpty() ? a.getConversationId() : aMsgs.get(aMsgs.size() - 1).getTimestamp().getTime();
+                long bTime = bMsgs.isEmpty() ? b.getConversationId() : bMsgs.get(bMsgs.size() - 1).getTimestamp().getTime();
+                return Long.compare(bTime, aTime);
+            });
+
             conversationListModel.clear();
             for (Conversation conversation : conversations) {
                 conversationListModel.addElement(conversation);
+            }
+
+            // Restore selection after rebuild
+            if (selectedId != null) {
+                for (int i = 0; i < conversationListModel.getSize(); i++) {
+                    if (conversationListModel.getElementAt(i).getConversationId() == selectedId) {
+                        convList.setSelectedIndex(i);
+                        break;
+                    }
+                }
             }
         });
     }
@@ -186,7 +231,14 @@ public class ClientUI {
     }
 
     public void appendMessageToConversationView(Message message) {
-        SwingUtilities.invokeLater(() -> conversationMessageModel.addElement(message));
+        SwingUtilities.invokeLater(() -> {
+            conversationMessageModel.addElement(message);
+            // Fix 9: auto-scroll to newest message
+            SwingUtilities.invokeLater(() -> {
+                int last = cards.main.conversationView.list.getModel().getSize() - 1;
+                if (last >= 0) cards.main.conversationView.list.ensureIndexIsVisible(last);
+            });
+        });
     }
 
     public void updateAdminConversationSearchModel(ArrayList<ConversationMetadata> conversations) {
@@ -234,7 +286,7 @@ public class ClientUI {
 
         RegisterView() {
         	setLayout(new BorderLayout());
-        	
+
         	// initialize components
         	JPanel inputPanel = new JPanel(new GridBagLayout());
         	userId = new JTextField(15);
@@ -244,72 +296,72 @@ public class ClientUI {
         	passwordAgain = new JPasswordField(15);
         	createButton = new JButton("Create Account");
         	backButton = new JButton("Back");
-        	
+
         	// layout for  the buttons
             JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 0));
             buttonPanel.add(createButton);
-            buttonPanel.add(backButton);  
-        	
+            buttonPanel.add(backButton);
+
         	// use grid layout to put the parts
         	GridBagConstraints gridConst = new GridBagConstraints();
             gridConst.insets = new Insets(5, 5, 5, 5);
             gridConst.fill = GridBagConstraints.HORIZONTAL;
-        	            
+
             // put the label for User ID
             gridConst.gridx = 0;
             gridConst.gridy = 0;
             inputPanel.add(new JLabel("User ID"), gridConst);
-            
+
             // put the text field on the right side of the label
             gridConst.gridx = 1;
             gridConst.gridwidth = 2;
             inputPanel.add(userId, gridConst);
-            
+
             // put the label for user name below User ID
             gridConst.gridx = 0;
             gridConst.gridy = 1;
             gridConst.gridwidth = 1;
             inputPanel.add(new JLabel("User Name"), gridConst);
-            
+
             // put the text field on the right side of the label
             gridConst.gridx = 1;
             inputPanel.add(name, gridConst);
-            
+
             // put the label for user name below User ID
             gridConst.gridx = 0;
             gridConst.gridy = 2;
             inputPanel.add(new JLabel("Login ID"), gridConst);
-            
+
             // put the text field on the right side of the label
             gridConst.gridx = 1;
             inputPanel.add(loginName, gridConst);
-            
+
             // put the label for password below login Name
             gridConst.gridx = 0;
             gridConst.gridy = 3;
             inputPanel.add(new JLabel("Password"), gridConst);
-            
+
             // put the password text field on the right side of the label
             gridConst.gridx = 1;
             inputPanel.add(password, gridConst);
-            
-            // put the label for the password (confirmation) 
+
+            // put the label for the password (confirmation)
             gridConst.gridx = 0;
             gridConst.gridy = 4;
             inputPanel.add(new JLabel("Confirm Password"), gridConst);
-            
+
             // put the password text field (confirmation) on the right side of the label
             gridConst.gridx = 1;
             inputPanel.add(passwordAgain, gridConst);
-            
+
             // put the button layout below the fields
             gridConst.gridx = 1;
             gridConst.gridy = 5;
             inputPanel.add(buttonPanel, gridConst);
-            
+
             // locate these parts at the center of the window
             add(inputPanel, BorderLayout.CENTER);
-            
+
             // add an action when click "Create Account" button
             createButton.addActionListener(e -> {
             	char[] pwd1 = password.getPassword();
@@ -319,14 +371,15 @@ public class ClientUI {
             		controller.register(userId.getText(), name.getText(), loginName.getText(), password.getPassword());
             	} else {
             		// if not, show the error message
-            		JOptionPane.showMessageDialog(null, "Passwords don't match. Type them again.", "Error", JOptionPane.ERROR_MESSAGE);
+            		// Fix 4: use frame as parent instead of null
+            		JOptionPane.showMessageDialog(frame, "Passwords don't match. Type them again.", "Error", JOptionPane.ERROR_MESSAGE);
             	}
             	// fill with 0 for secure reason
             	java.util.Arrays.fill(pwd1, '0');
                 java.util.Arrays.fill(pwd2, '0');
             });
-            
-            // add an action when click 
+
+            // add an action when click
             backButton.addActionListener(e -> {
             	// go back to login window
             	cards.layout.show(cards, "login");
@@ -342,9 +395,9 @@ public class ClientUI {
         JButton createButton;
 
         LoginView() {
-        	
+
             setLayout(new BorderLayout());
-            
+
             // initialize components
             login_idField = new JTextField(15);
             passwordField = new JPasswordField(15);
@@ -354,14 +407,14 @@ public class ClientUI {
             GridBagConstraints gridConst = new GridBagConstraints();
             gridConst.insets = new Insets(5, 5, 5, 5);
             gridConst.fill = GridBagConstraints.HORIZONTAL;
-            
-            
+
+
             // add label for login_id
             gridConst.gridx = 0;
             gridConst.gridy = 0;
             inputPanel.add(new JLabel("Login ID"), gridConst);
             // add text field on the right side of the label
-            gridConst.gridx = 1;            
+            gridConst.gridx = 1;
             inputPanel.add(login_idField, gridConst);
             // add label for password below the login_id
             gridConst.gridx = 0;
@@ -375,26 +428,26 @@ public class ClientUI {
             gridConst.gridy = 0;
             gridConst.gridheight = 2;
             inputPanel.add(loginButton, gridConst);
-            
+
             // add create button below the text fields
             gridConst.gridx = 1;
             gridConst.gridy = 2;
             gridConst.insets = new Insets(20, 5, 5, 5);
-                      
+
             // wrap a layout with create button which can be located on the middle
             JPanel createBtnPane = new JPanel();
             createBtnPane.setLayout(new FlowLayout(FlowLayout.CENTER));
             createBtnPane.add(createButton);
             inputPanel.add(createBtnPane, gridConst);
-            
+
             // add to loginView
             add(inputPanel, BorderLayout.CENTER);
-            
-            
+
+
             loginButton.addActionListener(e -> {
             	controller.login(login_idField.getText(), passwordField.getPassword());
             });
-            
+
             createButton.addActionListener(e -> {
             	cards.layout.show(cards, "register");
             });
@@ -413,10 +466,10 @@ public class ClientUI {
         	conversationView = new ConversationView();
             directoryView = new DirectoryView();
             conversationListView = new ConversationListView();
-            
+
         	gridConst.gridy = 0;
         	gridConst.fill = GridBagConstraints.BOTH;
-        	gridConst.weighty = 1.0;   
+        	gridConst.weighty = 1.0;
 
         	// left
         	gridConst.gridx = 0;
@@ -431,10 +484,10 @@ public class ClientUI {
         	// right
         	gridConst.gridx = 2;
         	gridConst.weightx = 0.2; // 20%
-        	add(conversationListView, gridConst);       	  
- 
+        	add(conversationListView, gridConst);
+
         }
-        
+
     }
 
     // =========================================================================
@@ -449,6 +502,73 @@ public class ClientUI {
         JDialog addDialog;
         SelectUserWindow addUserWindow;
 
+        // Fix 8: placeholder label shown when no conversation is selected
+        private final JLabel placeholderLabel = new JLabel("Select a conversation to start chatting", SwingConstants.CENTER);
+
+        // Fix 6: cell renderer fields — reuse panel and label instead of creating new ones each call
+        private final class MessageCellRenderer extends JPanel implements ListCellRenderer<Message> {
+            private final JPanel panel = new JPanel(new BorderLayout());
+            private final JLabel label = new JLabel();
+
+            MessageCellRenderer() {
+                setLayout(new BorderLayout());
+                label.setOpaque(true);
+                panel.setOpaque(true);
+            }
+
+            @Override
+            public Component getListCellRendererComponent(
+                    JList<? extends Message> list, Message value, int index,
+                    boolean isSelected, boolean cellHasFocus) {
+
+                Message msg = value;
+
+                // Resolve sender's display name from conversation participants
+                String senderName = null;
+                Conversation conv = controller.getCurrentConversation();
+                if (conv != null) {
+                    for (UserInfo p : conv.getParticipants()) {
+                        if (p.getUserId().equals(msg.getSenderId())) {
+                            senderName = p.getName();
+                            break;
+                        }
+                    }
+                }
+                // Fix 4: fall back to "(former participant)" if sender is not in current participant list
+                if (senderName == null) {
+                    senderName = "(former participant)";
+                }
+                String ts = msg.getTimestamp().toInstant()
+                        .atZone(ZoneId.systemDefault())
+                        .format(DateTimeFormatter.ofPattern("LLL dd HH:mm"));
+                String displayText = ts + " " + senderName + ": " + msg.getText();
+
+                long lastReadSeq = controller.getCurrentUserInfo().getLastRead(controller.getCurrentConversationId());
+
+                // Reset panel — remove any prior child so we can re-add in correct position
+                panel.removeAll();
+
+                // displaying the current user's messages on the right side
+                if (msg.getSenderId().equals(controller.getCurrentUserInfo().getUserId())) {
+                    label.setBackground(Color.LIGHT_GRAY);
+                    label.setFont(label.getFont().deriveFont(Font.PLAIN));
+                    label.setText(displayText);
+                    panel.add(label, BorderLayout.EAST);
+                } else { // displaying the other participants' messages on the left side
+                    if (msg.getSequenceNumber() > lastReadSeq) {
+                        label.setFont(label.getFont().deriveFont(Font.BOLD));
+                        label.setText("● " + displayText);
+                    } else {
+                        label.setFont(label.getFont().deriveFont(Font.PLAIN));
+                        label.setText(displayText);
+                    }
+                    panel.add(label, BorderLayout.WEST);
+                }
+
+                return panel;
+            }
+        }
+
         ConversationView() {
         	participantsLabel = new JLabel();
             addButton = new JButton("Add");
@@ -456,94 +576,53 @@ public class ClientUI {
             text = new JTextField(15);
             text.setEnabled(false);
             sendButton = new JButton("Send");
-            
+            // Fix 10: gate buttons — disabled until a conversation is selected
+            addButton.setEnabled(false);
+            leaveButton.setEnabled(false);
+            sendButton.setEnabled(false);
+
             setLayout(new BorderLayout());
             setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-            
+
             // conversation info is located on the upper side of the window
             JPanel infoPane = new JPanel(new GridBagLayout());
             GridBagConstraints gridConst = new GridBagConstraints();
             gridConst.insets = new Insets(5, 5, 5, 5);
             gridConst.fill = GridBagConstraints.HORIZONTAL;
-            
+
             gridConst.gridx = 0;
             gridConst.gridy = 0;
             infoPane.add(participantsLabel, gridConst);
-            
+
             gridConst.gridx = 1;
             infoPane.add(addButton, gridConst);
-            
+
             gridConst.gridx = 2;
             infoPane.add(leaveButton, gridConst);
-            
+
             add(infoPane, BorderLayout.NORTH);
-            
-            // list is located on the middle of the window
-            list.setCellRenderer(new DefaultListCellRenderer() {
-                @Override
-                public Component getListCellRendererComponent(
-                        JList<?> list, Object value, int index,
-                        boolean isSelected, boolean cellHasFocus) {
 
-                    JLabel label = (JLabel) super.getListCellRendererComponent(
-                            list, value, index, isSelected, cellHasFocus);
-                    
-                    JPanel panel = new JPanel(new BorderLayout());
-                    
-                    Message msg = (Message) value;
+            // Fix 6: install the reusable cell renderer
+            list.setCellRenderer(new MessageCellRenderer());
 
-                    // Resolve sender's display name from conversation participants
-                    String senderName = msg.getSenderId();
-                    Conversation conv = controller.getCurrentConversation();
-                    if (conv != null) {
-                        for (UserInfo p : conv.getParticipants()) {
-                            if (p.getUserId().equals(msg.getSenderId())) {
-                                senderName = p.getName();
-                                break;
-                            }
-                        }
-                    }
-                    String ts = msg.getTimestamp().toInstant()
-                            .atZone(ZoneId.systemDefault())
-                            .format(DateTimeFormatter.ofPattern("LLL dd HH:mm"));
-                    String displayText = ts + " " + senderName + ": " + msg.getText();
+            // Fix 8: create a layered center panel with the placeholder on top when no conversation
+            JPanel centerPanel = new JPanel(new BorderLayout());
+            centerPanel.add(new JScrollPane(list), BorderLayout.CENTER);
+            placeholderLabel.setVisible(true);
+            centerPanel.add(placeholderLabel, BorderLayout.SOUTH);
+            add(centerPanel, BorderLayout.CENTER);
 
-                    long lastReadSeq = controller.getCurrentUserInfo().getLastRead(controller.getCurrentConversationId());
-
-                    // displaying the current user's messages on the right side
-                    if(msg.getSenderId().equals(controller.getCurrentUserInfo().getUserId())) {
-                    	label.setBackground(Color.LIGHT_GRAY);
-                    	label.setFont(label.getFont().deriveFont(Font.PLAIN));
-                        label.setText(displayText);
-                    	panel.add(label, BorderLayout.EAST);
-                    } else { // displaying the other participants' messages on the left side
-                    	if (msg.getSequenceNumber() > lastReadSeq ) {
-                            label.setFont(label.getFont().deriveFont(Font.BOLD));
-                            label.setText("● " + displayText);
-                        } else {
-                            label.setFont(label.getFont().deriveFont(Font.PLAIN));
-                            label.setText(displayText);
-                        }
-                    	panel.add(label, BorderLayout.WEST);
-                    }
-
-                    return panel;
-                }
-            });
-            
-            add(new JScrollPane(list), BorderLayout.CENTER);
-            
-            // sendPane is located on the bottom of the window 
+            // sendPane is located on the bottom of the window
             JPanel sendPane = new JPanel(new BorderLayout());
             sendPane.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 0));
             sendPane.add(text, BorderLayout.CENTER);
             sendPane.add(sendButton, BorderLayout.EAST);
-            
+
             add(sendPane, BorderLayout.SOUTH);
-            
+
             // add action to add button
             addButton.addActionListener(e -> {
-            	
+
             	if (addDialog != null && addDialog.isVisible()) {
             		addDialog.toFront();
             		addDialog.requestFocus();
@@ -567,17 +646,18 @@ public class ClientUI {
                 });
 
                 addDialog.setVisible(true);
-                      	
+
             });
-            
+
             // add action to leave button
             leaveButton.addActionListener(e -> {
-            	int result = JOptionPane.showConfirmDialog(null, "Are you sure to leave this conversation?", "Confirm to Leave", JOptionPane.YES_NO_OPTION);
+            	// Fix 4: use frame as parent instead of null
+            	int result = JOptionPane.showConfirmDialog(frame, "Are you sure to leave this conversation?", "Confirm to Leave", JOptionPane.YES_NO_OPTION);
             	if(result == JOptionPane.YES_OPTION) {
             		controller.leaveConversation(controller.getCurrentConversationId());
             	}
             });
-            
+
             // add action to text field (detecting if there is a text)
             text.getDocument().addDocumentListener(new DocumentListener() {
 
@@ -600,7 +680,7 @@ public class ClientUI {
                     update();
                 }
             });
-            
+
             // add action to send button
             sendButton.addActionListener(e -> {
                 if(controller.getCurrentConversation() == null) {
@@ -609,18 +689,29 @@ public class ClientUI {
             	controller.sendMessage(controller.getCurrentConversation().getConversationId(), text.getText());
                 text.setText("");
             });
-                      
+
         }
-        
+
         public void setListModel(Conversation currConv) {
-        	String member = "";
-        	for(int i = 0; i < currConv.getParticipants().size(); i++) {
-        		if(i != 0) {
-        			member += ", ";
-        		}
-        		member += currConv.getParticipants().get(i).getName();
-        	}
-            final String finalMember = member;
+            // Fix 3: exclude self, show up to 3 names, append "+N more" if needed
+            UserInfo me = controller.getCurrentUserInfo();
+            String myId = (me != null) ? me.getUserId() : null;
+            ArrayList<UserInfo> others = new ArrayList<>();
+            for (UserInfo p : currConv.getParticipants()) {
+                if (!p.getUserId().equals(myId)) {
+                    others.add(p);
+                }
+            }
+            StringBuilder memberSb = new StringBuilder();
+            int limit = Math.min(3, others.size());
+            for (int i = 0; i < limit; i++) {
+                if (i > 0) memberSb.append(", ");
+                memberSb.append(others.get(i).getName());
+            }
+            if (others.size() > 3) {
+                memberSb.append(" +").append(others.size() - 3).append(" more");
+            }
+            final String finalMember = memberSb.toString();
         	SwingUtilities.invokeLater(() -> {
         		participantsLabel.setText(finalMember);
                 conversationMessageListModel.clear();
@@ -628,13 +719,39 @@ public class ClientUI {
                     conversationMessageListModel.addElement(currConv.getMessages().get(i));
                 }
                 text.setEnabled(true);
+                // Fix 10: enable buttons when a conversation is selected
+                addButton.setEnabled(true);
+                leaveButton.setEnabled(true);
+                sendButton.setEnabled(!text.getText().trim().isEmpty());
+                // Fix 8: hide placeholder once a conversation is loaded
+                placeholderLabel.setVisible(false);
+                // Fix 9: auto-scroll to newest message after loading
+                SwingUtilities.invokeLater(() -> {
+                    int last = list.getModel().getSize() - 1;
+                    if (last >= 0) list.ensureIndexIsVisible(last);
+                });
         	});
         }
-        
+
+        /** Clears the view and disables action buttons (no conversation active). */
+        public void clearConversation() {
+            SwingUtilities.invokeLater(() -> {
+                participantsLabel.setText("");
+                conversationMessageListModel.clear();
+                text.setEnabled(false);
+                // Fix 10: disable buttons when no conversation is active
+                addButton.setEnabled(false);
+                leaveButton.setEnabled(false);
+                sendButton.setEnabled(false);
+                // Fix 8: show placeholder again
+                placeholderLabel.setVisible(true);
+            });
+        }
+
         public DefaultListModel<Message> getListModel() {
         	return this.conversationMessageListModel;
         }
-        
+
         public boolean isAddingUser() {
         	return addDialog != null && addDialog.isVisible();
         }
@@ -644,6 +761,8 @@ public class ClientUI {
     class DirectoryView extends JPanel {
         JLabel profileUserIdLabel;
         JLabel profileNameLabel;
+        // Fix 5: banner shown when directory is in picker mode
+        JLabel pickerBannerLabel;
         JTextField searchField;
         DefaultListModel<UserInfo> listModel = new DefaultListModel<>();
         JList<UserInfo> list = new JList<>(listModel);
@@ -655,18 +774,23 @@ public class ClientUI {
         UserInfo selecting;
         SelectUserWindow createConversationUserWindow;
         AdminConversationSearchWindow adminConversationSearchWindow;
-        
+
         DirectoryView() {
         	profileUserIdLabel = new JLabel();
         	profileNameLabel = new JLabel();
-            
-            
+
+            // Fix 5: picker mode banner — hidden by default
+            pickerBannerLabel = new JLabel("Selecting participants — click to add", SwingConstants.CENTER);
+            pickerBannerLabel.setForeground(new Color(0, 100, 180));
+            pickerBannerLabel.setFont(pickerBannerLabel.getFont().deriveFont(Font.BOLD));
+            pickerBannerLabel.setVisible(false);
+
             searchField = new JTextField(15);
             logoutButton = new JButton("Log Out");
             createConversationButton = new JButton("Create Conversation");
             // gray-out until select the user
             createConversationButton.setEnabled(false);
-                          
+
             // construct admin button unconditionally and enable later if the user is admin
             adminButton = new JButton("Admin");
             adminButton.setEnabled(false);
@@ -674,65 +798,73 @@ public class ClientUI {
 
             setLayout(new BorderLayout());
             setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-            
+
             // userPanel is located upper side of the window
             JPanel userPane = new JPanel(new GridBagLayout());
             GridBagConstraints gridConst = new GridBagConstraints();
             gridConst.insets = new Insets(5, 5, 5, 5);
             gridConst.fill = GridBagConstraints.HORIZONTAL;
-            
-            
+
+
             gridConst.gridx = 0;
             gridConst.gridy = 0;
             userPane.add(profileUserIdLabel, gridConst);
-            
+
             gridConst.gridy = 1;
             userPane.add(profileNameLabel, gridConst);
-            
+
             gridConst.gridy = 2;
             userPane.add(searchField, gridConst);
-            
+
             gridConst.gridx = 1;
             gridConst.gridy = 0;
             gridConst.gridheight = 2;
             userPane.add(logoutButton, gridConst);
-           
-            add(userPane, BorderLayout.NORTH);
-            
-            
+
+            // Fix 5: wrap userPane and pickerBannerLabel in a combined north panel
+            JPanel northPanel = new JPanel(new BorderLayout());
+            northPanel.add(userPane, BorderLayout.NORTH);
+            northPanel.add(pickerBannerLabel, BorderLayout.SOUTH);
+            add(northPanel, BorderLayout.NORTH);
+
+
             // list is located center of the window with JScrollPane
             list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
             add(new JScrollPane(list), BorderLayout.CENTER);
-        
-            
+
+
             // buttonPane is located at the bottom side of the window
             JPanel buttonPane = new JPanel(new FlowLayout());
             buttonPane.add(createConversationButton);
             buttonPane.add(adminButton);
-            
+
             add(buttonPane, BorderLayout.SOUTH);
-            
+
             // add action for searchField
             searchField.getDocument().addDocumentListener(new DocumentListener() {
-                public void insertUpdate(DocumentEvent e) { filter(); }
-                public void removeUpdate(DocumentEvent e) { filter(); }
-                public void changedUpdate(DocumentEvent e) { filter(); }
+                @Override public void insertUpdate(DocumentEvent e) { filter(); }
+                @Override public void removeUpdate(DocumentEvent e) { filter(); }
+                @Override public void changedUpdate(DocumentEvent e) { filter(); }
 
                 private void filter() {
                     String text = searchField.getText().toUpperCase();
                     listModel.clear();
-                                      
+                    // Fix 6: exclude the logged-in user from the directory list
+                    UserInfo me = controller.getCurrentUserInfo();
+                    String myId = (me != null) ? me.getUserId() : null;
                     for(UserInfo item: controller.getFilteredDirectory(text)) {
-                    	listModel.addElement(item);
+                        if (myId == null || !item.getUserId().equals(myId)) {
+                            listModel.addElement(item);
+                        }
                     }
                 }
             });
-            
+
             // add action to the log in button
             logoutButton.addActionListener(e -> {
             	controller.logout();
             });
-        
+
             // add action to the create conversation button
             createConversationButton.addActionListener(e -> {
             	// if createDialog is open
@@ -741,7 +873,7 @@ public class ClientUI {
                     createDialog.requestFocus();
                     return;
                 }
-               
+
             	createConversationUserWindow = new SelectUserWindow(users -> controller.createConversation(users));
                 createDialog = new JDialog(frame, "Select User", false);
                 createDialog.add(createConversationUserWindow);
@@ -757,9 +889,9 @@ public class ClientUI {
                 });
 
                 createDialog.setVisible(true);
-                      	
+
             });
-            
+
             // add action to admin button
             adminButton.addActionListener(e -> {
             	if (adminDialog != null && adminDialog.isVisible()) {
@@ -767,7 +899,7 @@ public class ClientUI {
             		adminDialog.requestFocus();
                     return;
                 }
-            	
+
                 if(selecting == null) {
                     return;
                 }
@@ -785,11 +917,11 @@ public class ClientUI {
                     	adminDialog = null;
                     }
                 });
-                
-                adminDialog.setVisible(true); 
-            	
+
+                adminDialog.setVisible(true);
+
             });
-            
+
             // add action for selecting an item from the list
             list.getSelectionModel().addListSelectionListener(e -> {
                 UserInfo selectedValue = list.getSelectedValue();
@@ -797,6 +929,12 @@ public class ClientUI {
                     return;
                 }
                 selecting = selectedValue;
+
+                // Fix 5: show picker banner when a dialog is open (picker mode active)
+                boolean inPickerMode = (createDialog != null && createDialog.isVisible())
+                        || (cards.main.conversationView.addDialog != null && cards.main.conversationView.addDialog.isVisible());
+                pickerBannerLabel.setVisible(inPickerMode);
+
                 // if the another window is not visible, shows the button
                 if(selecting != null && (createDialog == null || !createDialog.isVisible()) && (adminDialog == null || !adminDialog.isVisible())
                         && (cards.main.conversationView.addDialog == null || !cards.main.conversationView.addDialog.isVisible())) {
@@ -820,13 +958,15 @@ public class ClientUI {
                     }
                 }
             });
-            
-        }           
-        
+
+        }
+
+        // Fix 1: setListModel now also calls list.setModel() so the JList reflects the new model
         public void setListModel(DefaultListModel<UserInfo> model) {
         	this.listModel = model;
+        	list.setModel(model);
         }
-        
+
         public DefaultListModel<UserInfo> getListModel() {
         	return this.listModel;
         }
@@ -838,15 +978,15 @@ public class ClientUI {
         public boolean isAdminSearching() {
             return adminDialog != null && adminDialog.isVisible();
         }
-        
+
         public DefaultListModel<ConversationMetadata> getAdminConversationModel() {
             if(adminConversationSearchWindow == null) {
                 return new DefaultListModel<>();
             }
         	return adminConversationSearchWindow.getAdminConversationSearch();
         }
-        
-        
+
+
     }
 
     // =========================================================================
@@ -854,36 +994,77 @@ public class ClientUI {
         JTextField searchField;
         DefaultListModel<Conversation> listModel = new DefaultListModel<>();
         JList<Conversation>	list = new JList<>(listModel);
-        
+
+        // Fix 2: custom renderer that shows a friendly display name
+        private final class ConversationCellRenderer extends DefaultListCellRenderer {
+            @Override
+            public Component getListCellRendererComponent(
+                    JList<?> list, Object value, int index,
+                    boolean isSelected, boolean cellHasFocus) {
+                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof Conversation) {
+                    Conversation conv = (Conversation) value;
+                    UserInfo me = controller.getCurrentUserInfo();
+                    String myId = (me != null) ? me.getUserId() : null;
+
+                    // Collect other participants (excluding self)
+                    ArrayList<UserInfo> others = new ArrayList<>();
+                    for (UserInfo p : conv.getParticipants()) {
+                        if (!p.getUserId().equals(myId)) {
+                            others.add(p);
+                        }
+                    }
+
+                    String display;
+                    if (conv.getType() == shared.enums.ConversationType.PRIVATE) {
+                        String otherName = others.isEmpty() ? "(empty)" : others.get(0).getName();
+                        display = "DM: " + otherName;
+                    } else {
+                        StringBuilder sb = new StringBuilder("Group: ");
+                        for (int i = 0; i < others.size(); i++) {
+                            if (i > 0) sb.append(", ");
+                            sb.append(others.get(i).getName());
+                        }
+                        if (others.isEmpty()) sb.append("(empty)");
+                        display = sb.toString();
+                    }
+                    setText(display);
+                }
+                return this;
+            }
+        }
 
         ConversationListView() {
-        	searchField = new JTextField(15);          
+        	searchField = new JTextField(15);
 
-            
+
             // searchField is located on the upper of the window.
             setLayout(new BorderLayout());
             setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
             add(searchField, BorderLayout.NORTH);
-            
+
+            // Fix 2: install the custom cell renderer
+            list.setCellRenderer(new ConversationCellRenderer());
+
             // list is located on the middle of the window.
             add(new JScrollPane(list), BorderLayout.CENTER);
-            
+
             // add action for searchField
             searchField.getDocument().addDocumentListener(new DocumentListener() {
-                public void insertUpdate(DocumentEvent e) { filter(); }
-                public void removeUpdate(DocumentEvent e) { filter(); }
-                public void changedUpdate(DocumentEvent e) { filter(); }
+                @Override public void insertUpdate(DocumentEvent e) { filter(); }
+                @Override public void removeUpdate(DocumentEvent e) { filter(); }
+                @Override public void changedUpdate(DocumentEvent e) { filter(); }
 
                 private void filter() {
                     String text = searchField.getText().toUpperCase();
                     listModel.clear();
-                    
+
                     for(Conversation item: controller.getFilteredConversationList(text)) {
                     	listModel.addElement(item);
-                    }                   
+                    }
                 }
             });
-            
+
             // TODO: label the conversation
             // TODO: unread markers
             // add action for selecting an item from the list
@@ -901,14 +1082,15 @@ public class ClientUI {
     					}
     				}
             	}
-            });           
+            });
         }
-        
-        
+
+        // Fix 1: setListModel now also calls list.setModel() so the JList reflects the new model
         public void setListModel(DefaultListModel<Conversation> model) {
         	this.listModel = model;
+        	list.setModel(model);
         }
-        
+
         public DefaultListModel<Conversation> getListModel() {
         	return this.listModel;
         }
@@ -929,20 +1111,20 @@ public class ClientUI {
             removeButton.setEnabled(false);
             okButton = new JButton("OK");
             cancelButton = new JButton("Cancel");
-            
+
             // List located on the middle of the window
             setLayout(new BorderLayout());
             setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
             add(new JScrollPane(list), BorderLayout.CENTER);
-            
+
             // buttons are located on the bottom of the window
         	JPanel buttonPane = new JPanel(new FlowLayout());
         	buttonPane.add(removeButton);
         	buttonPane.add(okButton);
         	buttonPane.add(cancelButton);
-        	
+
         	add(buttonPane, BorderLayout.SOUTH);
-        	
+
         	// add action to Remove button
         	removeButton.addActionListener(e -> {
 
@@ -952,26 +1134,30 @@ public class ClientUI {
         	        model.removeElement(selected);
         	    }
         	});
-        	
+
         	// add action to OK button
             okButton.addActionListener(e -> {
-            	if(model.size() != 0) {
-                    ArrayList<UserInfo> selected = new ArrayList<>();
-                    for (int i = 0; i < model.size(); i++) selected.add(model.get(i));
-                    onConfirm.accept(selected);
-            	}
+                // Fix 7: warn and do not proceed if no participants are selected
+                if (model.isEmpty()) {
+                    JOptionPane.showMessageDialog(frame, "Please select at least one participant.",
+                            "No participants selected", JOptionPane.WARNING_MESSAGE);
+                    return;
+                }
+                ArrayList<UserInfo> selected = new ArrayList<>();
+                for (int i = 0; i < model.size(); i++) selected.add(model.get(i));
+                onConfirm.accept(selected);
                 Window window = SwingUtilities.getWindowAncestor(this);
                 window.dispose();
             });
-            
+
             // add action to cancel button
             cancelButton.addActionListener(e -> {
             	model.clear();
                 Window window = SwingUtilities.getWindowAncestor(this);
-                window.dispose();  
+                window.dispose();
             });
-            
-            
+
+
             // add action for selecting an item from the list
             list.addListSelectionListener(e-> {
             	if (!e.getValueIsAdjusting()) {
@@ -979,9 +1165,9 @@ public class ClientUI {
 						 // if the another window is not visible, shows the button
 						 removeButton.setEnabled(selecting != null);
 			    }
-            });            
+            });
         }
-        
+
         // add user to selecting list
         public void addUser(UserInfo user) {
         	for(int i = 0; i < model.size(); i++) {
@@ -991,8 +1177,8 @@ public class ClientUI {
         	}
         	model.addElement(user);
         }
-        
-        
+
+
     }
 
     // =========================================================================
@@ -1002,45 +1188,45 @@ public class ClientUI {
         JList<ConversationMetadata> list = new JList<>(model);
         JButton okButton;
         JButton cancelButton;
-    
+
         AdminConversationSearchWindow() {
             searchField = new JTextField(15);
             okButton = new JButton("OK");
             okButton.setFocusTraversalKeysEnabled(false);
             cancelButton = new JButton("Cancel");
-            
+
             setLayout(new BorderLayout());
             setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-            
+
             // searchField is located on the upper side of the window
             add(searchField, BorderLayout.NORTH);
-            
+
             // the list is located on the center of the window
             add(new JScrollPane(list), BorderLayout.CENTER);
-            
+
             // buttons are located on the bottom of the window
         	JPanel buttonPane = new JPanel(new FlowLayout());
         	buttonPane.add(okButton);
         	buttonPane.add(cancelButton);
-        	
+
         	add(buttonPane, BorderLayout.SOUTH);
-        	
+
         	// add action to searchField
         	searchField.getDocument().addDocumentListener(new DocumentListener() {
-                public void insertUpdate(DocumentEvent e) { filter(); }
-                public void removeUpdate(DocumentEvent e) { filter(); }
-                public void changedUpdate(DocumentEvent e) { filter(); }
+                @Override public void insertUpdate(DocumentEvent e) { filter(); }
+                @Override public void removeUpdate(DocumentEvent e) { filter(); }
+                @Override public void changedUpdate(DocumentEvent e) { filter(); }
 
                 private void filter() {
                     String text = searchField.getText().toUpperCase();
                     model.clear();
-                                      
+
                     for(ConversationMetadata item: controller.getFilteredAdminConversationSearch(text)) {
                     	model.addElement(item);
                     }
                 }
             });
-        	
+
         	// add action for selecting an item from the list
             list.addListSelectionListener(e-> {
             	if (!e.getValueIsAdjusting()) {
@@ -1048,8 +1234,8 @@ public class ClientUI {
 						 // if the another window is not visible, shows the buttons
 						 okButton.setEnabled(selecting != null);
 			    }
-            });  
-            
+            });
+
         	// add action to okButton
             okButton.addActionListener(e -> {
                 if(list.getSelectedValue() == null) {
@@ -1057,20 +1243,20 @@ public class ClientUI {
                 }
             	controller.joinConversation(list.getSelectedValue().getConversationId());
                 Window window = SwingUtilities.getWindowAncestor(this);
-                window.dispose();            
+                window.dispose();
             });
-            
+
             // add action to cancelButton
             cancelButton.addActionListener(e -> {
             	model.clear();
                 Window window = SwingUtilities.getWindowAncestor(this);
-                window.dispose();  
+                window.dispose();
             });
         }
-        
+
         public DefaultListModel<ConversationMetadata> getAdminConversationSearch() {
         	return model;
         }
-        
+
     }
 }

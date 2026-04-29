@@ -7,6 +7,8 @@ import java.util.ArrayList;
 
 
 public class Conversation implements ResponsePayload {
+    private static final long serialVersionUID = 1L;
+
     private final long conversationId;
     private final ArrayList<Message> messages;
     private final ArrayList<UserInfo> participants;
@@ -35,7 +37,7 @@ public class Conversation implements ResponsePayload {
      * {@link #getParticipants()} and to {@link #getHistoricalParticipants()}. Does not change
      * {@link #getType()} ({@link ConversationType#PRIVATE} threads are forked on the server instead of growing in place).
      */
-    public void addParticipants(ArrayList<UserInfo> toAdd) {
+    public synchronized void addParticipants(ArrayList<UserInfo> toAdd) {
         if (toAdd == null || toAdd.isEmpty()) {
             return;
         }
@@ -64,7 +66,7 @@ public class Conversation implements ResponsePayload {
      * Removes {@code userId} from the active {@link #getParticipants()} roster only.
      * {@link #getHistoricalParticipants()} is unchanged.
      */
-    public void removeParticipant(String userId) {
+    public synchronized void removeParticipant(String userId) {
         if (userId == null) {
             return;
         }
@@ -78,7 +80,7 @@ public class Conversation implements ResponsePayload {
      * Lightweight view of this conversation: id, participants, type — no message bodies.
      * Produced on demand; lists are copied so later changes to the conversation do not affect the returned snapshot.
      */
-    public ConversationMetadata toMetadata() {
+    public synchronized ConversationMetadata toMetadata() {
         return new ConversationMetadata(
             conversationId,
             new ArrayList<>(participants),
@@ -88,12 +90,13 @@ public class Conversation implements ResponsePayload {
     }
 
     public long getConversationId() { return conversationId; }
-    public ArrayList<Message> getMessages() { return messages; }
-    public ArrayList<UserInfo> getParticipants() { return participants; }
-    public ArrayList<UserInfo> getHistoricalParticipants() { return historicalParticipants; }
+    public synchronized ArrayList<Message> getMessages() { return new ArrayList<>(messages); }
+    public synchronized ArrayList<UserInfo> getParticipants() { return new ArrayList<>(participants); }
+    public synchronized ArrayList<UserInfo> getHistoricalParticipants() { return new ArrayList<>(historicalParticipants); }
     public ConversationType getType() { return type; }
 
-    public String toString() {
+    @Override
+    public synchronized String toString() {
         String participantsText = participants.toString();
         if (participantsText.length() >= 2
                 && participantsText.charAt(0) == '['
@@ -103,7 +106,7 @@ public class Conversation implements ResponsePayload {
         return participantsText;
     }
 
-    public void append(Message m) { messages.add(m); }
+    public synchronized void append(Message m) { messages.add(m); }
 
     public static Conversation fromFile(File f) {
         try (ObjectInputStream in = new ObjectInputStream(new FileInputStream(f))) {
