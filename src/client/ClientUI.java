@@ -145,6 +145,11 @@ public class ClientUI {
     public void showMainView() {
         SwingUtilities.invokeLater(() -> {
             clearLoginAndRegisterFields();
+            // Reset the center pane so stale messages from a prior session in the
+            // same JVM don't render against a null currentConversation (which would
+            // surface every sender as "(former participant)" with no body).
+            cards.main.conversationView.clearConversation();
+            cards.main.conversationListView.list.clearSelection();
             UserInfo currentUser = controller.getCurrentUserInfo();
             boolean isAdmin = currentUser != null && currentUser.getUserType() == UserType.ADMIN;
             cards.main.directoryView.adminButton.setVisible(isAdmin);
