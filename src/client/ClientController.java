@@ -204,6 +204,9 @@ public class ClientController {
     /** Package-private so tests can drive response handling directly without a live socket. */
     void processResponse(Response response) {
         if (response == null) return;
+        if (response.getType() != ResponseType.PONG) {
+            System.out.println("Processing response: " + response.getType());
+        }
         lastServerActivityMillis = System.currentTimeMillis();
         switch (response.getType()) {
             case LOGIN_RESULT:
@@ -556,7 +559,11 @@ public class ClientController {
     /** Returns conversations where any participant's id or name matches {@code query}. */
     public ArrayList<Conversation> getFilteredConversationList(String query) {
         synchronized (conversations) {
-            if (query == null || query.isBlank()) return new ArrayList<>(conversations);
+            if (query == null || query.isBlank()) {
+                ArrayList<Conversation> all = new ArrayList<>(conversations);
+                all.sort((a, b) -> Long.compare(latestSequenceNumber(b), latestSequenceNumber(a)));
+                return all;
+            }
             ArrayList<Conversation> filtered = new ArrayList<>();
             String q = query.toLowerCase();
             for (Conversation c : conversations) {
@@ -567,8 +574,19 @@ public class ClientController {
                     }
                 }
             }
+            filtered.sort((a, b) -> Long.compare(latestSequenceNumber(b), latestSequenceNumber(a)));
             return filtered;
         }
+    }
+
+    private long latestSequenceNumber(Conversation c) {
+        if (c == null) return 0L;
+        if (c.getMessages().isEmpty()) {
+            // Empty conversations have no message sequence yet; use conversationId as a
+            // creation-recency fallback.
+            return c.getConversationId();
+        }
+        return c.getMessages().get(c.getMessages().size() - 1).getSequenceNumber();
     }
 
     /** Returns admin search results filtered by participant id or name. */

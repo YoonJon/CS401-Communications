@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
+import shared.enums.RequestType;
 import shared.enums.ResponseType;
 import shared.networking.ConnectionHandler;
 import shared.networking.ConnectionListener;
@@ -45,7 +46,6 @@ public class ServerController {
     public static void main(String[] args) {
         // First CLI arg is the data root path; port is fixed at 8080.
         String dataRootPath = args.length > 0 ? args[0] : "data";
-        System.out.println("cwd is " + System.getProperty("user.dir"));
         ServerController serverController = new ServerController(dataRootPath, 8080);
         System.out.println("Server started on port 8080");
         keepAliveUntilInterrupted(serverController);
@@ -109,6 +109,9 @@ public class ServerController {
 
     public Response processRequest(Request request) {
         if (request == null || request.getType() == null) return null;
+        if (request.getType() != RequestType.PING) {
+            System.out.println("Processing request: " + request.getType());
+        }
         switch (request.getType()) {
             case REGISTER:
                 return dataManager.handleRegister(request);

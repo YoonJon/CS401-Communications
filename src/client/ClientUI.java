@@ -303,16 +303,22 @@ public class ClientUI {
         SwingUtilities.invokeLater(() -> {
             // Fix 7: preserve selection across model rebuild
             JList<Conversation> convList = cards.main.conversationListView.list;
+            cards.main.conversationListView.suppressSelectionEvents = true;
             Conversation selected = convList.getSelectedValue();
             Long selectedId = (selected != null) ? selected.getConversationId() : null;
 
-            // Fix 1: sort by last message timestamp descending (most recent first)
+            // Sort by highest latest sequence number descending (most recent first),
+            // which also keeps offline-received updates ordered correctly on initial paint.
             conversations.sort((a, b) -> {
                 ArrayList<Message> aMsgs = a.getMessages();
                 ArrayList<Message> bMsgs = b.getMessages();
-                long aTime = aMsgs.isEmpty() ? a.getConversationId() : aMsgs.get(aMsgs.size() - 1).getTimestamp().getTime();
-                long bTime = bMsgs.isEmpty() ? b.getConversationId() : bMsgs.get(bMsgs.size() - 1).getTimestamp().getTime();
-                return Long.compare(bTime, aTime);
+                long aSeq = aMsgs.isEmpty()
+                        ? a.getConversationId()
+                        : aMsgs.get(aMsgs.size() - 1).getSequenceNumber();
+                long bSeq = bMsgs.isEmpty()
+                        ? b.getConversationId()
+                        : bMsgs.get(bMsgs.size() - 1).getSequenceNumber();
+                return Long.compare(bSeq, aSeq);
             });
 
             conversationListModel.clear();
@@ -329,19 +335,27 @@ public class ClientUI {
                     }
                 }
             }
+            cards.main.conversationListView.suppressSelectionEvents = false;
         });
     }
 
     public void updateMessageListModel(Conversation conversation) {
         SwingUtilities.invokeLater(() -> {
-            conversationMessageModel.clear();
             if (conversation == null) {
+                cards.main.conversationView.clearConversation();
                 return;
             }
+
+            // Route through ConversationView so auto-switch flows (first conversation,
+            // leave-to-next conversation, etc.) also enable input and action buttons.
+            cards.main.conversationView.setListModel(conversation);
+            // Issue #189: auto-switch should hand focus to message input, not leave it on
+            // a stale directory selection.
+            cards.main.directoryView.list.clearSelection();
+            cards.main.directoryView.selecting = null;
+            SwingUtilities.invokeLater(() -> cards.main.conversationView.text.requestFocusInWindow());
+
             ArrayList<Message> msgs = conversation.getMessages();
-            for (Message message : msgs) {
-                conversationMessageModel.addElement(message);
-            }
             if (!msgs.isEmpty()) {
                 Message last = msgs.get(msgs.size() - 1);
                 UserInfo me = controller.getCurrentUserInfo();
@@ -673,6 +687,7 @@ public class ClientUI {
 
     // =========================================================================
     class MainView extends JPanel {
+        private static final int MIN_CONVERSATION_LIST_WIDTH = 240;
         ConversationView conversationView;
         DirectoryView directoryView;
         ConversationListView conversationListView;
@@ -683,6 +698,7 @@ public class ClientUI {
         	conversationView = new ConversationView();
             directoryView = new DirectoryView();
             conversationListView = new ConversationListView();
+            conversationListView.setMinimumSize(new Dimension(MIN_CONVERSATION_LIST_WIDTH, 0));
 
         	gridConst.gridy = 0;
         	gridConst.fill = GridBagConstraints.BOTH;
@@ -712,6 +728,10 @@ public class ClientUI {
         JLabel participantsLabel;
         DefaultListModel<Message> conversationMessageListModel = new DefaultListModel<>();
         JList<Message> list = new JList<>(conversationMessageListModel);
+        private JScrollPane messageScrollPane;
+        // Snapshot of read state at the time this conversation view was opened/refreshed.
+        // Renderer uses this instead of live lastRead updates so unread markers remain meaningful.
+        private long displayedLastReadSeq = 0L;
         JButton addButton;
         JButton leaveButton;
         JTextField text;
@@ -722,17 +742,34 @@ public class ClientUI {
         // Fix 8: placeholder label shown when no conversation is selected
         private final JLabel placeholderLabel = new JLabel("Select a conversation to start chatting", SwingConstants.CENTER);
 
-        // Fix 6: cell renderer fields — reuse panel and label instead of creating new ones each call
+        // Fix 6/#196: use JTextArea-based bubbles for deterministic wrapping.
         private final class MessageCellRenderer extends JPanel implements ListCellRenderer<Message> {
-            private final JLabel label = new JLabel();
+            private final JPanel bubble = new JPanel(new BorderLayout(0, 2));
+            private final JTextArea headerArea = new JTextArea();
+            private final JTextArea bodyArea = new JTextArea();
 
             MessageCellRenderer() {
                 setLayout(new BorderLayout());
                 setOpaque(true);
-                label.setOpaque(true);
-                label.setBorder(BorderFactory.createCompoundBorder(
+                bubble.setOpaque(true);
+                bubble.setBorder(BorderFactory.createCompoundBorder(
                         new LineBorder(new Color(180, 180, 180), 1, true),
                         BorderFactory.createEmptyBorder(4, 10, 4, 10)));
+                headerArea.setOpaque(false);
+                headerArea.setLineWrap(true);
+                headerArea.setWrapStyleWord(true);
+                headerArea.setEditable(false);
+                headerArea.setFocusable(false);
+                headerArea.setBorder(null);
+                bodyArea.setOpaque(false);
+                bodyArea.setLineWrap(true);
+                // Character wrapping avoids long-token overflow when no whitespace exists.
+                bodyArea.setWrapStyleWord(false);
+                bodyArea.setEditable(false);
+                bodyArea.setFocusable(false);
+                bodyArea.setBorder(null);
+                bubble.add(headerArea, BorderLayout.NORTH);
+                bubble.add(bodyArea, BorderLayout.CENTER);
             }
 
             @Override
@@ -772,58 +809,88 @@ public class ClientUI {
                         : DateTimeFormatter.ofPattern("LLL dd yyyy, HH:mm", java.util.Locale.ENGLISH);
                 String ts = zdt.format(dtf);
                 String rawText = msg.getText() == null ? "" : msg.getText();
-                String displayText = ts + " " + senderName + ": " + rawText;
+                boolean isOwnMessage = msg.getSenderId().equals(controller.getCurrentUserInfo().getUserId());
+                String header = isOwnMessage ? ts : (ts + " " + senderName + ":");
 
-                long lastReadSeq = controller.getCurrentUserInfo().getLastRead(controller.getCurrentConversationId());
+                long lastReadSeq = displayedLastReadSeq;
 
                 // Remove prior label so we can re-add in the correct position
                 removeAll();
                 setBackground(list.getBackground());
 
-                // Compute the wrap width from the JList's current width.
-                // 70% of list width keeps the bubble within the viewport even with scrollbar margin.
-                int listW = list.getWidth();
-                int wrapPx = listW > 0 ? (int) (listW * 0.70) : 360;
+                // Compute wrap width from the viewport (not just list width) so bubbles
+                // adapt correctly when the conversation pane is resized.
+                int wrapPx = computeWrapWidthPx(list);
 
                 // displaying the current user's messages on the right side
-                if (msg.getSenderId().equals(controller.getCurrentUserInfo().getUserId())) {
-                    label.setBackground(new Color(0xDC, 0xF8, 0xC6));
-                    label.setFont(label.getFont().deriveFont(Font.PLAIN));
-                    label.setText(escapeAndWrapHtml(displayText, wrapPx));
-                    add(label, BorderLayout.EAST);
+                if (isOwnMessage) {
+                    bubble.setBackground(new Color(0xDC, 0xF8, 0xC6));
+                    headerArea.setText(header);
+                    headerArea.setFont(list.getFont().deriveFont(Font.PLAIN));
+                    bodyArea.setFont(list.getFont().deriveFont(Font.PLAIN));
+                    bodyArea.setText(rawText);
+                    installBubbleWidth(wrapPx);
+                    add(bubble, BorderLayout.EAST);
                 } else { // displaying the other participants' messages on the left side
-                    label.setBackground(list.getBackground());
+                    bubble.setBackground(list.getBackground());
                     if (msg.getSequenceNumber() > lastReadSeq) {
-                        label.setFont(label.getFont().deriveFont(Font.BOLD));
-                        label.setText(escapeAndWrapHtml("● " + displayText, wrapPx));
+                        headerArea.setFont(list.getFont().deriveFont(Font.BOLD));
+                        bodyArea.setFont(list.getFont().deriveFont(Font.PLAIN));
+                        headerArea.setText("● " + header);
                     } else {
-                        label.setFont(label.getFont().deriveFont(Font.PLAIN));
-                        label.setText(escapeAndWrapHtml(displayText, wrapPx));
+                        headerArea.setFont(list.getFont().deriveFont(Font.PLAIN));
+                        bodyArea.setFont(list.getFont().deriveFont(Font.PLAIN));
+                        headerArea.setText(header);
                     }
-                    add(label, BorderLayout.WEST);
+                    bodyArea.setText(rawText);
+                    installBubbleWidth(wrapPx);
+                    add(bubble, BorderLayout.WEST);
                 }
 
                 return this;
             }
 
-            private static String escapeAndWrapHtml(String raw, int maxPx) {
-                if (raw == null) raw = "";
-                StringBuilder sb = new StringBuilder(raw.length() + 16);
-                for (int i = 0; i < raw.length(); i++) {
-                    char c = raw.charAt(i);
-                    switch (c) {
-                        case '&':  sb.append("&amp;");  break;
-                        case '<':  sb.append("&lt;");   break;
-                        case '>':  sb.append("&gt;");   break;
-                        case '"':  sb.append("&quot;"); break;
-                        case '\'': sb.append("&#39;");  break;
-                        case '\n': sb.append("<br/>");  break;
-                        case '\r': /* skip */            break;
-                        default:   sb.append(c);
+            private void installBubbleWidth(int wrapPx) {
+                int safe = Math.max(120, wrapPx);
+                headerArea.setSize(new Dimension(safe, Short.MAX_VALUE));
+                Dimension headerPref = headerArea.getPreferredSize();
+                bodyArea.setSize(new Dimension(safe, Short.MAX_VALUE));
+                Dimension bodyPref = bodyArea.getPreferredSize();
+                Insets insets = bubble.getInsets();
+                int bubbleHeight = insets.top
+                        + headerPref.height
+                        + 2
+                        + bodyPref.height
+                        + insets.bottom
+                        + 2; // extra descent padding to avoid clipping single-line text
+                bubble.setPreferredSize(new Dimension(safe, bubbleHeight));
+            }
+
+            private static int computeWrapWidthPx(JList<?> list) {
+                int baseWidth = list.getVisibleRect().width;
+                if (baseWidth <= 0) {
+                    baseWidth = list.getWidth();
+                }
+                Container parent = list.getParent();
+                if (parent instanceof JViewport) {
+                    JViewport viewport = (JViewport) parent;
+                    baseWidth = viewport.getExtentSize().width;
+                    Insets vi = viewport.getInsets();
+                    if (vi != null) {
+                        baseWidth -= (vi.left + vi.right);
                     }
                 }
-                int safe = Math.max(80, maxPx);
-                return "<html><body style='width:" + safe + "px'>" + sb + "</body></html>";
+                // Keep extra headroom for bubble border/padding and width rounding so
+                // default-size windows do not miss wraps by a few pixels.
+                JScrollPane sp = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, list);
+                if (sp != null) {
+                    JScrollBar vsb = sp.getVerticalScrollBar();
+                    if (vsb != null && vsb.isVisible()) {
+                        baseWidth -= vsb.getWidth();
+                    }
+                }
+                int usable = baseWidth - 28;
+                return usable > 0 ? (int) (usable * 0.66) : 220;
             }
         }
 
@@ -863,19 +930,24 @@ public class ClientUI {
             // Fix 6: install the reusable cell renderer
             list.setCellRenderer(new MessageCellRenderer());
 
-            // Fix #183: re-invalidate cell height cache when JList is resized so HTML wrap recomputes.
-            list.addComponentListener(new ComponentAdapter() {
+            // Fix #183/#196: re-invalidate cached row heights whenever either the list or
+            // its viewport changes size so wrap width updates with window resizing.
+            ComponentAdapter wrapResizeAdapter = new ComponentAdapter() {
                 @Override public void componentResized(ComponentEvent e) {
                     list.setFixedCellHeight(10);
                     list.setFixedCellHeight(-1);
+                    list.revalidate();
+                    list.repaint();
                 }
-            });
+            };
+            list.addComponentListener(wrapResizeAdapter);
 
             // Fix 8: create a layered center panel with the placeholder on top when no conversation
             JPanel centerPanel = new JPanel(new BorderLayout());
-            JScrollPane messageScrollPane = new JScrollPane(list);
+            messageScrollPane = new JScrollPane(list);
             messageScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
             messageScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+            messageScrollPane.getViewport().addComponentListener(wrapResizeAdapter);
             centerPanel.add(messageScrollPane, BorderLayout.CENTER);
             placeholderLabel.setVisible(true);
             centerPanel.add(placeholderLabel, BorderLayout.SOUTH);
@@ -1009,6 +1081,11 @@ public class ClientUI {
         }
 
         public void setListModel(Conversation currConv) {
+            long lastReadAtOpen = controller.getCurrentUserInfo().getLastRead(currConv.getConversationId());
+            setListModel(currConv, lastReadAtOpen);
+        }
+
+        public void setListModel(Conversation currConv, long lastReadAtOpen) {
             // Fix 3: exclude self, show up to 3 names, append "+N more" if needed
             UserInfo me = controller.getCurrentUserInfo();
             String myId = (me != null) ? me.getUserId() : null;
@@ -1028,12 +1105,15 @@ public class ClientUI {
                 memberSb.append(" +").append(others.size() - 3).append(" more");
             }
             final String finalMember = memberSb.toString();
+            final long finalLastReadAtOpen = lastReadAtOpen;
         	SwingUtilities.invokeLater(() -> {
+                displayedLastReadSeq = finalLastReadAtOpen;
         		participantsLabel.setText(finalMember);
                 conversationMessageListModel.clear();
                 for(int i = 0; i < currConv.getMessages().size(); i++) {
                     conversationMessageListModel.addElement(currConv.getMessages().get(i));
                 }
+                refreshWrapLayout();
                 text.setEnabled(true);
                 // Fix 10: enable buttons when a conversation is selected
                 addButton.setEnabled(true);
@@ -1045,6 +1125,8 @@ public class ClientUI {
                 SwingUtilities.invokeLater(() -> {
                     int last = list.getModel().getSize() - 1;
                     if (last >= 0) list.ensureIndexIsVisible(last);
+                    scrollToBottom();
+                    refreshWrapLayout();
                 });
         	});
         }
@@ -1052,8 +1134,10 @@ public class ClientUI {
         /** Clears the view and disables action buttons (no conversation active). */
         public void clearConversation() {
             SwingUtilities.invokeLater(() -> {
+                displayedLastReadSeq = 0L;
                 participantsLabel.setText("");
                 conversationMessageListModel.clear();
+                refreshWrapLayout();
                 text.setEnabled(false);
                 // Fix 10: disable buttons when no conversation is active
                 addButton.setEnabled(false);
@@ -1064,12 +1148,32 @@ public class ClientUI {
             });
         }
 
+        private void refreshWrapLayout() {
+            // Toggle fixed cell height to clear JList renderer-size cache, then repaint.
+            list.setFixedCellHeight(10);
+            list.setFixedCellHeight(-1);
+            list.revalidate();
+            list.repaint();
+        }
+
         public DefaultListModel<Message> getListModel() {
         	return this.conversationMessageListModel;
         }
 
         public boolean isAddingUser() {
         	return addDialog != null && addDialog.isVisible();
+        }
+
+        public void markDisplayedReadUpTo(long sequenceNumber) {
+            displayedLastReadSeq = Math.max(displayedLastReadSeq, sequenceNumber);
+        }
+
+        private void scrollToBottom() {
+            if (messageScrollPane == null) return;
+            JScrollBar vsb = messageScrollPane.getVerticalScrollBar();
+            if (vsb == null) return;
+            // Defer one more tick so layout/model updates settle before forcing bottom.
+            SwingUtilities.invokeLater(() -> vsb.setValue(vsb.getMaximum()));
         }
     }
 
@@ -1191,6 +1295,11 @@ public class ClientUI {
                 }
 
             	createConversationUserWindow = new SelectUserWindow(users -> controller.createConversation(users));
+                // Issue #192: seed the picker with the current directory selection
+                // so the first selection is honored without requiring reselection.
+                if (selecting != null) {
+                    createConversationUserWindow.addUser(selecting);
+                }
                 createDialog = new JDialog(frame, "Select User", false);
                 createDialog.add(createConversationUserWindow);
                 createDialog.setSize(300, 400);
@@ -1324,6 +1433,7 @@ public class ClientUI {
         JTextField searchField;
         DefaultListModel<Conversation> listModel = new DefaultListModel<>();
         JList<Conversation>	list = new JList<>(listModel);
+        boolean suppressSelectionEvents = false;
 
         // Fix 2: custom renderer that shows a friendly display name
         private final class ConversationCellRenderer extends DefaultListCellRenderer {
@@ -1399,10 +1509,14 @@ public class ClientUI {
             // TODO: unread markers
             // add action for selecting an item from the list
             list.addListSelectionListener(e-> {
+                if (suppressSelectionEvents) {
+                    return;
+                }
             	if (!e.getValueIsAdjusting()) {
     				if(list.getSelectedValue() != null) {
     					Conversation selected = list.getSelectedValue();
     					controller.setCurrentConversationId(selected.getConversationId());
+                        long lastReadBeforeOpen = controller.getCurrentUserInfo().getLastRead(selected.getConversationId());
     					// delegates to ConversationView.setListModel so both the
     					// participant label and the message list are updated together
     					if (!selected.getMessages().isEmpty()) {
@@ -1411,7 +1525,7 @@ public class ClientUI {
     					            selected.getConversationId(), last.getSequenceNumber());
     					    controller.updateReadMessages(selected.getConversationId(), last.getSequenceNumber());
     					}
-    					cards.main.conversationView.setListModel(selected);
+    					cards.main.conversationView.setListModel(selected, lastReadBeforeOpen);
     				}
             	}
             });
