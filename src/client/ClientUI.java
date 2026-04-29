@@ -6,10 +6,12 @@ import shared.payload.*;
 
 import javax.swing.*;
 import javax.swing.event.*;
+import javax.swing.border.LineBorder;
 
 import java.awt.*;
 import java.awt.event.*;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 
@@ -31,13 +33,18 @@ public class ClientUI {
     /** Optional: end session after this much in-app UI idle time (0 disables). Default 30 minutes. */
     private static final long USER_IDLE_LOGOUT_AFTER_MS = 30L * 60L * 1000L;
 
+    private int unreadWhileAway = 0;
+    private volatile boolean suppressActivationReset = false;
+    private static final String BASE_TITLE = "Communication Application";
+
     public ClientUI(ClientController controller) {
         this.controller = controller;
 
         // Fix 3: wrap ALL frame setup in invokeLater so it runs on the EDT.
         SwingUtilities.invokeLater(() -> {
             frame = new JFrame();
-            frame.setTitle("Communication Application");
+            frame.setTitle(BASE_TITLE);
+            frame.setIconImage(createAppIcon());
             // Fix 2a: enforce minimum window size
             frame.setMinimumSize(new java.awt.Dimension(900, 600));
             cards = new ScreenCards();
@@ -49,6 +56,36 @@ public class ClientUI {
             frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
             frame.setLocationRelativeTo(null);
             frame.setVisible(true);
+
+            frame.addWindowListener(new WindowAdapter() {
+                @Override public void windowActivated(WindowEvent e) {
+                    if (suppressActivationReset) {
+                        suppressActivationReset = false;
+                        return;
+                    }
+                    unreadWhileAway = 0;
+                    frame.setTitle(BASE_TITLE);
+                }
+            });
+
+            JRootPane rp = frame.getRootPane();
+            InputMap im = rp.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+            ActionMap am = rp.getActionMap();
+            im.put(KeyStroke.getKeyStroke(KeyEvent.VK_L, InputEvent.CTRL_DOWN_MASK), "shortcutLogout");
+            im.put(KeyStroke.getKeyStroke(KeyEvent.VK_N, InputEvent.CTRL_DOWN_MASK), "shortcutNewConv");
+            am.put("shortcutLogout", new AbstractAction() {
+                @Override public void actionPerformed(ActionEvent e) {
+                    if (controller.isLoggedIn()) controller.logout();
+                }
+            });
+            am.put("shortcutNewConv", new AbstractAction() {
+                @Override public void actionPerformed(ActionEvent e) {
+                    if (controller.isLoggedIn()
+                            && cards.main.directoryView.createConversationButton.isEnabled()) {
+                        cards.main.directoryView.createConversationButton.doClick();
+                    }
+                }
+            });
 
             Toolkit.getDefaultToolkit().addAWTEventListener(
                 e -> {
@@ -120,8 +157,13 @@ public class ClientUI {
             cards.main.directoryView.revalidate();
             cards.main.directoryView.repaint();
             if (currentUser != null) {
-                cards.main.directoryView.profileUserIdLabel.setText(currentUser.getUserId());
-                cards.main.directoryView.profileNameLabel.setText(currentUser.getName());
+                JLabel nameL = cards.main.directoryView.profileNameLabel;
+                JLabel idL   = cards.main.directoryView.profileUserIdLabel;
+                nameL.setText(currentUser.getName());
+                nameL.setFont(nameL.getFont().deriveFont(Font.BOLD, nameL.getFont().getSize() + 2f));
+                idL.setText(currentUser.getUserId());
+                idL.setFont(idL.getFont().deriveFont(Font.PLAIN, idL.getFont().getSize() - 1f));
+                idL.setForeground(Color.GRAY);
             }
             cards.layout.show(cards, "main");
             // Fix 2b: repack and re-center after switching to main card
@@ -224,8 +266,17 @@ public class ClientUI {
             if (conversation == null) {
                 return;
             }
-            for (Message message : conversation.getMessages()) {
+            ArrayList<Message> msgs = conversation.getMessages();
+            for (Message message : msgs) {
                 conversationMessageModel.addElement(message);
+            }
+            if (!msgs.isEmpty()) {
+                Message last = msgs.get(msgs.size() - 1);
+                UserInfo me = controller.getCurrentUserInfo();
+                if (me != null) {
+                    me.setLastRead(conversation.getConversationId(), last.getSequenceNumber());
+                }
+                controller.updateReadMessages(conversation.getConversationId(), last.getSequenceNumber());
             }
         });
     }
@@ -238,7 +289,21 @@ public class ClientUI {
                 int last = cards.main.conversationView.list.getModel().getSize() - 1;
                 if (last >= 0) cards.main.conversationView.list.ensureIndexIsVisible(last);
             });
+            // Issue #176: notify user when window is not active
+            UserInfo me = controller.getCurrentUserInfo();
+            boolean fromOther = me != null && !message.getSenderId().equals(me.getUserId());
+            if (fromOther && !frame.isActive()) {
+                unreadWhileAway++;
+                frame.setTitle(BASE_TITLE + " (" + unreadWhileAway + " new)");
+                Toolkit.getDefaultToolkit().beep();
+                suppressActivationReset = true;
+                frame.toFront();
+            }
         });
+    }
+
+    public void repaintMessageList() {
+        SwingUtilities.invokeLater(() -> cards.main.conversationView.list.repaint());
     }
 
     public void updateAdminConversationSearchModel(ArrayList<ConversationMetadata> conversations) {
@@ -253,6 +318,66 @@ public class ClientUI {
                 model.addElement(conversation);
             }
         });
+    }
+
+    private JTextField makePlaceholderField(String placeholder, int cols) {
+        return new PlaceholderTextField(placeholder, cols);
+    }
+
+    private void bindEscapeToDispose(JDialog dialog) {
+        JRootPane rp = dialog.getRootPane();
+        KeyStroke esc = KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0);
+        rp.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(esc, "closeDialog");
+        rp.getActionMap().put("closeDialog", new AbstractAction() {
+            @Override public void actionPerformed(ActionEvent evt) { dialog.dispose(); }
+        });
+    }
+
+    private Image createAppIcon() {
+        int size = 32;
+        java.awt.image.BufferedImage img =
+            new java.awt.image.BufferedImage(size, size, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = img.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setColor(new Color(33, 150, 243));
+        g.fillOval(0, 0, size, size);
+        g.setColor(Color.WHITE);
+        g.fillRoundRect(6, 7, 20, 14, 6, 6);
+        int[] xs = {10, 10, 16};
+        int[] ys = {19, 26, 20};
+        g.fillPolygon(xs, ys, 3);
+        g.dispose();
+        return img;
+    }
+
+    private static class PlaceholderTextField extends JTextField {
+        private final String placeholder;
+
+        PlaceholderTextField(String placeholder, int columns) {
+            super(columns);
+            this.placeholder = placeholder;
+            addFocusListener(new java.awt.event.FocusAdapter() {
+                @Override public void focusGained(java.awt.event.FocusEvent e) { repaint(); }
+                @Override public void focusLost(java.awt.event.FocusEvent e) { repaint(); }
+            });
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            if (getText().isEmpty() && !isFocusOwner()) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
+                        RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                g2.setColor(Color.GRAY);
+                g2.setFont(getFont().deriveFont(Font.ITALIC));
+                Insets ins = getInsets();
+                int x = ins.left + 2;
+                int y = g2.getFontMetrics().getAscent() + ins.top;
+                g2.drawString(placeholder, x, y);
+                g2.dispose();
+            }
+        }
     }
 
     // =========================================================================
@@ -444,9 +569,10 @@ public class ClientUI {
             add(inputPanel, BorderLayout.CENTER);
 
 
-            loginButton.addActionListener(e -> {
-            	controller.login(login_idField.getText(), passwordField.getPassword());
-            });
+            ActionListener loginAction = e -> controller.login(login_idField.getText(), passwordField.getPassword());
+            loginButton.addActionListener(loginAction);
+            login_idField.addActionListener(loginAction);
+            passwordField.addActionListener(loginAction);
 
             createButton.addActionListener(e -> {
             	cards.layout.show(cards, "register");
@@ -507,13 +633,15 @@ public class ClientUI {
 
         // Fix 6: cell renderer fields — reuse panel and label instead of creating new ones each call
         private final class MessageCellRenderer extends JPanel implements ListCellRenderer<Message> {
-            private final JPanel panel = new JPanel(new BorderLayout());
             private final JLabel label = new JLabel();
 
             MessageCellRenderer() {
                 setLayout(new BorderLayout());
+                setOpaque(true);
                 label.setOpaque(true);
-                panel.setOpaque(true);
+                label.setBorder(BorderFactory.createCompoundBorder(
+                        new LineBorder(new Color(180, 180, 180), 1, true),
+                        BorderFactory.createEmptyBorder(4, 10, 4, 10)));
             }
 
             @Override
@@ -523,49 +651,88 @@ public class ClientUI {
 
                 Message msg = value;
 
-                // Resolve sender's display name from conversation participants
+                // Resolve sender's display name.
+                // Short-circuit to own name first so own messages always render correctly
+                // even if the cached conversation's participants list is stale or empty.
+                // Use historicalParticipants (not participants) so removed users still show their name.
                 String senderName = null;
-                Conversation conv = controller.getCurrentConversation();
-                if (conv != null) {
-                    for (UserInfo p : conv.getParticipants()) {
-                        if (p.getUserId().equals(msg.getSenderId())) {
-                            senderName = p.getName();
-                            break;
+                UserInfo me = controller.getCurrentUserInfo();
+                if (me != null && me.getUserId() != null && me.getUserId().equals(msg.getSenderId())) {
+                    senderName = me.getName();
+                }
+                if (senderName == null) {
+                    Conversation conv = controller.getCurrentConversation();
+                    if (conv != null) {
+                        for (UserInfo p : conv.getHistoricalParticipants()) {
+                            if (p.getUserId().equals(msg.getSenderId())) {
+                                senderName = p.getName();
+                                break;
+                            }
                         }
                     }
                 }
-                // Fix 4: fall back to "(former participant)" if sender is not in current participant list
+                // Last-resort fallback if even the historical roster has no record of this sender.
                 if (senderName == null) {
                     senderName = "(former participant)";
                 }
-                String ts = msg.getTimestamp().toInstant()
-                        .atZone(ZoneId.systemDefault())
-                        .format(DateTimeFormatter.ofPattern("LLL dd HH:mm"));
-                String displayText = ts + " " + senderName + ": " + msg.getText();
+                ZonedDateTime zdt = msg.getTimestamp().toInstant().atZone(ZoneId.systemDefault());
+                DateTimeFormatter dtf = zdt.getYear() == ZonedDateTime.now().getYear()
+                        ? DateTimeFormatter.ofPattern("LLL dd, HH:mm", java.util.Locale.ENGLISH)
+                        : DateTimeFormatter.ofPattern("LLL dd yyyy, HH:mm", java.util.Locale.ENGLISH);
+                String ts = zdt.format(dtf);
+                String rawText = msg.getText() == null ? "" : msg.getText();
+                String displayText = ts + " " + senderName + ": " + rawText;
 
                 long lastReadSeq = controller.getCurrentUserInfo().getLastRead(controller.getCurrentConversationId());
 
-                // Reset panel — remove any prior child so we can re-add in correct position
-                panel.removeAll();
+                // Remove prior label so we can re-add in the correct position
+                removeAll();
+                setBackground(list.getBackground());
+
+                // Compute the wrap width from the JList's current width.
+                // 70% of list width keeps the bubble within the viewport even with scrollbar margin.
+                int listW = list.getWidth();
+                int wrapPx = listW > 0 ? (int) (listW * 0.70) : 360;
 
                 // displaying the current user's messages on the right side
                 if (msg.getSenderId().equals(controller.getCurrentUserInfo().getUserId())) {
-                    label.setBackground(Color.LIGHT_GRAY);
+                    label.setBackground(new Color(0xDC, 0xF8, 0xC6));
                     label.setFont(label.getFont().deriveFont(Font.PLAIN));
-                    label.setText(displayText);
-                    panel.add(label, BorderLayout.EAST);
+                    label.setText(escapeAndWrapHtml(displayText, wrapPx));
+                    add(label, BorderLayout.EAST);
                 } else { // displaying the other participants' messages on the left side
+                    label.setBackground(list.getBackground());
                     if (msg.getSequenceNumber() > lastReadSeq) {
                         label.setFont(label.getFont().deriveFont(Font.BOLD));
-                        label.setText("● " + displayText);
+                        label.setText(escapeAndWrapHtml("● " + displayText, wrapPx));
                     } else {
                         label.setFont(label.getFont().deriveFont(Font.PLAIN));
-                        label.setText(displayText);
+                        label.setText(escapeAndWrapHtml(displayText, wrapPx));
                     }
-                    panel.add(label, BorderLayout.WEST);
+                    add(label, BorderLayout.WEST);
                 }
 
-                return panel;
+                return this;
+            }
+
+            private static String escapeAndWrapHtml(String raw, int maxPx) {
+                if (raw == null) raw = "";
+                StringBuilder sb = new StringBuilder(raw.length() + 16);
+                for (int i = 0; i < raw.length(); i++) {
+                    char c = raw.charAt(i);
+                    switch (c) {
+                        case '&':  sb.append("&amp;");  break;
+                        case '<':  sb.append("&lt;");   break;
+                        case '>':  sb.append("&gt;");   break;
+                        case '"':  sb.append("&quot;"); break;
+                        case '\'': sb.append("&#39;");  break;
+                        case '\n': sb.append("<br/>");  break;
+                        case '\r': /* skip */            break;
+                        default:   sb.append(c);
+                    }
+                }
+                int safe = Math.max(80, maxPx);
+                return "<html><body style='width:" + safe + "px'>" + sb + "</body></html>";
             }
         }
 
@@ -605,18 +772,34 @@ public class ClientUI {
             // Fix 6: install the reusable cell renderer
             list.setCellRenderer(new MessageCellRenderer());
 
+            // Fix #183: re-invalidate cell height cache when JList is resized so HTML wrap recomputes.
+            list.addComponentListener(new ComponentAdapter() {
+                @Override public void componentResized(ComponentEvent e) {
+                    list.setFixedCellHeight(10);
+                    list.setFixedCellHeight(-1);
+                }
+            });
+
             // Fix 8: create a layered center panel with the placeholder on top when no conversation
             JPanel centerPanel = new JPanel(new BorderLayout());
-            centerPanel.add(new JScrollPane(list), BorderLayout.CENTER);
+            JScrollPane messageScrollPane = new JScrollPane(list);
+            messageScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+            messageScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+            centerPanel.add(messageScrollPane, BorderLayout.CENTER);
             placeholderLabel.setVisible(true);
             centerPanel.add(placeholderLabel, BorderLayout.SOUTH);
             add(centerPanel, BorderLayout.CENTER);
 
             // sendPane is located on the bottom of the window
+            JLabel charCountLabel = new JLabel("0/500");
+            charCountLabel.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 4));
             JPanel sendPane = new JPanel(new BorderLayout());
             sendPane.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 0));
             sendPane.add(text, BorderLayout.CENTER);
-            sendPane.add(sendButton, BorderLayout.EAST);
+            JPanel sendRight = new JPanel(new BorderLayout());
+            sendRight.add(charCountLabel, BorderLayout.WEST);
+            sendRight.add(sendButton, BorderLayout.EAST);
+            sendPane.add(sendRight, BorderLayout.EAST);
 
             add(sendPane, BorderLayout.SOUTH);
 
@@ -637,6 +820,7 @@ public class ClientUI {
                 addDialog.setSize(300, 400);
                 addDialog.setLocationRelativeTo(frame);
                 addDialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+                bindEscapeToDispose(addDialog);
 
                 addDialog.addWindowListener(new WindowAdapter() {
                     @Override
@@ -658,10 +842,37 @@ public class ClientUI {
             	}
             });
 
+            // 500-char hard cap
+            ((javax.swing.text.AbstractDocument) text.getDocument()).setDocumentFilter(
+                    new javax.swing.text.DocumentFilter() {
+                        private static final int MAX = 500;
+                        @Override
+                        public void insertString(FilterBypass fb, int offset, String s, javax.swing.text.AttributeSet a)
+                                throws javax.swing.text.BadLocationException {
+                            if (fb.getDocument().getLength() + s.length() <= MAX)
+                                super.insertString(fb, offset, s, a);
+                        }
+                        @Override
+                        public void replace(FilterBypass fb, int offset, int length, String s, javax.swing.text.AttributeSet a)
+                                throws javax.swing.text.BadLocationException {
+                            int newLen = fb.getDocument().getLength() - length + (s == null ? 0 : s.length());
+                            if (newLen <= MAX)
+                                super.replace(fb, offset, length, s, a);
+                            else {
+                                int allowed = MAX - fb.getDocument().getLength() + length;
+                                if (allowed > 0 && s != null)
+                                    super.replace(fb, offset, length, s.substring(0, allowed), a);
+                            }
+                        }
+                    });
+
             // add action to text field (detecting if there is a text)
             text.getDocument().addDocumentListener(new DocumentListener() {
 
                 private void update() {
+                    int len = text.getText().length();
+                    charCountLabel.setText(len + "/500");
+                    charCountLabel.setForeground(len >= 500 ? Color.RED : UIManager.getColor("Label.foreground"));
                     sendButton.setEnabled(!text.getText().trim().isEmpty());
                 }
 
@@ -682,14 +893,18 @@ public class ClientUI {
             });
 
             // add action to send button
-            sendButton.addActionListener(e -> {
-                if(controller.getCurrentConversation() == null) {
-                    return;
-                }
-            	controller.sendMessage(controller.getCurrentConversation().getConversationId(), text.getText());
-                text.setText("");
-            });
+            sendButton.addActionListener(e -> doSend());
 
+            text.addActionListener(e -> doSend());
+
+        }
+
+        private void doSend() {
+            if (controller.getCurrentConversation() == null) return;
+            String msg = text.getText();
+            if (msg.trim().isEmpty()) return;
+            controller.sendMessage(controller.getCurrentConversation().getConversationId(), msg);
+            text.setText("");
         }
 
         public void setListModel(Conversation currConv) {
@@ -785,7 +1000,7 @@ public class ClientUI {
             pickerBannerLabel.setFont(pickerBannerLabel.getFont().deriveFont(Font.BOLD));
             pickerBannerLabel.setVisible(false);
 
-            searchField = new JTextField(15);
+            searchField = makePlaceholderField("Search users...", 15);
             logoutButton = new JButton("Log Out");
             createConversationButton = new JButton("Create Conversation");
             // gray-out until select the user
@@ -880,6 +1095,7 @@ public class ClientUI {
                 createDialog.setSize(300, 400);
                 createDialog.setLocationRelativeTo(frame);
                 createDialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+                bindEscapeToDispose(createDialog);
 
                 createDialog.addWindowListener(new WindowAdapter() {
                     @Override
@@ -910,6 +1126,7 @@ public class ClientUI {
                 adminDialog.setSize(300, 400);
                 adminDialog.setLocationRelativeTo(frame);
                 adminDialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+                bindEscapeToDispose(adminDialog);
 
                 adminDialog.addWindowListener(new WindowAdapter() {
                     @Override
@@ -1035,7 +1252,7 @@ public class ClientUI {
         }
 
         ConversationListView() {
-        	searchField = new JTextField(15);
+        	searchField = makePlaceholderField("Search conversations...", 15);
 
 
             // searchField is located on the upper of the window.
@@ -1075,11 +1292,13 @@ public class ClientUI {
     					controller.setCurrentConversationId(selected.getConversationId());
     					// delegates to ConversationView.setListModel so both the
     					// participant label and the message list are updated together
-    					cards.main.conversationView.setListModel(selected);
     					if (!selected.getMessages().isEmpty()) {
     					    Message last = selected.getMessages().get(selected.getMessages().size() - 1);
+    					    controller.getCurrentUserInfo().setLastRead(
+    					            selected.getConversationId(), last.getSequenceNumber());
     					    controller.updateReadMessages(selected.getConversationId(), last.getSequenceNumber());
     					}
+    					cards.main.conversationView.setListModel(selected);
     				}
             	}
             });
@@ -1190,7 +1409,7 @@ public class ClientUI {
         JButton cancelButton;
 
         AdminConversationSearchWindow() {
-            searchField = new JTextField(15);
+            searchField = makePlaceholderField("Search conversations...", 15);
             okButton = new JButton("OK");
             okButton.setFocusTraversalKeysEnabled(false);
             cancelButton = new JButton("Cancel");
