@@ -57,3 +57,10 @@ Thumbs.db
 # Local test fixtures
 # =========================
 test_data/
+
+# =========================
+# Runtime server data
+# =========================
+data/conversation_data/
+data/user_data/
+data/server_data/server_config.txt
