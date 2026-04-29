@@ -154,6 +154,9 @@ public class ServerController {
             }
             case ADMIN_CONVERSATION_QUERY:
                 return dataManager.handleAdminConversationQuery(request);
+            case ADMIN_VIEW_CONVERSATION:
+                // Silent admin read — no broadcast, no participant mutation.
+                return dataManager.handleAdminViewConversation(request);
             case JOIN_CONVERSATION:
                 return dataManager.handleJoinConversation(request);
             case LOGOUT:

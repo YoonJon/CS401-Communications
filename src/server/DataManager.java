@@ -733,17 +733,22 @@ public class DataManager {
     public Response handleAdminConversationQuery(Request request) {
         AdminConversationQuery adminConversationQuery = (AdminConversationQuery) request.getPayload();
         String userId = adminConversationQuery.getUserId();
-        Set<Long> ids = conversationIDsByUserID.get(userId);
+        // Scan historicalParticipants instead of the active conversationIDsByUserID index
+        // so orphaned conversations (everyone has left) and conversations the user has
+        // since left still surface for the admin viewer.
         ArrayList<ConversationMetadata> metas = new ArrayList<>();
-        if (ids != null) {
-            ArrayList<Long> sorted = new ArrayList<>(ids);
-            Collections.sort(sorted);
-            for (Long cid : sorted) {
-                Conversation c = conversationsByConversationID.get(cid);
-                if (c != null) {
-                    metas.add(c.toMetadata());
+        ArrayList<Conversation> matched = new ArrayList<>();
+        for (Conversation c : conversationsByConversationID.values()) {
+            for (UserInfo u : c.getHistoricalParticipants()) {
+                if (userId.equals(u.getUserId())) {
+                    matched.add(c);
+                    break;
                 }
             }
+        }
+        matched.sort(Comparator.comparingLong(Conversation::getConversationId));
+        for (Conversation c : matched) {
+            metas.add(c.toMetadata());
         }
         return new Response(ResponseType.ADMIN_CONVERSATION_RESULT, new AdminConversationResult(metas));
     }
@@ -754,6 +759,22 @@ public class DataManager {
         String userId = request.getSenderId();
         linkUserToConversation(userId, conversationId);
         return new Response(ResponseType.CONVERSATION, conversationsByConversationID.get(conversationId));
+    }
+
+    /**
+     * Returns the full {@link Conversation} (with messages) to an admin caller for read-only
+     * viewing. Performs an admin gate against {@link UserType#ADMIN} on the sender; non-admins
+     * receive a null payload. Does NOT call {@code linkUserToConversation} or otherwise mutate
+     * participant indices, so other users get no signal that the lookup happened.
+     */
+    public Response handleAdminViewConversation(Request request) {
+        User caller = usersByUserID.get(request.getSenderId());
+        if (caller == null || caller.getUserType() != UserType.ADMIN) {
+            return new Response(ResponseType.ADMIN_VIEW_CONVERSATION_RESULT, null);
+        }
+        AdminViewConversationQuery query = (AdminViewConversationQuery) request.getPayload();
+        Conversation conv = conversationsByConversationID.get(query.getConversationId());
+        return new Response(ResponseType.ADMIN_VIEW_CONVERSATION_RESULT, conv);
     }
 
     /** Returns the {@link Conversation} for the given id, or {@code null} if not found. */
