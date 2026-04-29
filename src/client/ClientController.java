@@ -230,6 +230,9 @@ public class ClientController {
             case ADMIN_CONVERSATION_RESULT:
                 handleAdminConversationResultResponse(response);
                 break;
+            case ADMIN_VIEW_CONVERSATION_RESULT:
+                handleAdminViewConversationResultResponse(response);
+                break;
             case CONVERSATION_METADATA:
                 handleConversationMetadataResponse(response);
                 break;
@@ -246,44 +249,51 @@ public class ClientController {
 
     private void handleLoginResultResponse(Response response) {
         LoginResult lr = (LoginResult) response.getPayload();
-        authInFlight = false;
-        if (gui != null) gui.setLoginInFlight(false);
-        switch (lr.getLoginStatus()) {
-            case SUCCESS:
-                loggedIn = true;
-                currentUser = lr.getUserInfo();
-                conversations = Collections.synchronizedList(
-                        lr.getConversationList() != null ? lr.getConversationList() : new ArrayList<>());
-                currentDirectory = lr.getDirectoryUserInfoList() != null
-                        ? lr.getDirectoryUserInfoList() : new ArrayList<>();
-                if (gui != null) {
-                    gui.showMainView();
-                }
-                break;
-            case INVALID_CREDENTIALS:
-            case NO_ACCOUNT_EXISTS:
-            case DUPLICATE_SESSION:
-                if (gui != null) gui.showLoginError(lr.getLoginStatus());
-                break;
-        }
+        // #193: coalesce field reset + UI updates into a single EDT task so the in-flight
+        // flag and visible button state can never be observed out-of-order with each other.
+        SwingUtilities.invokeLater(() -> {
+            authInFlight = false;
+            if (gui != null) gui.setLoginInFlight(false);
+            switch (lr.getLoginStatus()) {
+                case SUCCESS:
+                    loggedIn = true;
+                    currentUser = lr.getUserInfo();
+                    conversations = Collections.synchronizedList(
+                            lr.getConversationList() != null ? lr.getConversationList() : new ArrayList<>());
+                    currentDirectory = lr.getDirectoryUserInfoList() != null
+                            ? lr.getDirectoryUserInfoList() : new ArrayList<>();
+                    if (gui != null) {
+                        gui.showMainView();
+                    }
+                    break;
+                case INVALID_CREDENTIALS:
+                case NO_ACCOUNT_EXISTS:
+                case DUPLICATE_SESSION:
+                    if (gui != null) gui.showLoginError(lr.getLoginStatus());
+                    break;
+            }
+        });
     }
 
     private void handleRegisterResultResponse(Response response) {
         RegisterResult rr = (RegisterResult) response.getPayload();
-        authInFlight = false;
-        if (gui != null) gui.setLoginInFlight(false);
-        switch (rr.getRegisterStatus()) {
-            case SUCCESS:
-                // #139B: pre-fill the just-registered loginName on the login screen.
-                if (gui != null) gui.showLoginView(lastRegisteredLoginName);
-                break;
-            case USER_ID_TAKEN:
-            case USER_ID_INVALID:
-            case LOGIN_NAME_TAKEN:
-            case LOGIN_NAME_INVALID:
-                if (gui != null) gui.showRegisterError(rr.getRegisterStatus());
-                break;
-        }
+        // #193: same EDT coalescing as handleLoginResultResponse.
+        SwingUtilities.invokeLater(() -> {
+            authInFlight = false;
+            if (gui != null) gui.setLoginInFlight(false);
+            switch (rr.getRegisterStatus()) {
+                case SUCCESS:
+                    // #139B: pre-fill the just-registered loginName on the login screen.
+                    if (gui != null) gui.showLoginView(lastRegisteredLoginName);
+                    break;
+                case USER_ID_TAKEN:
+                case USER_ID_INVALID:
+                case LOGIN_NAME_TAKEN:
+                case LOGIN_NAME_INVALID:
+                    if (gui != null) gui.showRegisterError(rr.getRegisterStatus());
+                    break;
+            }
+        });
     }
 
     private void handleMessageResponse(Response response) {
@@ -396,6 +406,16 @@ public class ClientController {
         }
     }
 
+    /** Routes the admin's silent read into the open admin viewer panel. Does not touch
+     *  {@code conversations} or {@code currentConversationId}, so the viewed conversation
+     *  never enters the admin's own sidebar. */
+    private void handleAdminViewConversationResultResponse(Response response) {
+        Object payload = response.getPayload();
+        if (gui != null && payload instanceof Conversation) {
+            gui.showAdminConversationView((Conversation) payload);
+        }
+    }
+
     /** Lazily opens a TCP connection to the server and initializes the input and output streams*/
     private synchronized void ensureConnected() throws IOException {
         if (connectionStatus == ConnectionStatus.CONNECTED) return;
@@ -455,18 +475,22 @@ public class ClientController {
         if (gui != null) gui.showLoginView();
     }
 
+    /** #55/#124: read the cached admin search results so the dialog can seed itself on open
+     *  even if the response arrived before the dialog finished constructing. */
+    public ArrayList<ConversationMetadata> getCurrentAdminConversationSearch() {
+        return currentAdminConversationSearch;
+    }
+
+    /** #128: clear the cached admin search results so reopening the dialog starts fresh. */
+    public void clearAdminConversationSearch() {
+        currentAdminConversationSearch.clear();
+    }
+
     /** Matches DataManager.handleSendMessage — payload: RawMessage(text, conversationId). */
     public void sendMessage(long conversationId, String m) {
         if (!loggedIn || currentUser == null) return;
         enqueueRequest(new Request(RequestType.MESSAGE,
                 new RawMessage(m, conversationId), currentUser.getUserId()));
-    }
-
-    /** Matches DataManager.handleAdminConversationQuery — payload: AdminConversationQuery(userId). */
-    public void adminConversationSearch(String query) {
-        if (!loggedIn || currentUser == null || currentUser.getUserType() != UserType.ADMIN) return;
-        enqueueRequest(new Request(RequestType.ADMIN_CONVERSATION_QUERY,
-                new AdminConversationQuery(query), currentUser.getUserId()));
     }
 
     /** Matches DataManager.handleCreateConversation — payload: CreateConversationPayload(participants). */
@@ -510,6 +534,15 @@ public class ClientController {
         if (!loggedIn || currentUser == null || currentUser.getUserType() != UserType.ADMIN) return;
         enqueueRequest(new Request(RequestType.ADMIN_CONVERSATION_QUERY,
                 new AdminConversationQuery(userID), currentUser.getUserId()));
+    }
+
+    /** Matches DataManager.handleAdminViewConversation — payload: AdminViewConversationQuery(conversationId).
+     *  Pulls a full read-only snapshot for the admin viewer; server does NOT mutate the
+     *  participant list, so other clients are unaware of the lookup. */
+    public void adminViewConversation(long conversationId) {
+        if (!loggedIn || currentUser == null || currentUser.getUserType() != UserType.ADMIN) return;
+        enqueueRequest(new Request(RequestType.ADMIN_VIEW_CONVERSATION,
+                new AdminViewConversationQuery(conversationId), currentUser.getUserId()));
     }
 
     /** Matches DataManager.handleJoinConversation — payload: JoinConversationPayload(conversationId). */
