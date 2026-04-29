@@ -1108,7 +1108,9 @@ public class ClientUI {
             createConversationButton.setEnabled(false);
 
             // construct admin button unconditionally and enable later if the user is admin
-            adminButton = new JButton("Admin");
+            // #127: clearer label + tooltip explaining the prerequisite (a user must be selected).
+            adminButton = new JButton("View Conversations");
+            adminButton.setToolTipText("Select a user in the directory, then click to view their conversations");
             adminButton.setEnabled(false);
             adminButton.setVisible(false);
 
@@ -1244,7 +1246,11 @@ public class ClientUI {
                 adminDialog.addWindowListener(new WindowAdapter() {
                     @Override
                     public void windowClosed(WindowEvent e) {
+                    	// #128: clear all admin-dialog state so reopening shows a fresh empty list.
                     	adminDialog = null;
+                    	adminConversationSearchWindow = null;
+                    	controller.clearAdminConversationSearch();
+                    	adminButton.setEnabled(false);
                     }
                 });
 
@@ -1275,17 +1281,6 @@ public class ClientUI {
                     createConversationUserWindow.addUser(selecting);
                 } else if(cards.main.conversationView.addDialog != null && cards.main.conversationView.addDialog.isVisible()) {
                     if(selecting != null) cards.main.conversationView.addUserWindow.addUser(selecting);
-                }
-            });
-
-            // Helpful debug signal when user clicks an already-selected row.
-            list.addMouseListener(new MouseAdapter() {
-                @Override
-                public void mouseClicked(MouseEvent e) {
-                    int clickedIndex = list.locationToIndex(e.getPoint());
-                    if (clickedIndex >= 0) {
-                        list.setSelectedIndex(clickedIndex);
-                    }
                 }
             });
 
@@ -1532,9 +1527,44 @@ public class ClientUI {
         JButton okButton;
         JButton cancelButton;
 
+        // #126: render each search result as "[ID: N] TYPE • K participant(s) • last active <ts>"
+        // (or "no messages yet"). Modeled on ConversationCellRenderer above.
+        private final class AdminConversationCellRenderer extends DefaultListCellRenderer {
+            @Override
+            public Component getListCellRendererComponent(
+                    JList<?> list, Object value, int index,
+                    boolean isSelected, boolean cellHasFocus) {
+                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof ConversationMetadata) {
+                    ConversationMetadata m = (ConversationMetadata) value;
+                    int n = m.getParticipants() != null ? m.getParticipants().size() : 0;
+                    String activity;
+                    long ts = m.getLastMessageTimestampMillis();
+                    if (ts <= 0L) {
+                        activity = "no messages yet";
+                    } else {
+                        ZonedDateTime zdt = java.time.Instant.ofEpochMilli(ts)
+                                .atZone(ZoneId.systemDefault());
+                        DateTimeFormatter dtf = zdt.getYear() == ZonedDateTime.now().getYear()
+                                ? DateTimeFormatter.ofPattern("LLL dd, HH:mm", java.util.Locale.ENGLISH)
+                                : DateTimeFormatter.ofPattern("LLL dd yyyy, HH:mm", java.util.Locale.ENGLISH);
+                        activity = "last active " + zdt.format(dtf);
+                    }
+                    setText("[ID: " + m.getConversationId() + "]  "
+                            + m.getType() + "  •  "
+                            + n + " participant(s)  •  "
+                            + activity);
+                }
+                return this;
+            }
+        }
+
         AdminConversationSearchWindow() {
             searchField = makePlaceholderField("Search conversations...", 15);
-            okButton = new JButton("OK");
+            // #129: button label tells the user what clicking actually does, and starts disabled
+            // so it can't be clicked before a row is selected.
+            okButton = new JButton("Join Conversation");
+            okButton.setEnabled(false);
             okButton.setFocusTraversalKeysEnabled(false);
             cancelButton = new JButton("Cancel");
 
@@ -1543,6 +1573,9 @@ public class ClientUI {
 
             // searchField is located on the upper side of the window
             add(searchField, BorderLayout.NORTH);
+
+            // #126: install the custom cell renderer so each row shows ID, type, count, recency.
+            list.setCellRenderer(new AdminConversationCellRenderer());
 
             // the list is located on the center of the window
             add(new JScrollPane(list), BorderLayout.CENTER);
@@ -1553,6 +1586,14 @@ public class ClientUI {
         	buttonPane.add(cancelButton);
 
         	add(buttonPane, BorderLayout.SOUTH);
+
+            // #55/#124: seed from the controller's cache. If the ADMIN_CONVERSATION_RESULT
+            // response arrived before this window was constructed (race on fast loopback),
+            // the data is already in the cache and we render it immediately. The async
+            // updateAdminConversationSearchModel callback path stays for late responses.
+            for (ConversationMetadata m : controller.getCurrentAdminConversationSearch()) {
+                model.addElement(m);
+            }
 
         	// add action to searchField
         	searchField.getDocument().addDocumentListener(new DocumentListener() {
@@ -1579,12 +1620,23 @@ public class ClientUI {
 			    }
             });
 
-        	// add action to okButton
+        	// add action to okButton — #125: confirm before join, then optimistic feedback.
             okButton.addActionListener(e -> {
-                if(list.getSelectedValue() == null) {
-                    return;
-                }
-            	controller.joinConversation(list.getSelectedValue().getConversationId());
+                ConversationMetadata sel = list.getSelectedValue();
+                if (sel == null) return;
+                int n = sel.getParticipants() != null ? sel.getParticipants().size() : 0;
+                int confirm = JOptionPane.showConfirmDialog(
+                    AdminConversationSearchWindow.this,
+                    "Join conversation #" + sel.getConversationId()
+                        + " (" + n + " participant(s))?",
+                    "Confirm Join", JOptionPane.YES_NO_OPTION);
+                if (confirm != JOptionPane.YES_OPTION) return;
+
+                controller.joinConversation(sel.getConversationId());
+                JOptionPane.showMessageDialog(
+                    AdminConversationSearchWindow.this,
+                    "Join request sent for conversation #" + sel.getConversationId() + ".",
+                    "Joining...", JOptionPane.INFORMATION_MESSAGE);
                 Window window = SwingUtilities.getWindowAncestor(this);
                 window.dispose();
             });
