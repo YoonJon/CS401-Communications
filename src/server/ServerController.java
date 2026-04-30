@@ -116,10 +116,14 @@ public class ServerController {
                     RegisterResult registerResult = (RegisterResult) response.getPayload();
                     if (registerResult.getRegisterStatus() == RegisterStatus.SUCCESS
                             && registerResult.getUserInfo() != null) {
+                        String registreeUserId = registerResult.getUserInfo().getUserId();
                         Response userCreationResponse = new Response(
                                 ResponseType.USER_CREATION,
                                 new UserCreationPayload(registerResult.getUserInfo()));
                         for (String userId : activeSessions.keySet()) {
+                            if (registreeUserId != null && registreeUserId.equals(userId)) {
+                                continue; // registrant receives direct register response, skip broadcast echo
+                            }
                             responseQueue.offer(new AbstractMap.SimpleImmutableEntry<>(userId, userCreationResponse));
                         }
                     }

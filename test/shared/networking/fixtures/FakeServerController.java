@@ -38,7 +38,7 @@ public class FakeServerController extends ServerController {
     private final List<Request> received = new CopyOnWriteArrayList<>();
 
     public FakeServerController() {
-        super(prepareDataRootPath(), 0);
+        super(null, 0, prepareDataRootPath());
     }
 
     // -------------------------------------------------------------------------
