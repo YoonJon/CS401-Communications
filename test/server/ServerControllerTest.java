@@ -99,7 +99,7 @@ class ServerControllerTest {
     void loginDispatchesWithStatuses() throws Exception {
         StubDataManager stub = new StubDataManager(testDataRoot().toString());
         stub.responses.put(RequestType.LOGIN,
-                new Response(ResponseType.LOGIN_RESULT, new LoginResult(LoginStatus.SUCCESS, null, null)));
+                new Response(ResponseType.LOGIN_RESULT, new LoginResult(LoginStatus.SUCCESS, null, null, new ArrayList<>())));
         server = buildServerWithStub(stub);
 
         Response loginResponse = server.processRequest(
@@ -110,7 +110,7 @@ class ServerControllerTest {
         assertEquals(RequestType.LOGIN, stub.lastCalled);
 
         stub.responses.put(RequestType.LOGIN,
-                new Response(ResponseType.LOGIN_RESULT, new LoginResult(LoginStatus.INVALID_CREDENTIALS, null, null)));
+                new Response(ResponseType.LOGIN_RESULT, new LoginResult(LoginStatus.INVALID_CREDENTIALS)));
         Response loginInvalidResponse = server.processRequest(
                 new Request(RequestType.LOGIN, new LoginCredentials("login1", "pw"), null));
         assertEquals(LoginStatus.INVALID_CREDENTIALS,
@@ -187,13 +187,13 @@ class ServerControllerTest {
 
         assertEquals(ResponseType.MESSAGE, server.processRequest(
                 new Request(RequestType.MESSAGE, new RawMessage("hi", 1L), "u1")).getType());
-        assertQueuedRecipients(queue, Set.of("u1", "u2", "u3"), Message.class);
+        assertQueuedRecipients(queue, Set.of("u2", "u3"), Message.class);
 
         ArrayList<User.UserInfo> members = new ArrayList<>();
         members.add(new User("u1", "Alice", "u1_login", "pw", UserType.USER).toUserInfo());
         assertEquals(ResponseType.CONVERSATION, server.processRequest(
                 new Request(RequestType.CREATE_CONVERSATION, new CreateConversationPayload(members), "u1")).getType());
-        assertQueuedRecipients(queue, Set.of("u1", "u2", "u3"), Conversation.class);
+        assertQueuedRecipients(queue, Set.of("u2", "u3"), Conversation.class);
 
         assertEquals(ResponseType.CONVERSATION, server.processRequest(
                 new Request(RequestType.ADD_PARTICIPANT,
@@ -237,7 +237,11 @@ class ServerControllerTest {
     }
 
     private ServerController buildServerWithStub(StubDataManager stub) throws Exception {
-        ServerController c = new ServerController(testDataRoot().toString(), 0, false);
+        ServerController c = new ServerController(testDataRoot().toString(), 0, null);
+        Thread broadcaster = getBroadcasterThread(c);
+        if (broadcaster != null) {
+            broadcaster.interrupt();
+        }
         setField(c, "dataManager", stub);
         return c;
     }
@@ -280,20 +284,22 @@ class ServerControllerTest {
         f.set(target, value);
     }
 
+    private static Thread getBroadcasterThread(ServerController c) throws Exception {
+        Field f = ServerController.class.getDeclaredField("broadcasterThread");
+        f.setAccessible(true);
+        return (Thread) f.get(c);
+    }
+
     private static void assertQueuedRecipients(
             LinkedBlockingQueue<Map.Entry<String, Response>> queue,
             Set<String> expectedRecipients,
             Class<?> expectedPayloadType) {
-        Map.Entry<String, Response> d1 = queue.poll();
-        Map.Entry<String, Response> d2 = queue.poll();
-        Map.Entry<String, Response> d3 = queue.poll();
-        assertNotNull(d1);
-        assertNotNull(d2);
-        assertNotNull(d3);
-        Map<String, Response> deliveries = Map.of(
-                d1.getKey(), d1.getValue(),
-                d2.getKey(), d2.getValue(),
-                d3.getKey(), d3.getValue());
+        Map<String, Response> deliveries = new HashMap<>();
+        for (int i = 0; i < expectedRecipients.size(); i++) {
+            Map.Entry<String, Response> delivery = queue.poll();
+            assertNotNull(delivery);
+            deliveries.put(delivery.getKey(), delivery.getValue());
+        }
         assertEquals(expectedRecipients, deliveries.keySet());
         for (Response response : deliveries.values()) {
             assertTrue(expectedPayloadType.isInstance(response.getPayload()));

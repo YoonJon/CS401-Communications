@@ -5,6 +5,9 @@ import shared.networking.Request;
 import shared.networking.Response;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -35,7 +38,7 @@ public class FakeServerController extends ServerController {
     private final List<Request> received = new CopyOnWriteArrayList<>();
 
     public FakeServerController() {
-        super(new File(System.getProperty("java.io.tmpdir"), "cs401-fake-server-data").getPath(), 0);
+        super(prepareDataRootPath(), 0);
     }
 
     // -------------------------------------------------------------------------
@@ -63,5 +66,22 @@ public class FakeServerController extends ServerController {
     /** Clears the recorded request list between test assertions. */
     public void clearReceived() {
         received.clear();
+    }
+
+    private static String prepareDataRootPath() {
+        Path root = new File(System.getProperty("java.io.tmpdir"), "cs401-fake-server-data").toPath();
+        try {
+            Path serverData = root.resolve("server_data");
+            Path authorizedIds = serverData.resolve("authorized_ids");
+            Files.createDirectories(authorizedIds);
+            Files.createDirectories(root.resolve("conversation_data"));
+            Files.createDirectories(root.resolve("user_data"));
+            Files.writeString(authorizedIds.resolve("authorized_admins.txt"), "");
+            Files.writeString(authorizedIds.resolve("authorized_users.txt"), "");
+            Files.writeString(serverData.resolve("server_config.txt"), "");
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to initialize fake server test data root", e);
+        }
+        return root.toString();
     }
 }

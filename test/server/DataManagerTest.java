@@ -55,7 +55,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * fresh JVM or rely only on ordering within one {@link Test}.
  */
 @Timeout(value = 30, unit = TimeUnit.SECONDS)
-public class DataManagerHarnessTest {
+public class DataManagerTest {
 
     /** Matches the conventional test root folder; {@link DataManager} receives this path as its data root. */
     private static final String TEST_DATA_DIR_NAME = "test_data";
@@ -89,7 +89,7 @@ public class DataManagerHarnessTest {
      * {@code root} should be the directory passed to {@link DataManager}'s constructor (e.g. a
      * {@code test_data} folder).
      *
-     * <p>Authorized rows are {@code userId,displayName} — names must match registration
+     * <p>Authorized rows are {@code userId,displayName} - names must match registration
      * ({@link RegisterCredentials#getName()}) for {@link DataManager#handleRegister}.
      */
     private static void prepareMinimalDataTree(Path root) throws IOException {
@@ -202,7 +202,7 @@ public class DataManagerHarnessTest {
 
     @Test
     void smoke_allHandlers_inOrder() {
-        // --- Register u1–u5
+        // --- Register u1-u5
         RegisterCredentials[] regs = new RegisterCredentials[]{
                 new RegisterCredentials("u1", "alice", "p1", "Alice"),
                 new RegisterCredentials("u2", "bob", "p2", "Bob"),
@@ -222,7 +222,7 @@ public class DataManagerHarnessTest {
                 new LoginCredentials("alice", "p1"), null));
         assertEquals(LoginStatus.SUCCESS, ((LoginResult) login1.getPayload()).getLoginStatus(), "login1");
 
-        // --- Private conversation u1–u2
+        // --- Private conversation u1-u2
         Response createPrivate = dm.handleCreateConversation(new Request(RequestType.CREATE_CONVERSATION,
                 new CreateConversationPayload(roster(ui("u1", "Alice"), ui("u2", "Bob"))),
                 "u1"));
@@ -263,7 +263,7 @@ public class DataManagerHarnessTest {
         assertEquals(Integer.valueOf(4), Integer.valueOf(((Conversation) addToGroup.getPayload()).getParticipants().size()),
                 "group size after add");
 
-        // --- Private fork: add Carol to existing private u2–u3 thread (only if we create private 23 first)
+        // --- Private fork: add Carol to existing private u2-u3 thread (only if we create private 23 first)
         Response createPrivate23 = dm.handleCreateConversation(new Request(RequestType.CREATE_CONVERSATION,
                 new CreateConversationPayload(roster(ui("u2", "Bob"), ui("u3", "Carol"))),
                 "u2"));
@@ -278,7 +278,7 @@ public class DataManagerHarnessTest {
         assertEquals(ConversationType.GROUP, forked.getType(), "fork type");
         assertEquals(Integer.valueOf(3), Integer.valueOf(forked.getParticipants().size()), "fork roster");
 
-        // --- Leave (u2 leaves original private u1–u2)
+        // --- Leave (u2 leaves original private u1-u2)
         Response leaveResp = dm.handleLeaveConversation(new Request(RequestType.LEAVE_CONVERSATION,
                 new LeaveConversationPayload(convPrivate12),
                 "u2"));

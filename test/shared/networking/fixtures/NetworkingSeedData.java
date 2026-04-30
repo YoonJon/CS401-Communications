@@ -201,7 +201,7 @@ public final class NetworkingSeedData {
 
     public static Response loginSuccessResponseAlice() {
         LoginResult lr = new LoginResult(
-                LoginStatus.SUCCESS, aliceInfo(), new ArrayList<>());
+                LoginStatus.SUCCESS, aliceInfo(), new ArrayList<>(), new ArrayList<>());
         return new Response(ResponseType.LOGIN_RESULT, lr);
     }
 

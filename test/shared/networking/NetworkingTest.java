@@ -45,7 +45,7 @@ class NetworkingTest {
     @BeforeEach
     void setUp() throws Exception {
         fakeServer = new FakeServerController();
-        listener   = new ConnectionListener(0, fakeServer); // port 0 → OS assigns
+        listener   = new ConnectionListener("localhost", 0, fakeServer); // port 0 → OS assigns
 
         listenerThread = new Thread(() -> listener.listen(), "test-listener");
         listenerThread.setDaemon(true);

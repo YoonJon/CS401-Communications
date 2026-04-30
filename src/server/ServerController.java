@@ -34,7 +34,7 @@ public class ServerController {
     /*
      * Entry point for the server application.
      *
-     * Usage: java ServerController [dataRootPath] [port]
+     * Usage: java ServerController [dataRootPath] [port] [ipv4]
      *
      *   dataRootPath - directory where persistent data (users, messages) is stored.
      *                  Defaults to "data" if not provided.
@@ -42,15 +42,21 @@ public class ServerController {
      *                  Defaults to 8080 if not provided.
      *                  Must be configurable so different environments (dev, staging, prod)
      *                  and multiple server instances can each bind to their own port.
+     *   ipv4         - local interface IPv4 to bind to (e.g. 192.168.1.10).
+     *                  Defaults to "0.0.0.0" (all interfaces), except when only
+     *                  dataRootPath is provided (then defaults to "localhost").
      *
      * Example:
-     *   java ServerController data 8080
+     *   java ServerController data 8080 192.168.1.10
      */
     public static void main(String[] args) {
-        // First CLI arg is the data root path; port is fixed at 8080.
         String dataRootPath = args.length > 0 ? args[0] : "data";
-        ServerController serverController = new ServerController(dataRootPath, 8080);
-        System.out.println("Server started on port 8080");
+        int port = args.length > 1 ? Integer.parseInt(args[1]) : 8080;
+        String bindIPv4 = System.getProperty("server.bind.ip");
+        if (bindIPv4 == null || bindIPv4.isBlank()) {
+            bindIPv4 = args.length == 1 ? "localhost" : (args.length > 2 ? args[2] : "0.0.0.0");
+        }
+        ServerController serverController = new ServerController(dataRootPath, port, bindIPv4);
         keepAliveUntilInterrupted(serverController);
     }
 
@@ -68,24 +74,12 @@ public class ServerController {
         }
     }
 
-    /*
-     * Production entry point — always starts the broadcaster thread.
-     * Use this constructor everywhere outside of tests.
-     */
-    public ServerController(String dataRootPath, int port) {
-        this(dataRootPath, port, true);
-    }
-
-    /**
-     * Package-private: pass {@code startBroadcaster=false} in tests that need to
-     * inspect the raw response queue without a draining thread racing against assertions.
-     */
-    ServerController(String dataRootPath, int port, boolean startBroadcaster) {
+    public ServerController(String dataRootPath, int port, String bindIPv4) {
         this.activeSessions = new ConcurrentHashMap<>();
         this.dataManager = new DataManager(dataRootPath);
-        this.connectionListener = new ConnectionListener(port, this);
+        this.connectionListener = new ConnectionListener(bindIPv4, port, this);
         this.responseQueue = new LinkedBlockingQueue<>();
-        if (startBroadcaster) startBroadcasterThread();
+        startBroadcasterThread();
         startConnectionListenerThread();
     }
 
