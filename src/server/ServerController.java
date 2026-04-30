@@ -7,6 +7,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import shared.enums.RequestType;
+import shared.enums.RegisterStatus;
 import shared.enums.ResponseType;
 import shared.networking.ConnectionHandler;
 import shared.networking.ConnectionListener;
@@ -19,6 +20,8 @@ import shared.payload.ConversationMetadata;
 import shared.payload.LoginCredentials;
 import shared.payload.LoginResult;
 import shared.payload.Message;
+import shared.payload.RegisterResult;
+import shared.payload.UserCreationPayload;
 import shared.enums.LoginStatus;
 
 public class ServerController {
@@ -113,8 +116,22 @@ public class ServerController {
             System.out.println("Processing request: " + request.getType());
         }
         switch (request.getType()) {
-            case REGISTER:
-                return dataManager.handleRegister(request);
+            case REGISTER: {
+                Response response = dataManager.handleRegister(request);
+                if (response != null && response.getPayload() instanceof RegisterResult) {
+                    RegisterResult registerResult = (RegisterResult) response.getPayload();
+                    if (registerResult.getRegisterStatus() == RegisterStatus.SUCCESS
+                            && registerResult.getUserInfo() != null) {
+                        Response userCreationResponse = new Response(
+                                ResponseType.USER_CREATION,
+                                new UserCreationPayload(registerResult.getUserInfo()));
+                        for (String userId : activeSessions.keySet()) {
+                            responseQueue.offer(new AbstractMap.SimpleImmutableEntry<>(userId, userCreationResponse));
+                        }
+                    }
+                }
+                return response;
+            }
             case LOGIN: {
                 LoginCredentials loginCredentials = (LoginCredentials) request.getPayload();
                 String loginName = loginCredentials == null ? null : loginCredentials.getLoginName();

@@ -583,7 +583,7 @@ public class DataManager {
         usersByLoginName.put(loginName, user);
         addUserToDirectory(user);
         persistUser(user);
-        return new Response(ResponseType.REGISTER_RESULT, new RegisterResult(shared.enums.RegisterStatus.SUCCESS));
+        return new Response(ResponseType.REGISTER_RESULT, new RegisterResult(shared.enums.RegisterStatus.SUCCESS, user.toUserInfo()));
     }
 
     // handle a login request
