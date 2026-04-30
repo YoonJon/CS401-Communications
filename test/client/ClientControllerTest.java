@@ -8,6 +8,7 @@ import shared.networking.User.UserInfo;
 import shared.networking.fixtures.NetworkingSeedData;
 import shared.payload.*;
 
+import javax.swing.SwingUtilities;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -47,13 +48,13 @@ class ClientControllerTest {
         ArrayList<Conversation> convs = new ArrayList<>();
         convs.add(conv(100L, alice(), bob()));
         return new Response(ResponseType.LOGIN_RESULT,
-                new LoginResult(LoginStatus.SUCCESS, alice(), convs));
+                new LoginResult(LoginStatus.SUCCESS, alice(), convs, new ArrayList<>()));
     }
 
     /** LOGIN_RESULT/SUCCESS for Alice with a null conversation list. */
     private static Response loginSuccessAliceNullConvs() {
         return new Response(ResponseType.LOGIN_RESULT,
-                new LoginResult(LoginStatus.SUCCESS, alice(), null));
+                new LoginResult(LoginStatus.SUCCESS, alice(), null, new ArrayList<>()));
     }
 
     /** LOGIN_RESULT/INVALID_CREDENTIALS */
@@ -96,7 +97,21 @@ class ClientControllerTest {
 
     /** Creates a no-GUI controller — suitable for pure unit tests (no Swing window). */
     private static ClientController headless() {
-        return new ClientController("localhost", 0, null);
+        return new ClientController("localhost", 0, null) {
+            @Override
+            void processResponse(Response response) {
+                super.processResponse(response);
+                flushEdt();
+            }
+        };
+    }
+
+    private static void flushEdt() {
+        try {
+            SwingUtilities.invokeAndWait(() -> {});
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to flush EDT", e);
+        }
     }
 
     // =========================================================================

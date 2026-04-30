@@ -1,13 +1,13 @@
 package shared.networking;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.logging.Logger;
 import server.ServerController;
 
 /**
@@ -24,10 +24,8 @@ import server.ServerController;
  */
 public class ConnectionListener {
 
-    private static final Logger logger =
-            Logger.getLogger(ConnectionListener.class.getName());
-
     private final int hostPort;
+    private final String hostAddress;
     private final ServerController serverController;
     private final ExecutorService threadPool;
 
@@ -37,8 +35,13 @@ public class ConnectionListener {
     private volatile boolean running = false;
     private volatile ServerSocket serverSocket;
 
-    public ConnectionListener(int hostPort, ServerController serverController) {
+    public ConnectionListener(ServerController serverController) {
+        this("localhost", 8080, serverController);
+    }
+
+    public ConnectionListener(String hostAddress, int hostPort, ServerController serverController) {
         this.hostPort = hostPort;
+        this.hostAddress = hostAddress;
         this.serverController = serverController;
         this.threadPool = Executors.newCachedThreadPool();
     }
@@ -51,9 +54,12 @@ public class ConnectionListener {
     public void listen() {
         running = true;
         try {
-            serverSocket = new ServerSocket(hostPort);
+            if (hostAddress == null || hostAddress.isBlank()) {
+                serverSocket = new ServerSocket(hostPort);
+            } else {
+                serverSocket = new ServerSocket(hostPort, 50, InetAddress.getByName(hostAddress));
+            }
             bindLatch.countDown(); // notify getLocalPort() waiters
-            logger.info("Listening on port " + serverSocket.getLocalPort());
 
             while (running) {
                 try {
@@ -62,17 +68,12 @@ public class ConnectionListener {
                             new ConnectionHandler(clientSocket, serverController);
                     threadPool.submit(handler);
                 } catch (IOException e) {
-                    if (running) {
-                        logger.warning("Accept error: " + e.getMessage());
-                    }
+                    // Keep listener quiet unless caller inspects behavior directly.
                     // When running == false the socket was closed by close() — exit loop.
                 }
             }
         } catch (IOException e) {
-            if (running) {
-                logger.severe("Cannot open server socket on port " + hostPort
-                        + ": " + e.getMessage());
-            }
+            // Keep listener quiet; startup failures surface via calling flows/tests.
         } finally {
             bindLatch.countDown(); // ensure waiters are never stuck if listen() fails
         }
@@ -105,7 +106,7 @@ public class ConnectionListener {
             try {
                 serverSocket.close();
             } catch (IOException e) {
-                logger.warning("Error closing server socket: " + e.getMessage());
+                // Best-effort close; ignore shutdown-time close noise.
             }
         }
         threadPool.shutdown();
