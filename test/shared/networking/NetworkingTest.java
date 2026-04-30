@@ -114,13 +114,13 @@ class NetworkingTest {
     @Test
     void listenerForwardsRequestToServerController() throws Exception {
         try (TestClient client = new TestClient(port)) {
-            client.send(NetworkingSeedData.pingRequest());
+            client.send(NetworkingSeedData.logoutRequest());
             client.receive(); // consume response
 
             // Give the handler a moment to dispatch
             waitFor(() -> !fakeServer.getReceived().isEmpty(), 2_000);
             assertFalse(fakeServer.getReceived().isEmpty());
-            assertEquals(RequestType.PING,
+            assertEquals(RequestType.LOGOUT,
                          fakeServer.getReceived().get(0).getType());
         }
     }
@@ -142,7 +142,7 @@ class NetworkingTest {
 
         try (TestClient client = new TestClient(port)) {
             for (int i = 0; i < batch.length; i++) {
-                client.send(NetworkingSeedData.pingRequest());
+                client.send(NetworkingSeedData.logoutRequest());
             }
             for (int i = 0; i < batch.length; i++) {
                 Response r = client.receive();

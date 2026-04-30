@@ -6,6 +6,7 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
 import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -45,6 +46,8 @@ import shared.networking.User.UserInfo;
  *  removed via {@link ServerController#removeSession}.
  */
 public class ConnectionHandler implements Runnable {
+    private static final int READ_TIMEOUT_MS = 5_000;
+    private static final long HEARTBEAT_TIMEOUT_MS = 300_000L;
 
     private static final Logger logger =
             Logger.getLogger(ConnectionHandler.class.getName());
@@ -80,6 +83,8 @@ public class ConnectionHandler implements Runnable {
             output = new ObjectOutputStream(socket.getOutputStream());
             output.flush();
             input  = new ObjectInputStream(socket.getInputStream());
+            // Poll read path periodically so we can enforce heartbeat timeout.
+            socket.setSoTimeout(READ_TIMEOUT_MS);
 
             String tag = socket.getInetAddress().getHostAddress() + ":" + socket.getPort();
             requestThread  = new Thread(new RequestListener(),  "req-"  + tag);
@@ -151,6 +156,16 @@ public class ConnectionHandler implements Runnable {
                 Object obj;
                 try {
                     obj = input.readObject();
+                } catch (SocketTimeoutException e) {
+                    if (authenticated) {
+                        long silentForMs = System.currentTimeMillis() - lastPingReceived;
+                        if (silentForMs > HEARTBEAT_TIMEOUT_MS) {
+                            logger.info("Closing stale session after heartbeat timeout: "
+                                    + silentForMs + "ms");
+                            break;
+                        }
+                    }
+                    continue;
                 } catch (EOFException | SocketException e) {
                     break; // client disconnected cleanly
                 } catch (IOException | ClassNotFoundException e) {
@@ -170,6 +185,9 @@ public class ConnectionHandler implements Runnable {
                 // Update heartbeat timestamp for PING
                 if (request.getType() == RequestType.PING) {
                     lastPingReceived = System.currentTimeMillis();
+                    // Heartbeat stays in transport layer: reply directly, skip app dispatch.
+                    sendResponse(new Response(ResponseType.PONG));
+                    continue;
                 }
 
                 // --- dispatch ---
