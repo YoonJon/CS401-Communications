@@ -236,6 +236,9 @@ public class ClientController {
             case CONVERSATION_METADATA:
                 handleConversationMetadataResponse(response);
                 break;
+            case USER_CREATION:
+                handleUserCreationResponse(response);
+                break;
             case CONNECTED:
                 connectionStatus = ConnectionStatus.CONNECTED;
                 break;
@@ -364,6 +367,23 @@ public class ClientController {
         if (gui != null) {
             final ArrayList<Conversation> snap = snapshot;
             SwingUtilities.invokeLater(() -> gui.updateConversationListModel(snap));
+        }
+    }
+
+    private void handleUserCreationResponse(Response response) {
+        UserCreationPayload payload = (UserCreationPayload) response.getPayload();
+        if (payload == null || payload.getUserInfo() == null) return;
+        UserInfo created = payload.getUserInfo();
+        boolean exists = false;
+        for (UserInfo u : currentDirectory) {
+            if (u != null && Objects.equals(u.getUserId(), created.getUserId())) {
+                exists = true;
+                break;
+            }
+        }
+        if (!exists) {
+            currentDirectory.add(created);
+            if (gui != null) gui.updateDirectoryModel(getFilteredDirectory(""));
         }
     }
 
