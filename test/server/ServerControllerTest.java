@@ -43,6 +43,7 @@ import shared.payload.RegisterCredentials;
 import shared.payload.RegisterResult;
 import shared.payload.RequestPayload;
 import shared.payload.UpdateReadMessages;
+import shared.payload.UserCreationPayload;
 
 @Timeout(value = 20, unit = TimeUnit.SECONDS)
 class ServerControllerTest {
@@ -93,6 +94,38 @@ class ServerControllerTest {
                 null));
         assertEquals(RegisterStatus.USER_ID_TAKEN,
                 ((RegisterResult) registerTakenResponse.getPayload()).getRegisterStatus());
+    }
+
+    @Test
+    void registerSuccessBroadcastSkipsRegistree() throws Exception {
+        StubDataManager stub = new StubDataManager(testDataRoot().toString());
+        User.UserInfo newUser = new User("u3", "Carol", "u3_login", "pw", UserType.USER).toUserInfo();
+        stub.responses.put(RequestType.REGISTER,
+                new Response(ResponseType.REGISTER_RESULT, new RegisterResult(RegisterStatus.SUCCESS, newUser)));
+        server = buildServerWithStub(stub);
+        LinkedBlockingQueue<Map.Entry<String, Response>> queue = getResponseQueue(server);
+
+        server.addSession("u1", noOpHandler());
+        server.addSession("u2", noOpHandler());
+        server.addSession("u3", noOpHandler()); // registree
+
+        Response registerResponse = server.processRequest(new Request(
+                RequestType.REGISTER,
+                new RegisterCredentials("u3", "login3", "pw", "Carol"),
+                null));
+        assertEquals(ResponseType.REGISTER_RESULT, registerResponse.getType());
+
+        Map.Entry<String, Response> d1 = queue.poll();
+        Map.Entry<String, Response> d2 = queue.poll();
+        assertNotNull(d1);
+        assertNotNull(d2);
+        Map<String, Response> deliveries = Map.of(
+                d1.getKey(), d1.getValue(),
+                d2.getKey(), d2.getValue());
+        assertEquals(Set.of("u1", "u2"), deliveries.keySet());
+        assertTrue(deliveries.get("u1").getPayload() instanceof UserCreationPayload);
+        assertTrue(deliveries.get("u2").getPayload() instanceof UserCreationPayload);
+        assertNull(queue.poll());
     }
 
     @Test
