@@ -56,7 +56,7 @@ public class ServerController {
         if (bindIPv4 == null || bindIPv4.isBlank()) {
             bindIPv4 = args.length == 1 ? "localhost" : (args.length > 2 ? args[2] : "0.0.0.0");
         }
-        ServerController serverController = new ServerController(dataRootPath, port, bindIPv4);
+        ServerController serverController = new ServerController(bindIPv4, port, dataRootPath);
         keepAliveUntilInterrupted(serverController);
     }
 
@@ -74,7 +74,7 @@ public class ServerController {
         }
     }
 
-    public ServerController(String dataRootPath, int port, String bindIPv4) {
+    public ServerController(String bindIPv4, int port, String dataRootPath) {
         this.activeSessions = new ConcurrentHashMap<>();
         this.dataManager = new DataManager(dataRootPath);
         this.connectionListener = new ConnectionListener(bindIPv4, port, this);

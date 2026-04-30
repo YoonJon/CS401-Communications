@@ -237,7 +237,7 @@ class ServerControllerTest {
     }
 
     private ServerController buildServerWithStub(StubDataManager stub) throws Exception {
-        ServerController c = new ServerController(testDataRoot().toString(), 0, null);
+        ServerController c = new ServerController(null, 0, testDataRoot().toString());
         Thread broadcaster = getBroadcasterThread(c);
         if (broadcaster != null) {
             broadcaster.interrupt();
