@@ -93,6 +93,17 @@ public class User implements Serializable {
         private final String userId;
         private final String name;
         private final UserType userType;
+        /**
+         * Read cursors per conversation. Concurrency contract:
+         *  - The {@code currentUser} reference in {@code client.ClientController} is volatile;
+         *    the response-listener thread always builds a fresh {@code UserInfo} (mutating its
+         *    map) before publishing the new reference. After publication, the map is mutated
+         *    only by EDT code paths (open-conversation, deferred-read replay, in-conversation
+         *    receive). No two threads write to the same map instance concurrently.
+         *  - {@link #getLastReadMap()} returns an unmodifiable view over the live map;
+         *    callers iterating off-EDT must defensive-copy first to avoid
+         *    {@link java.util.ConcurrentModificationException}.
+         */
         private final Map<Long, Long> lastRead;
 
         private UserInfo(String userId, String name, UserType userType, Map<Long, Long> lastRead) {

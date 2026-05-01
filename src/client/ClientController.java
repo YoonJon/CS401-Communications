@@ -281,8 +281,13 @@ public class ClientController {
                 case SUCCESS:
                     loggedIn = true;
                     currentUser = lr.getUserInfo();
-                    conversations = Collections.synchronizedList(
-                            lr.getConversationList() != null ? lr.getConversationList() : new ArrayList<>());
+                    // #214: defense-in-depth — server now sorts the wire payload, but
+                    // copy + re-sort here so the controller's invariant holds for any
+                    // direct consumer of `conversations` (tests, future callers).
+                    ArrayList<Conversation> sorted = lr.getConversationList() != null
+                            ? new ArrayList<>(lr.getConversationList()) : new ArrayList<>();
+                    sorted.sort((a, b) -> Long.compare(latestSequenceNumber(b), latestSequenceNumber(a)));
+                    conversations = Collections.synchronizedList(sorted);
                     currentDirectory = lr.getDirectoryUserInfoList() != null
                             ? lr.getDirectoryUserInfoList() : new ArrayList<>();
                     if (gui != null) {
@@ -513,12 +518,27 @@ public class ClientController {
 
     private void handleReadMessagesUpdatedResponse(Response response) {
         ReadMessagesUpdated updated = (ReadMessagesUpdated) response.getPayload();
-        if (updated != null && updated.getUpdatedUserInfo() != null) {
-            currentUser = updated.getUpdatedUserInfo();
-            if (gui != null) {
-                gui.repaintMessageList();
-                gui.repaintConversationList();
+        if (updated == null || updated.getUpdatedUserInfo() == null) return;
+        UserInfo fresh = updated.getUpdatedUserInfo();
+        UserInfo old = currentUser;
+        if (old != null) {
+            // #209: preserve any local optimistic advance the server has not yet acked.
+            // getLastReadMap() returns an unmodifiableMap view of the live HashMap; the
+            // defensive copy below is load-bearing — without it, a concurrent EDT writer
+            // can throw ConcurrentModificationException during iteration.
+            Map<Long, Long> oldEntries = new HashMap<>(old.getLastReadMap());
+            for (Map.Entry<Long, Long> e : oldEntries.entrySet()) {
+                long convId = e.getKey();
+                long localSeq = e.getValue();
+                if (localSeq > fresh.getLastRead(convId)) {
+                    fresh.setLastRead(convId, localSeq);
+                }
             }
+        }
+        currentUser = fresh;
+        if (gui != null) {
+            gui.repaintMessageList();
+            gui.repaintConversationList();
         }
     }
 
