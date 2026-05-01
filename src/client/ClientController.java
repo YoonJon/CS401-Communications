@@ -9,6 +9,7 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.util.*;
 import java.util.concurrent.LinkedBlockingDeque;
+import java.util.concurrent.atomic.AtomicBoolean;
 import javax.swing.SwingUtilities;
 import shared.enums.*;
 import shared.networking.*;
@@ -53,7 +54,10 @@ public class ClientController {
     // -------------------------------------------------------------------------
 
     private boolean loggedIn;
-    private UserInfo currentUser;
+    /** Reassigned off-EDT by the response listener thread (handleReadMessagesUpdatedResponse) and
+     *  read on EDT by the compose-focus listener and sidebar renderer. {@code volatile} ensures
+     *  the EDT observes the freshest reference. */
+    private volatile UserInfo currentUser;
     /** #140/#142: true while a LOGIN or REGISTER request is enqueued and unresolved. */
     private volatile boolean authInFlight = false;
     /** #139: cached on register() so handleRegisterResultResponse can pre-fill the login screen. */
@@ -68,6 +72,22 @@ public class ClientController {
     private long currentConversationId = -1;
     private ArrayList<UserInfo> currentDirectory;
     private ArrayList<ConversationMetadata> currentAdminConversationSearch;
+
+    // -------------------------------------------------------------------------
+    // Window-focus gate (Fix A): inbound messages while the OS window is inactive
+    // must NOT advance the read pointer — the user hasn't actually seen them.
+    // We buffer the per-conversation max sequence and replay on activation,
+    // coalescing a burst of N messages into a single UPDATE_READ_MESSAGES.
+    // -------------------------------------------------------------------------
+
+    /** True while the JFrame is the active OS window. Defaults true so headless
+     *  tests (no window-activation events) and pre-window-event states do not
+     *  suppress reads. */
+    private final AtomicBoolean windowActive = new AtomicBoolean(true);
+    /** Conversation id → highest seq of an inbound message that arrived while
+     *  windowActive=false. Drained by {@link #replayReadAdvanceIfNeeded()} on
+     *  window activation. EDT-only access. */
+    private final HashMap<Long, Long> deferredReadAdvance = new HashMap<>();
 
     // -------------------------------------------------------------------------
     // Server path liveness (updated on inbound server-driven signals, e.g. PONG)
@@ -304,6 +324,10 @@ public class ClientController {
         Message msg = (Message) response.getPayload();
         ArrayList<Conversation> snapshot;
         boolean isCurrentConv;
+        boolean shouldAdvanceLastRead = false;
+        // The lastRead-advance decision must happen under the same monitor that
+        // openConversationAtomically uses, so a click-to-open never captures a lastRead
+        // that an in-flight inbound has just bumped past the new message.
         synchronized (conversations) {
             for (int i = 0; i < conversations.size(); i++) {
                 if (conversations.get(i).getConversationId() == msg.getConversationId()) {
@@ -315,12 +339,90 @@ public class ClientController {
             }
             snapshot = new ArrayList<>(conversations);
             isCurrentConv = msg.getConversationId() == currentConversationId;
+            if (isCurrentConv && currentUser != null) {
+                boolean userViewingBottom = (gui == null) || gui.userIsViewingBottom();
+                if (windowActive.get() && userViewingBottom) {
+                    currentUser.setLastRead(msg.getConversationId(), msg.getSequenceNumber());
+                    shouldAdvanceLastRead = true;
+                } else {
+                    deferredReadAdvance.merge(msg.getConversationId(), msg.getSequenceNumber(), Math::max);
+                }
+            }
         }
         if (gui != null) {
             gui.updateConversationListModel(snapshot);
             if (isCurrentConv) {
                 gui.appendMessageToConversationView(msg);
-                updateReadMessages(currentConversationId, msg.getSequenceNumber());
+            }
+        }
+        if (shouldAdvanceLastRead) {
+            updateReadMessages(msg.getConversationId(), msg.getSequenceNumber());
+        }
+    }
+
+    /**
+     * Inbound message arrived in the open conversation. The composed gate is
+     * {@code windowActive && userIsViewingBottom}: if the OS window is active AND the user
+     * is parked at the bottom of the message list (Fix E1), optimistically advance
+     * {@code currentUser.lastRead} and ask the server to persist. Otherwise buffer the
+     * per-conversation max seq for replay on the next window activation OR scroll-to-bottom
+     * transition (whichever comes first).
+     * <p>Package-private seam so unit tests (with {@code gui == null}) can exercise the
+     * read-advance contract directly. Headless callers (gui == null) implicitly satisfy
+     * the bottom-viewing predicate so existing tests need not stage a scroll position.
+     * <p>NOT on the live path: {@link #handleMessageResponse} inlines the same decision
+     * under the {@code conversations} monitor to serialize with
+     * {@link #openConversationAtomically}. Keep the two implementations in sync.
+     */
+    void tryAdvanceReadOnInbound(long convId, long seq) {
+        UserInfo me = currentUser;
+        if (me == null) return;
+        boolean userViewingBottom = (gui == null) || gui.userIsViewingBottom();
+        if (windowActive.get() && userViewingBottom) {
+            me.setLastRead(convId, seq);
+            updateReadMessages(convId, seq);
+        } else {
+            deferredReadAdvance.merge(convId, seq, Math::max);
+        }
+    }
+
+    /** Called by {@link ClientUI}'s WindowAdapter on activate/deactivate. */
+    public void setWindowActive(boolean active) {
+        windowActive.set(active);
+    }
+
+    /** True iff the OS window is currently active. Exposed for tests and gating callers
+     *  (e.g. {@link ClientUI#appendMessageToConversationView}). */
+    public boolean isWindowActive() {
+        return windowActive.get();
+    }
+
+    /**
+     * Drain {@link #deferredReadAdvance}: for each conversation, send one
+     * UPDATE_READ_MESSAGES at the highest deferred seq, advance local lastRead,
+     * and re-sync the open conversation's per-message snapshot. Called on window
+     * activation. Idempotent on an empty buffer.
+     */
+    public void replayReadAdvanceIfNeeded() {
+        UserInfo me = currentUser;
+        if (me == null || deferredReadAdvance.isEmpty()) return;
+        HashMap<Long, Long> drained = new HashMap<>(deferredReadAdvance);
+        deferredReadAdvance.clear();
+        for (Map.Entry<Long, Long> e : drained.entrySet()) {
+            long convId = e.getKey();
+            long maxSeq = e.getValue();
+            if (me.getLastRead(convId) < maxSeq) {
+                me.setLastRead(convId, maxSeq);
+                updateReadMessages(convId, maxSeq);
+            }
+        }
+        if (gui != null) {
+            long openId = currentConversationId;
+            if (openId != -1L) {
+                Long openMax = drained.get(openId);
+                if (openMax != null) gui.markDisplayedReadUpTo(openMax);
+                gui.repaintMessageList();
+                gui.repaintConversationList();
             }
         }
     }
@@ -413,7 +515,10 @@ public class ClientController {
         ReadMessagesUpdated updated = (ReadMessagesUpdated) response.getPayload();
         if (updated != null && updated.getUpdatedUserInfo() != null) {
             currentUser = updated.getUpdatedUserInfo();
-            if (gui != null) gui.repaintMessageList();
+            if (gui != null) {
+                gui.repaintMessageList();
+                gui.repaintConversationList();
+            }
         }
     }
 
@@ -596,6 +701,18 @@ public class ClientController {
         this.currentDirectory = new ArrayList<>(dir);
     }
 
+    /** Package-private: outbound request queue depth — used by unit tests to verify whether
+     *  optimization paths (e.g. {@link #replayReadAdvanceIfNeeded()} and
+     *  {@link #handleMessageResponse(shared.networking.Response)}) did or did not enqueue a request. */
+    int requestQueueDepthForTesting() {
+        return requestQueue.size();
+    }
+
+    /** Package-private: most recently enqueued request, or {@code null} if empty. */
+    Request peekLastRequestForTesting() {
+        return requestQueue.peekLast();
+    }
+
     /** Returns all users whose id or name contains {@code query} (case-insensitive). */
     public ArrayList<UserInfo> getFilteredDirectory(String query) {
         if (query == null || query.isBlank()) return new ArrayList<>(currentDirectory);
@@ -680,6 +797,113 @@ public class ClientController {
             }
         }
         return null;
+    }
+
+    /**
+     * Fix E2: atomically capture the triple (conversation reference, viewer's lastRead at open
+     * time, defensive message-list snapshot) under the {@code conversations} monitor. Closes
+     * the race between the click-to-open handler reading {@code lastRead} and {@code Conversation.append}
+     * adding a new message before {@link ConversationView#setListModel} consumes the message list:
+     * without atomic capture, the freshly-arrived message could land in the wrong half of the
+     * "New messages" divider boundary.
+     * <p>Returns null if no user is logged in or the conversation is unknown.
+     * <p>Lock order: {@code conversations} → {@code Conversation.this} (via {@link Conversation#getMessages()}).
+     * This matches {@link #handleMessageResponse} which acquires {@code conversations} then {@code Conversation.append}
+     * in the same order, so deadlock is impossible.
+     */
+    public ConversationOpenSnapshot getConversationSnapshotForOpen(long id) {
+        UserInfo me = currentUser;
+        if (me == null) return null;
+        synchronized (conversations) {
+            for (Conversation c : conversations) {
+                if (c.getConversationId() == id) {
+                    long lastRead = me.getLastRead(id);
+                    ArrayList<Message> snap = c.getMessages();
+                    return new ConversationOpenSnapshot(c, lastRead, snap);
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Atomic open: captures the (lastRead, messages) pair AND publishes
+     * {@code currentConversationId} under the same {@code conversations} monitor that
+     * {@link #handleMessageResponse} uses to append inbound messages and decide whether
+     * to advance lastRead. Without serialization the EDT could snapshot lastRead AFTER
+     * a concurrent inbound advanced it past the new message, erasing the divider.
+     */
+    public ConversationOpenSnapshot openConversationAtomically(long id) {
+        UserInfo me = currentUser;
+        if (me == null) return null;
+        synchronized (conversations) {
+            for (Conversation c : conversations) {
+                if (c.getConversationId() == id) {
+                    long lastRead = me.getLastRead(id);
+                    ArrayList<Message> snap = c.getMessages();
+                    this.currentConversationId = id;
+                    return new ConversationOpenSnapshot(c, lastRead, snap);
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Atomically-captured triple used by the click-to-open path. Immutable; callers must not
+     * mutate {@link #messages} (it's a defensive copy from {@link Conversation#getMessages()}).
+     */
+    public static final class ConversationOpenSnapshot {
+        public final Conversation conversation;
+        public final long lastReadAtOpen;
+        public final ArrayList<Message> messages;
+        ConversationOpenSnapshot(Conversation conversation, long lastReadAtOpen, ArrayList<Message> messages) {
+            this.conversation = conversation;
+            this.lastReadAtOpen = lastReadAtOpen;
+            this.messages = messages;
+        }
+    }
+
+    /**
+     * True iff {@code viewer}'s last-read pointer trails the latest message sequence in {@code conv}.
+     * Returns false if either argument is null. Used by the conversation-list cell renderer to
+     * decide whether to bold a row and prepend the unread glyph.
+     */
+    public static boolean isUnread(Conversation conv, UserInfo viewer) {
+        if (conv == null || viewer == null) return false;
+        long lastReadSeq = viewer.getLastRead(conv.getConversationId());
+        ArrayList<Message> msgs = conv.getMessages();
+        long latestSeq = msgs.isEmpty() ? 0L : msgs.get(msgs.size() - 1).getSequenceNumber();
+        return latestSeq > lastReadSeq;
+    }
+
+    /**
+     * True iff {@code msg}'s sequence number is strictly above the snapshot pointer
+     * {@code displayedLastReadSeq}. Mirrors the per-message dot predicate used by
+     * the conversation panel renderer; exposed for unit tests.
+     */
+    public static boolean isMessageUnread(Message msg, long displayedLastReadSeq) {
+        if (msg == null) return false;
+        return msg.getSequenceNumber() > displayedLastReadSeq;
+    }
+
+    /**
+     * Number of messages in {@code conv} with sequence above {@code viewer}'s last-read pointer.
+     * Returns 0 if either argument is null, the conversation is empty, or the viewer is already
+     * caught up. Used by the sidebar cell renderer to populate the unread-count badge.
+     * <p>Implementation is an O(unread) backward scan that stops at the first read message,
+     * relying on Conversation.append being the only mutator and appending in monotonic seq order.
+     */
+    public static int unreadCount(Conversation conv, UserInfo viewer) {
+        if (conv == null || viewer == null) return 0;
+        long lastReadSeq = viewer.getLastRead(conv.getConversationId());
+        ArrayList<Message> msgs = conv.getMessages();
+        int count = 0;
+        for (int i = msgs.size() - 1; i >= 0; i--) {
+            if (msgs.get(i).getSequenceNumber() > lastReadSeq) count++;
+            else break;
+        }
+        return count;
     }
 
     /** Writes a {@link Request} to the socket stream. Synchronized to prevent interleaved writes. */

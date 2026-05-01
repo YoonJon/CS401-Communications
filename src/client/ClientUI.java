@@ -24,7 +24,7 @@ public class ClientUI {
     private JFrame frame;
     private ScreenCards cards;
     private DefaultListModel<UserInfo> directoryModel;
-    private DefaultListModel<Message> conversationMessageModel;
+    private DefaultListModel<Object> conversationMessageModel;
     private DefaultListModel<Conversation> conversationListModel;
     /** Fires on the EDT every 5s to compare wall clock to {@link #lastUserActivityMillis}. */
     private final Timer userIdlePollTimer;
@@ -97,12 +97,19 @@ public class ClientUI {
 
             frame.addWindowListener(new WindowAdapter() {
                 @Override public void windowActivated(WindowEvent e) {
+                    // Fix A: tell the controller the window is active and drain any
+                    // deferred read-advances that piled up while we were inactive.
+                    controller.setWindowActive(true);
+                    controller.replayReadAdvanceIfNeeded();
                     if (suppressActivationReset) {
                         suppressActivationReset = false;
                         return;
                     }
                     unreadWhileAway = 0;
                     frame.setTitle(BASE_TITLE);
+                }
+                @Override public void windowDeactivated(WindowEvent e) {
+                    controller.setWindowActive(false);
                 }
             });
 
@@ -395,7 +402,7 @@ public class ClientUI {
             // Restore selection after rebuild
             if (selectedId != null) {
                 for (int i = 0; i < conversationListModel.getSize(); i++) {
-                    if (conversationListModel.getElementAt(i).getConversationId() == selectedId) {
+                    if (conversationListModel.getElementAt(i).getConversationId() == selectedId.longValue()) {
                         convList.setSelectedIndex(i);
                         break;
                     }
@@ -435,15 +442,36 @@ public class ClientUI {
 
     public void appendMessageToConversationView(Message message) {
         SwingUtilities.invokeLater(() -> {
-            conversationMessageModel.addElement(message);
-            // Fix 9: auto-scroll to newest message
-            SwingUtilities.invokeLater(() -> {
-                int last = cards.main.conversationView.list.getModel().getSize() - 1;
-                if (last >= 0) cards.main.conversationView.list.ensureIndexIsVisible(last);
-            });
-            // Issue #176: notify user when window is not active
+            ConversationView cv = cards.main.conversationView;
+            // "Actively viewing" requires BOTH window focused AND parked at bottom; userIsAtBottom
+            // defaults to true, so checking it alone would suppress the divider in the alt-tab case.
             UserInfo me = controller.getCurrentUserInfo();
             boolean fromOther = me != null && !message.getSenderId().equals(me.getUserId());
+            boolean userActivelyViewing = frame.isActive() && cv.userIsAtBottom;
+            if (fromOther && !userActivelyViewing && !cv.modelHasDivider) {
+                conversationMessageModel.addElement(ConversationView.NewMessagesDivider.INSTANCE);
+                cv.modelHasDivider = true;
+            }
+            conversationMessageModel.addElement(message);
+            // Fix 9 + Fix E1: auto-scroll to newest only when the user is parked at the
+            // bottom. Otherwise preserve their scroll position so they can read history.
+            if (cv.userIsAtBottom) {
+                SwingUtilities.invokeLater(() -> {
+                    int last = cv.list.getModel().getSize() - 1;
+                    if (last >= 0) cv.list.ensureIndexIsVisible(last);
+                });
+            }
+            // Composed gate (Fix A + Fix E1): slide the per-message snapshot forward only
+            // when the OS window is active AND the user is parked at the bottom — i.e. they
+            // can actually see the message. Otherwise leave the snapshot frozen; the deferred
+            // read-advance buffer on the controller will replay on the next window activation
+            // or scroll-to-bottom transition, which calls back into markDisplayedReadUpTo to
+            // re-sync. Do NOT call updateReadMessages here — the controller owns that wire
+            // concern via tryAdvanceReadOnInbound.
+            if (frame.isActive() && cv.userIsAtBottom) {
+                cv.markDisplayedReadUpTo(message.getSequenceNumber());
+            }
+            // Issue #176: notify user when window is not active
             if (fromOther && !frame.isActive()) {
                 unreadWhileAway++;
                 frame.setTitle(BASE_TITLE + " (" + unreadWhileAway + " new)");
@@ -456,6 +484,28 @@ public class ClientUI {
 
     public void repaintMessageList() {
         SwingUtilities.invokeLater(() -> cards.main.conversationView.list.repaint());
+    }
+
+    /** Pass-through used by {@link ClientController#replayReadAdvanceIfNeeded()} to
+     *  re-sync the open conversation's per-message snapshot after a deferred replay. */
+    public void markDisplayedReadUpTo(long sequenceNumber) {
+        SwingUtilities.invokeLater(() ->
+                cards.main.conversationView.markDisplayedReadUpTo(sequenceNumber));
+    }
+
+    /** Fix E1: composed-gate input for {@link ClientController#tryAdvanceReadOnInbound}.
+     *  Returns true when the user is parked at (or near) the bottom of the open conversation,
+     *  i.e. they can actually see freshly-arrived messages. Read from the network reader
+     *  thread, so the underlying field is volatile. */
+    public boolean userIsViewingBottom() {
+        if (cards == null || cards.main == null || cards.main.conversationView == null) {
+            return true;
+        }
+        return cards.main.conversationView.userIsAtBottom;
+    }
+
+    public void repaintConversationList() {
+        SwingUtilities.invokeLater(() -> cards.main.conversationListView.list.repaint());
     }
 
     public void updateAdminConversationSearchModel(ArrayList<ConversationMetadata> conversations) {
@@ -803,12 +853,20 @@ public class ClientUI {
     // =========================================================================
     class ConversationView extends JPanel {
         JLabel participantsLabel;
-        DefaultListModel<Message> conversationMessageListModel = new DefaultListModel<>();
-        JList<Message> list = new JList<>(conversationMessageListModel);
+        DefaultListModel<Object> conversationMessageListModel = new DefaultListModel<>();
+        JList<Object> list = new JList<>(conversationMessageListModel);
         private JScrollPane messageScrollPane;
         // Snapshot of read state at the time this conversation view was opened/refreshed.
         // Renderer uses this instead of live lastRead updates so unread markers remain meaningful.
         private long displayedLastReadSeq = 0L;
+        // Fix E1: track whether the vertical scrollbar is at (or within 4px of) the bottom.
+        // Volatile because the network reader thread reads it via userIsViewingBottom() while the
+        // EDT mutates it in the AdjustmentListener.
+        private volatile boolean userIsAtBottom = true;
+        // Fix E1: tracks whether NewMessagesDivider.INSTANCE is currently in the list model.
+        // Set true on insert by setListModel or appendMessageToConversationView; cleared on
+        // model clear (setListModel/clearConversation). EDT-only access.
+        private boolean modelHasDivider = false;
         JButton addButton;
         JButton leaveButton;
         JTextField text;
@@ -819,11 +877,23 @@ public class ClientUI {
         // Fix 8: placeholder label shown when no conversation is selected
         private final JLabel placeholderLabel = new JLabel("Select a conversation to start chatting", SwingConstants.CENTER);
 
+        // Fix C: sentinel inserted into the message-list model to mark the boundary
+        // between messages already read at conversation-open time and unread messages
+        // that arrived since. Replaces the per-message ● dot with a single horizontal
+        // "─── New messages ───" cue.
+        private static final class NewMessagesDivider {
+            static final NewMessagesDivider INSTANCE = new NewMessagesDivider();
+            private NewMessagesDivider() {}
+        }
+
         // Fix 6/#196: use JTextArea-based bubbles for deterministic wrapping.
-        private final class MessageCellRenderer extends JPanel implements ListCellRenderer<Message> {
+        private final class MessageCellRenderer extends JPanel implements ListCellRenderer<Object> {
             private final JPanel bubble = new JPanel(new BorderLayout(0, 2));
             private final JTextArea headerArea = new JTextArea();
             private final JTextArea bodyArea = new JTextArea();
+            // Fix C: a separate component returned for NewMessagesDivider sentinels.
+            private final JPanel dividerPanel = new JPanel(new BorderLayout(6, 0));
+            private final JLabel dividerLabel = new JLabel("New messages", SwingConstants.CENTER);
 
             MessageCellRenderer() {
                 setLayout(new BorderLayout());
@@ -847,14 +917,37 @@ public class ClientUI {
                 bodyArea.setBorder(null);
                 bubble.add(headerArea, BorderLayout.NORTH);
                 bubble.add(bodyArea, BorderLayout.CENTER);
+
+                Color alert = UIManager.getColor("nimbusAlertYellow");
+                if (alert == null) alert = new Color(248, 187, 0);
+                dividerPanel.setOpaque(true);
+                dividerPanel.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
+                dividerLabel.setForeground(alert);
+                dividerLabel.setFont(dividerLabel.getFont().deriveFont(Font.BOLD));
+                JSeparator left = new JSeparator(SwingConstants.HORIZONTAL);
+                JSeparator right = new JSeparator(SwingConstants.HORIZONTAL);
+                left.setForeground(alert);
+                right.setForeground(alert);
+                dividerPanel.add(left, BorderLayout.WEST);
+                dividerPanel.add(dividerLabel, BorderLayout.CENTER);
+                dividerPanel.add(right, BorderLayout.EAST);
+                dividerPanel.setPreferredSize(new Dimension(10, 22));
+                dividerPanel.getAccessibleContext().setAccessibleName("New messages divider");
             }
 
             @Override
             public Component getListCellRendererComponent(
-                    JList<? extends Message> list, Message value, int index,
+                    JList<? extends Object> list, Object value, int index,
                     boolean isSelected, boolean cellHasFocus) {
 
-                Message msg = value;
+                if (value instanceof NewMessagesDivider) {
+                    dividerPanel.setBackground(list.getBackground());
+                    // Make the embedded label transparent so the bg shows through evenly.
+                    dividerLabel.setOpaque(false);
+                    return dividerPanel;
+                }
+
+                Message msg = (Message) value;
 
                 // Resolve sender's display name.
                 // Short-circuit to own name first so own messages always render correctly
@@ -889,8 +982,6 @@ public class ClientUI {
                 boolean isOwnMessage = msg.getSenderId().equals(controller.getCurrentUserInfo().getUserId());
                 String header = isOwnMessage ? ts : (ts + " " + senderName + ":");
 
-                long lastReadSeq = displayedLastReadSeq;
-
                 // Remove prior label so we can re-add in the correct position
                 removeAll();
                 setBackground(list.getBackground());
@@ -899,7 +990,8 @@ public class ClientUI {
                 // adapt correctly when the conversation pane is resized.
                 int wrapPx = computeWrapWidthPx(list);
 
-                // displaying the current user's messages on the right side
+                // Fix C: per-message ● dot is gone — the NewMessagesDivider sentinel inserted
+                // into the model carries that signal now. Render every message plain.
                 if (isOwnMessage) {
                     bubble.setBackground(new Color(66, 95, 120));
                     headerArea.setBackground(bubble.getBackground());
@@ -912,25 +1004,28 @@ public class ClientUI {
                     bodyArea.setText(rawText);
                     installBubbleWidth(wrapPx);
                     add(bubble, BorderLayout.EAST);
-                } else { // displaying the other participants' messages on the left side
+                } else {
                     bubble.setBackground(list.getBackground());
                     headerArea.setBackground(bubble.getBackground());
                     bodyArea.setBackground(bubble.getBackground());
                     headerArea.setForeground(new Color(220, 220, 220));
                     bodyArea.setForeground(new Color(220, 220, 220));
-                    if (msg.getSequenceNumber() > lastReadSeq) {
-                        headerArea.setFont(list.getFont().deriveFont(Font.BOLD));
-                        bodyArea.setFont(list.getFont().deriveFont(Font.PLAIN));
-                        headerArea.setText("● " + header);
-                    } else {
-                        headerArea.setFont(list.getFont().deriveFont(Font.PLAIN));
-                        bodyArea.setFont(list.getFont().deriveFont(Font.PLAIN));
-                        headerArea.setText(header);
-                    }
+                    headerArea.setText(header);
+                    headerArea.setFont(list.getFont().deriveFont(Font.PLAIN));
+                    bodyArea.setFont(list.getFont().deriveFont(Font.PLAIN));
                     bodyArea.setText(rawText);
                     installBubbleWidth(wrapPx);
                     add(bubble, BorderLayout.WEST);
                 }
+
+                // Fix E3: accessible name for screen readers. Truncate long bodies so the
+                // announcement stays manageable. Suffix "(unread)" when the message is past
+                // the per-cell read snapshot so a sweep through the list announces boundaries.
+                boolean isUnreadMsg = msg.getSequenceNumber() > displayedLastReadSeq;
+                String suffix = isUnreadMsg ? " (unread)" : "";
+                String shortBody = rawText.length() > 80 ? rawText.substring(0, 77) + "…" : rawText;
+                getAccessibleContext().setAccessibleName(
+                        senderName + " at " + ts + ", " + shortBody + suffix);
 
                 return this;
             }
@@ -1033,6 +1128,20 @@ public class ClientUI {
             messageScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
             messageScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
             messageScrollPane.getViewport().addComponentListener(wrapResizeAdapter);
+            // Fix E1: track whether the user is parked at the bottom of the message list.
+            // When they scroll up to read history, suppress the read-advance and per-message
+            // snapshot slide so the unread cue persists. Drain the deferred-read buffer on
+            // the up→bottom transition so the catch-up wire request fires once.
+            messageScrollPane.getVerticalScrollBar().addAdjustmentListener(e -> {
+                JScrollBar vsb = (JScrollBar) e.getSource();
+                int max = vsb.getMaximum() - vsb.getVisibleAmount();
+                boolean newAtBottom = (vsb.getValue() >= max - 4);
+                boolean wasAtBottom = userIsAtBottom;
+                userIsAtBottom = newAtBottom;
+                if (newAtBottom && !wasAtBottom) {
+                    controller.replayReadAdvanceIfNeeded();
+                }
+            });
             centerPanel.add(messageScrollPane, BorderLayout.CENTER);
             placeholderLabel.setVisible(true);
             centerPanel.add(placeholderLabel, BorderLayout.SOUTH);
@@ -1163,6 +1272,8 @@ public class ClientUI {
             if (msg.trim().isEmpty()) return;
             controller.sendMessage(controller.getCurrentConversation().getConversationId(), msg);
             text.setText("");
+            // Sending a reply is an unambiguous read-acknowledgement.
+            removeDividerNow();
         }
 
         public void setListModel(Conversation currConv) {
@@ -1170,7 +1281,21 @@ public class ClientUI {
             setListModel(currConv, lastReadAtOpen);
         }
 
+        /**
+         * Fix E2: race-free overload. Uses the message list captured atomically with
+         * {@code lastReadAtOpen} by {@link ClientController#getConversationSnapshotForOpen(long)}
+         * so the divider boundary always matches the consistent (lastRead, messages) pair —
+         * even if {@link Conversation#append} fires between capture and render.
+         */
+        public void setListModel(ClientController.ConversationOpenSnapshot snap) {
+            setListModel(snap.conversation, snap.lastReadAtOpen, snap.messages);
+        }
+
         public void setListModel(Conversation currConv, long lastReadAtOpen) {
+            setListModel(currConv, lastReadAtOpen, currConv.getMessages());
+        }
+
+        private void setListModel(Conversation currConv, long lastReadAtOpen, ArrayList<Message> msgs) {
             // Fix 3: exclude self, show up to 3 names, append "+N more" if needed
             UserInfo me = controller.getCurrentUserInfo();
             String myId = (me != null) ? me.getUserId() : null;
@@ -1193,11 +1318,28 @@ public class ClientUI {
             final long finalLastReadAtOpen = lastReadAtOpen;
         	SwingUtilities.invokeLater(() -> {
                 displayedLastReadSeq = finalLastReadAtOpen;
+                // Fix E1: opening a conversation auto-scrolls to bottom (see scrollToBottom
+                // below), so the user is parked at the bottom by definition. Reset the
+                // tracker so a stale "scrolled up" state from a previous conversation
+                // doesn't suppress the read-advance for the freshly-opened one.
+                userIsAtBottom = true;
         		participantsLabel.setText(finalMember);
                 conversationMessageListModel.clear();
-                for(int i = 0; i < currConv.getMessages().size(); i++) {
-                    conversationMessageListModel.addElement(currConv.getMessages().get(i));
+                // Fix C: insert the "New messages" divider between read and unread.
+                // Suppress when finalLastReadAtOpen == 0 (nothing has ever been read; a
+                // divider above message 1 is meaningless).
+                boolean dividerInserted = false;
+                for (int i = 0; i < msgs.size(); i++) {
+                    Message m = msgs.get(i);
+                    if (!dividerInserted
+                            && finalLastReadAtOpen > 0L
+                            && m.getSequenceNumber() > finalLastReadAtOpen) {
+                        conversationMessageListModel.addElement(NewMessagesDivider.INSTANCE);
+                        dividerInserted = true;
+                    }
+                    conversationMessageListModel.addElement(m);
                 }
+                modelHasDivider = dividerInserted;
                 refreshWrapLayout();
                 text.setEnabled(true);
                 // Fix 10: enable buttons when a conversation is selected
@@ -1220,6 +1362,9 @@ public class ClientUI {
         public void clearConversation() {
             SwingUtilities.invokeLater(() -> {
                 displayedLastReadSeq = 0L;
+                // Fix E1: model is cleared so no divider remains; reset bottom tracker.
+                modelHasDivider = false;
+                userIsAtBottom = true;
                 participantsLabel.setText("");
                 conversationMessageListModel.clear();
                 refreshWrapLayout();
@@ -1241,7 +1386,7 @@ public class ClientUI {
             list.repaint();
         }
 
-        public DefaultListModel<Message> getListModel() {
+        public DefaultListModel<Object> getListModel() {
         	return this.conversationMessageListModel;
         }
 
@@ -1251,6 +1396,46 @@ public class ClientUI {
 
         public void markDisplayedReadUpTo(long sequenceNumber) {
             displayedLastReadSeq = Math.max(displayedLastReadSeq, sequenceNumber);
+            removeDividerIfCaughtUp();
+        }
+
+        /** Drops the divider once every message below it has been read. Without this the
+         *  {@code modelHasDivider} guard above keeps the divider pinned at first insertion. */
+        private void removeDividerIfCaughtUp() {
+            if (!modelHasDivider) return;
+            int dividerIdx = -1;
+            for (int i = 0; i < conversationMessageListModel.size(); i++) {
+                if (conversationMessageListModel.get(i) == NewMessagesDivider.INSTANCE) {
+                    dividerIdx = i;
+                    break;
+                }
+            }
+            if (dividerIdx < 0) {
+                modelHasDivider = false;
+                return;
+            }
+            for (int i = dividerIdx + 1; i < conversationMessageListModel.size(); i++) {
+                Object el = conversationMessageListModel.get(i);
+                if (el instanceof Message
+                        && ((Message) el).getSequenceNumber() > displayedLastReadSeq) {
+                    return;
+                }
+            }
+            conversationMessageListModel.remove(dividerIdx);
+            modelHasDivider = false;
+        }
+
+        /** Unconditional divider removal — for cases where the act itself (e.g. sending)
+         *  is the read-acknowledgement signal, regardless of snapshot state. */
+        private void removeDividerNow() {
+            if (!modelHasDivider) return;
+            for (int i = 0; i < conversationMessageListModel.size(); i++) {
+                if (conversationMessageListModel.get(i) == NewMessagesDivider.INSTANCE) {
+                    conversationMessageListModel.remove(i);
+                    break;
+                }
+            }
+            modelHasDivider = false;
         }
 
         private void scrollToBottom() {
@@ -1520,41 +1705,80 @@ public class ClientUI {
         JList<Conversation>	list = new JList<>(listModel);
         boolean suppressSelectionEvents = false;
 
-        // Fix 2: custom renderer that shows a friendly display name
-        private final class ConversationCellRenderer extends DefaultListCellRenderer {
+        // Fix 2 / Fix D: custom renderer that shows the conversation display name plus a
+        // numeric unread badge on the right when there are unread messages.
+        private final class ConversationCellRenderer extends JPanel implements ListCellRenderer<Conversation> {
+            private final JLabel nameLabel = new JLabel();
+            private final JLabel badgeLabel = new JLabel();
+
+            ConversationCellRenderer() {
+                setLayout(new BorderLayout(6, 0));
+                setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
+                setOpaque(true);
+
+                Color badgeBg = UIManager.getColor("nimbusRed");
+                if (badgeBg == null) badgeBg = new Color(169, 46, 34);
+                badgeLabel.setOpaque(true);
+                badgeLabel.setBackground(badgeBg);
+                badgeLabel.setForeground(Color.WHITE);
+                badgeLabel.setFont(badgeLabel.getFont().deriveFont(Font.BOLD));
+                badgeLabel.setBorder(BorderFactory.createEmptyBorder(1, 6, 1, 6));
+                badgeLabel.setHorizontalAlignment(SwingConstants.CENTER);
+
+                add(nameLabel, BorderLayout.CENTER);
+                add(badgeLabel, BorderLayout.EAST);
+            }
+
             @Override
             public Component getListCellRendererComponent(
-                    JList<?> list, Object value, int index,
+                    JList<? extends Conversation> list, Conversation value, int index,
                     boolean isSelected, boolean cellHasFocus) {
-                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-                if (value instanceof Conversation) {
-                    Conversation conv = (Conversation) value;
-                    UserInfo me = controller.getCurrentUserInfo();
-                    String myId = (me != null) ? me.getUserId() : null;
+                Conversation conv = value;
+                UserInfo me = controller.getCurrentUserInfo();
+                String myId = (me != null) ? me.getUserId() : null;
 
-                    // Collect other participants (excluding self)
-                    ArrayList<UserInfo> others = new ArrayList<>();
-                    for (UserInfo p : conv.getParticipants()) {
-                        if (!p.getUserId().equals(myId)) {
-                            others.add(p);
-                        }
+                ArrayList<UserInfo> others = new ArrayList<>();
+                for (UserInfo p : conv.getParticipants()) {
+                    if (!p.getUserId().equals(myId)) {
+                        others.add(p);
                     }
-
-                    String display;
-                    if (conv.getType() == shared.enums.ConversationType.PRIVATE) {
-                        String otherName = others.isEmpty() ? "(empty)" : others.get(0).getName();
-                        display = "DM: " + otherName;
-                    } else {
-                        StringBuilder sb = new StringBuilder("Group: ");
-                        for (int i = 0; i < others.size(); i++) {
-                            if (i > 0) sb.append(", ");
-                            sb.append(others.get(i).getName());
-                        }
-                        if (others.isEmpty()) sb.append("(empty)");
-                        display = sb.toString();
-                    }
-                    setText(display);
                 }
+
+                String display;
+                if (conv.getType() == shared.enums.ConversationType.PRIVATE) {
+                    String otherName = others.isEmpty() ? "(empty)" : others.get(0).getName();
+                    display = "DM: " + otherName;
+                } else {
+                    StringBuilder sb = new StringBuilder("Group: ");
+                    for (int i = 0; i < others.size(); i++) {
+                        if (i > 0) sb.append(", ");
+                        sb.append(others.get(i).getName());
+                    }
+                    if (others.isEmpty()) sb.append("(empty)");
+                    display = sb.toString();
+                }
+
+                int unread = ClientController.unreadCount(conv, me);
+                if (unread > 0) {
+                    nameLabel.setFont(list.getFont().deriveFont(Font.BOLD));
+                    badgeLabel.setText(unread > 99 ? "99+" : Integer.toString(unread));
+                    badgeLabel.setVisible(true);
+                    getAccessibleContext().setAccessibleName(display + " (" + unread + " unread)");
+                } else {
+                    nameLabel.setFont(list.getFont().deriveFont(Font.PLAIN));
+                    badgeLabel.setVisible(false);
+                    getAccessibleContext().setAccessibleName(display);
+                }
+                nameLabel.setText(display);
+
+                if (isSelected) {
+                    setBackground(list.getSelectionBackground());
+                    nameLabel.setForeground(list.getSelectionForeground());
+                } else {
+                    setBackground(list.getBackground());
+                    nameLabel.setForeground(list.getForeground());
+                }
+
                 return this;
             }
         }
@@ -1591,7 +1815,6 @@ public class ClientUI {
             });
 
             // TODO: label the conversation
-            // TODO: unread markers
             // add action for selecting an item from the list
             list.addListSelectionListener(e-> {
                 if (suppressSelectionEvents) {
@@ -1600,17 +1823,21 @@ public class ClientUI {
             	if (!e.getValueIsAdjusting()) {
     				if(list.getSelectedValue() != null) {
     					Conversation selected = list.getSelectedValue();
-    					controller.setCurrentConversationId(selected.getConversationId());
-                        long lastReadBeforeOpen = controller.getCurrentUserInfo().getLastRead(selected.getConversationId());
+    					// Atomic open: capture (lastRead, messages) and publish currentConversationId
+    					// under one lock so a concurrent inbound can't advance lastRead past the
+    					// new message between snapshot and divider check.
+    					ClientController.ConversationOpenSnapshot snap =
+    					        controller.openConversationAtomically(selected.getConversationId());
+    					if (snap == null) return; // logged out / unknown conv (shouldn't happen here)
     					// delegates to ConversationView.setListModel so both the
     					// participant label and the message list are updated together
-    					if (!selected.getMessages().isEmpty()) {
-    					    Message last = selected.getMessages().get(selected.getMessages().size() - 1);
+    					if (!snap.messages.isEmpty()) {
+    					    Message last = snap.messages.get(snap.messages.size() - 1);
     					    controller.getCurrentUserInfo().setLastRead(
     					            selected.getConversationId(), last.getSequenceNumber());
     					    controller.updateReadMessages(selected.getConversationId(), last.getSequenceNumber());
     					}
-    					cards.main.conversationView.setListModel(selected, lastReadBeforeOpen);
+    					cards.main.conversationView.setListModel(snap);
     				}
             	}
             });
