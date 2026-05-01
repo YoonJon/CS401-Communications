@@ -258,6 +258,11 @@ public class ConnectionHandler implements Runnable {
                     break;
                 }
             }
+            // Cascade writer exit into full shutdown so the session is deregistered from
+            // ServerController.activeSessions. Otherwise broadcasts keep being routed here
+            // and silently piling up in an undrained responseQueue until the read side
+            // notices EOF or the heartbeat times out.
+            close();
         }
     }
 }
