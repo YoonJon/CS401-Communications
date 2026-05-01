@@ -14,16 +14,15 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.List;
 
 public class ClientUI {
 
     private final ClientController controller;
     private JFrame frame;
     private ScreenCards cards;
-    private DefaultListModel<UserInfo> directoryModel;
-    private DefaultListModel<Object> conversationMessageModel;
-    private DefaultListModel<Conversation> conversationListModel;
     private final IdleWatcher idleWatcher;
+    private volatile ConversationView activeConversationView;
 
     private int unreadWhileAway = 0;
     private volatile boolean suppressActivationReset = false;
@@ -34,17 +33,38 @@ public class ClientUI {
     private static final Dimension ADMIN_SEARCH_DIALOG_SIZE  = new Dimension(900, 600);
     private static final double    BUBBLE_WRAP_FRACTION      = 0.70;
 
-    /** Named RGB constants for the dark-mode theme. Values are unchanged from the
-     *  original inline literals — this class only gives them readable names. */
+    private static final class Constants {
+        private Constants() {}
+        static final String NIMBUS_LAF_FQCN = "javax.swing.plaf.nimbus.NimbusLookAndFeel";
+
+        static final String CARD_LOGIN    = "login";
+        static final String CARD_REGISTER = "register";
+        static final String CARD_MAIN     = "main";
+
+        static final String DLG_SELECT_USER  = "Select User";
+        static final String DLG_ADMIN_SEARCH = "Searching Conversations";
+
+        static final String DM_PREFIX                     = "DM: ";
+        static final String GROUP_PREFIX                  = "Group: ";
+        static final String EMPTY_PARTICIPANT_PLACEHOLDER = "(empty)";
+        static final int    UNREAD_BADGE_CAP              = 99;
+        static final String UNREAD_BADGE_CAP_TEXT         = "99+";
+
+        static final int MIN_HTML_WRAP_PX           = 80;
+        static final int MIN_BUBBLE_WIDTH_PX        = 120;
+        static final int BUBBLE_INSET_PX            = 28;
+        static final int SCROLL_BOTTOM_TOLERANCE_PX = 4;
+        static final int ADMIN_SPLIT_DIVIDER_PX     = 320;
+        static final int APP_ICON_SIZE_PX           = 32;
+        static final Dimension DIVIDER_PANEL_DIM    = new Dimension(10, 22);
+    }
+
     private static final class Theme {
-        // Surfaces
         static final Color SURFACE_BG          = new Color(43, 43, 43);
         static final Color FIELD_BG            = new Color(60, 63, 65);
-        // Text
         static final Color TEXT_PRIMARY        = new Color(220, 220, 220);
         static final Color TEXT_ON_OWN_BUBBLE  = new Color(235, 235, 235);
         static final Color WHITE               = new Color(255, 255, 255);
-        // Nimbus accent palette
         static final Color NIMBUS_FOCUS         = new Color(115, 164, 209);
         static final Color NIMBUS_GREEN         = new Color(176, 179, 50);
         static final Color NIMBUS_INFO_BLUE     = new Color(66, 139, 221);
@@ -53,7 +73,6 @@ public class ClientUI {
         static final Color NIMBUS_ALERT_YELLOW  = new Color(248, 187, 0);
         static final Color NIMBUS_DISABLED_TEXT = new Color(128, 128, 128);
         static final Color NIMBUS_SELECTION_BG  = new Color(75, 110, 175);
-        // App-specific
         static final Color OWN_BUBBLE_BG = new Color(66, 95, 120);
         static final Color BUBBLE_BORDER = new Color(180, 180, 180);
         static final Color BANNER_FG     = new Color(0, 100, 180);
@@ -71,14 +90,13 @@ public class ClientUI {
             installWindowListener();
             installKeyboardShortcuts();
             idleWatcher.installAwtListener();
+            idleWatcher.start();
         });
-
-        idleWatcher.start();
     }
 
     private void applyNimbusLookAndFeel() {
         try {
-            UIManager.setLookAndFeel("javax.swing.plaf.nimbus.NimbusLookAndFeel");
+            UIManager.setLookAndFeel(Constants.NIMBUS_LAF_FQCN);
         } catch (Exception ignored) {
             // If Nimbus is unavailable, keep current LAF and continue.
         }
@@ -123,9 +141,7 @@ public class ClientUI {
         frame.setIconImage(createAppIcon());
         frame.setMinimumSize(MAIN_FRAME_MIN_SIZE);
         cards = new ScreenCards();
-        directoryModel = cards.main.directoryView.getListModel();
-        conversationMessageModel = cards.main.conversationView.getListModel();
-        conversationListModel = cards.main.conversationListView.getListModel();
+        activeConversationView = cards.main.conversationView;
         frame.add(cards);
         frame.pack();
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -136,8 +152,7 @@ public class ClientUI {
     private void installWindowListener() {
         frame.addWindowListener(new WindowAdapter() {
             @Override public void windowActivated(WindowEvent e) {
-                // Tell the controller the window is active and drain any
-                // deferred read-advances that piled up while we were inactive.
+                // drain reads deferred while window inactive
                 controller.setWindowActive(true);
                 controller.replayReadAdvanceIfNeeded();
                 if (suppressActivationReset) {
@@ -149,6 +164,10 @@ public class ClientUI {
             }
             @Override public void windowDeactivated(WindowEvent e) {
                 controller.setWindowActive(false);
+            }
+            @Override public void windowClosing(WindowEvent e) {
+                idleWatcher.stop();
+                idleWatcher.uninstallAwtListener();
             }
         });
     }
@@ -182,6 +201,7 @@ public class ClientUI {
 
         private volatile long lastActivityMillis = System.currentTimeMillis();
         private final Timer pollTimer;
+        private AWTEventListener awtActivityListener;
 
         IdleWatcher() {
             pollTimer = new Timer(POLL_MS, e -> onTick());
@@ -190,16 +210,26 @@ public class ClientUI {
 
         void start() { pollTimer.start(); }
 
+        void stop() { pollTimer.stop(); }
+
         void installAwtListener() {
+            awtActivityListener = e -> lastActivityMillis = System.currentTimeMillis();
             Toolkit.getDefaultToolkit().addAWTEventListener(
-                e -> lastActivityMillis = System.currentTimeMillis(),
+                awtActivityListener,
                 AWTEvent.KEY_EVENT_MASK | AWTEvent.MOUSE_EVENT_MASK
             );
         }
 
+        void uninstallAwtListener() {
+            if (awtActivityListener != null) {
+                Toolkit.getDefaultToolkit().removeAWTEventListener(awtActivityListener);
+                awtActivityListener = null;
+            }
+        }
+
         private void onTick() {
             long idleMs = System.currentTimeMillis() - lastActivityMillis;
-            if (LOGOUT_AFTER_MS > 0 && controller.isLoggedIn() && idleMs >= LOGOUT_AFTER_MS) {
+            if (controller.isLoggedIn() && idleMs >= LOGOUT_AFTER_MS) {
                 controller.logout();
             }
         }
@@ -209,7 +239,7 @@ public class ClientUI {
         showLoginView(null);
     }
 
-    /** #139B: pre-fill login id (e.g. with the just-registered loginName) before showing the screen. */
+    /** Pre-fills login id before showing the screen (e.g. with the just-registered loginName). */
     public void showLoginView(String prefilledLoginId) {
         SwingUtilities.invokeLater(() -> {
             DirectoryView dv = cards.main.directoryView;
@@ -225,41 +255,35 @@ public class ClientUI {
             cards.main.directoryView.adminButton.setVisible(false);
             cards.main.directoryView.revalidate();
             cards.main.directoryView.repaint();
-            cards.layout.show(cards, "login");
+            cards.layout.show(cards, Constants.CARD_LOGIN);
         });
     }
     public void showRegisterView() {
         SwingUtilities.invokeLater(() -> {
             clearLoginAndRegisterFields();
-            cards.layout.show(cards, "register");
+            cards.layout.show(cards, Constants.CARD_REGISTER);
         });
     }
 
-    // currentUser is set by the time this is called
     public void showMainView() {
         SwingUtilities.invokeLater(() -> {
             clearLoginAndRegisterFields();
-            // Reset the center pane so stale messages from a prior session in the
-            // same JVM don't render against a null currentConversation (which would
-            // surface every sender as "(former participant)" with no body).
+            // Same-JVM relogin: stale messages would render as "(former participant)" with no body.
             cards.main.conversationView.clearConversation();
             cards.main.conversationListView.list.clearSelection();
             UserInfo currentUser = controller.getCurrentUserInfo();
             boolean isAdmin = currentUser != null && currentUser.getUserType() == UserType.ADMIN;
             cards.main.directoryView.adminButton.setVisible(isAdmin);
-            // Refresh directory list from the latest controller-side cache on main-view entry.
-            // Exclude the logged-in user from the directory picker list.
             String myId = (currentUser != null) ? currentUser.getUserId() : null;
-            directoryModel.clear();
+            cards.main.directoryView.listModel.clear();
             for (UserInfo userInfo : controller.getFilteredDirectory("")) {
                 if (myId == null || !userInfo.getUserId().equals(myId)) {
-                    directoryModel.addElement(userInfo);
+                    cards.main.directoryView.listModel.addElement(userInfo);
                 }
             }
-            // Populate conversation list from login result.
-            conversationListModel.clear();
+            cards.main.conversationListView.listModel.clear();
             for (Conversation c : controller.getFilteredConversationList("")) {
-                conversationListModel.addElement(c);
+                cards.main.conversationListView.listModel.addElement(c);
             }
             cards.main.directoryView.revalidate();
             cards.main.directoryView.repaint();
@@ -272,15 +296,13 @@ public class ClientUI {
                 idL.setFont(idL.getFont().deriveFont(Font.PLAIN, idL.getFont().getSize() - 1f));
                 idL.setForeground(Color.GRAY);
             }
-            cards.layout.show(cards, "main");
+            cards.layout.show(cards, Constants.CARD_MAIN);
             frame.pack();
             frame.setLocationRelativeTo(null);
         });
     }
 
-    /** Escapes HTML special chars, wraps the result in {@code <html><body style='width:Npx'>...},
-     *  and emits a JLabel-ready string. Shared between {@link ConversationView.MessageCellRenderer}
-     *  and the admin viewer's read-only renderer so wrapping width math stays in one place. */
+    /** Wraps escaped HTML in a width-bounded body so JLabel wraps the same way in both renderers. */
     static String escapeAndWrapHtml(String raw, int maxPx) {
         if (raw == null) raw = "";
         StringBuilder sb = new StringBuilder(raw.length() + 16);
@@ -297,12 +319,11 @@ public class ClientUI {
                 default:   sb.append(c);
             }
         }
-        int safe = Math.max(80, maxPx);
+        int safe = Math.max(Constants.MIN_HTML_WRAP_PX, maxPx);
         return "<html><body style='width:" + safe + "px'>" + sb + "</body></html>";
     }
 
-    /** #141: wrap a password field with a Show/Hide toggle button. The wrapper JPanel takes the
-     *  field's place in any layout; the field reference itself is unchanged. */
+    /** #141: outer JPanel wraps field so layout swaps survive Show/Hide toggle. */
     private static JPanel passwordFieldWithToggle(JPasswordField field) {
         JPanel wrap = new JPanel(new BorderLayout(2, 0));
         JButton toggle = new JButton("Show");
@@ -397,7 +418,6 @@ public class ClientUI {
     /** #140/#142: drives the visible "submit in flight" state for both login and register. */
     public void setLoginInFlight(boolean inFlight) {
         SwingUtilities.invokeLater(() -> {
-            if (cards == null) return; // pre-EDT init guard
             cards.login.loginButton.setEnabled(!inFlight);
             cards.login.loginButton.setText(inFlight ? "Logging in..." : "Login");
             cards.register.createButton.setEnabled(!inFlight);
@@ -412,9 +432,9 @@ public class ClientUI {
 
     public void updateDirectoryModel(ArrayList<UserInfo> users) {
         SwingUtilities.invokeLater(() -> {
-            directoryModel.clear();
+            cards.main.directoryView.listModel.clear();
             for (UserInfo user : users) {
-                directoryModel.addElement(user);
+                cards.main.directoryView.listModel.addElement(user);
             }
         });
     }
@@ -440,15 +460,15 @@ public class ClientUI {
                     return Long.compare(bSeq, aSeq);
                 });
 
-                conversationListModel.clear();
+                cards.main.conversationListView.listModel.clear();
                 for (Conversation conversation : conversations) {
-                    conversationListModel.addElement(conversation);
+                    cards.main.conversationListView.listModel.addElement(conversation);
                 }
 
                 // Restore selection after rebuild.
                 if (selectedId != null) {
-                    for (int i = 0; i < conversationListModel.getSize(); i++) {
-                        if (conversationListModel.getElementAt(i).getConversationId() == selectedId.longValue()) {
+                    for (int i = 0; i < cards.main.conversationListView.listModel.getSize(); i++) {
+                        if (cards.main.conversationListView.listModel.getElementAt(i).getConversationId() == selectedId.longValue()) {
                             clv.list.setSelectedIndex(i);
                             break;
                         }
@@ -471,7 +491,7 @@ public class ClientUI {
             // Auto-switch should hand focus to message input, not leave it on a stale
             // directory selection.
             cards.main.directoryView.clearSelecting();
-            SwingUtilities.invokeLater(cards.main.conversationView::focusInput);
+            cards.main.conversationView.focusInput();
 
             ArrayList<Message> msgs = conversation.getMessages();
             if (!msgs.isEmpty()) {
@@ -480,10 +500,7 @@ public class ClientUI {
         });
     }
 
-    /** Marks {@code conversation} as read up to {@code sequenceNumber} on both the
-     *  client-side model and the server. {@link ClientController#updateReadMessages}
-     *  is the network round-trip; the {@code setLastRead} call ahead of it keeps the
-     *  local cache in sync immediately. */
+    /** Marks {@code conversation} read up to {@code sequenceNumber} both locally and on the server. */
     private void markConversationRead(Conversation conversation, long sequenceNumber) {
         UserInfo me = controller.getCurrentUserInfo();
         if (me != null) {
@@ -501,23 +518,21 @@ public class ClientUI {
             boolean fromOther = me != null && !message.getSenderId().equals(me.getUserId());
             boolean userActivelyViewing = frame.isActive() && cv.userIsAtBottom;
             if (fromOther && !userActivelyViewing && !cv.modelHasDivider) {
-                conversationMessageModel.addElement(ConversationView.NewMessagesDivider.INSTANCE);
+                cards.main.conversationView.conversationMessageListModel.addElement(ConversationView.NewMessagesDivider.INSTANCE);
                 cv.modelHasDivider = true;
             }
-            conversationMessageModel.addElement(message);
+            cards.main.conversationView.conversationMessageListModel.addElement(message);
             // Auto-scroll to newest only when the user is parked at the bottom. Otherwise
             // preserve their scroll position so they can read history.
-            if (cv.userIsAtBottom) {
+            if (cv.userIsAtBottom && !cv.scrollPending) {
+                cv.scrollPending = true;
                 SwingUtilities.invokeLater(() -> {
+                    cv.scrollPending = false;
                     int last = cv.list.getModel().getSize() - 1;
                     if (last >= 0) cv.list.ensureIndexIsVisible(last);
                 });
             }
-            // Slide the per-message read snapshot forward only when the OS window is
-            // active AND the user is parked at the bottom. Otherwise leave the snapshot
-            // frozen; the controller's deferred read-advance buffer replays on the next
-            // window activation or scroll-to-bottom, calling back into markDisplayedReadUpTo.
-            // Do NOT call updateReadMessages here — the controller owns the wire concern.
+            // deferred replay: window was inactive when message arrived
             if (frame.isActive() && cv.userIsAtBottom) {
                 cv.markDisplayedReadUpTo(message.getSequenceNumber());
             }
@@ -542,13 +557,10 @@ public class ClientUI {
                 cards.main.conversationView.markDisplayedReadUpTo(sequenceNumber));
     }
 
-    /** True when user is parked at the bottom of the open conversation.
-     *  Read from the network reader thread; underlying field is volatile. */
+    /** Called from network reader thread; activeConversationView and its userIsAtBottom field are volatile. */
     public boolean userIsViewingBottom() {
-        if (cards == null || cards.main == null || cards.main.conversationView == null) {
-            return true;
-        }
-        return cards.main.conversationView.userIsAtBottom;
+        ConversationView cv = activeConversationView;
+        return cv == null || cv.userIsAtBottom;
     }
 
     public void repaintConversationList() {
@@ -569,8 +581,7 @@ public class ClientUI {
         });
     }
 
-    /** Routes a silent admin read into the right pane of the open admin viewer. No-op if
-     *  the viewer dialog isn't open (defensive — late responses after dialog close are dropped). */
+    /** Late responses dropped after dialog close. */
     public void showAdminConversationView(Conversation conv) {
         if (conv == null) return;
         SwingUtilities.invokeLater(() -> {
@@ -578,10 +589,6 @@ public class ClientUI {
             if (dv.adminConversationSearchWindow == null) return;
             dv.adminConversationSearchWindow.loadConversation(conv);
         });
-    }
-
-    private JTextField makePlaceholderField(String placeholder, int cols) {
-        return new PlaceholderTextField(placeholder, cols);
     }
 
     private void bindEscapeToDispose(JDialog dialog) {
@@ -593,8 +600,52 @@ public class ClientUI {
         });
     }
 
+    private static DocumentListener filteringListener(Runnable onChange) {
+        return new DocumentListener() {
+            @Override public void insertUpdate(DocumentEvent e) { onChange.run(); }
+            @Override public void removeUpdate(DocumentEvent e) { onChange.run(); }
+            @Override public void changedUpdate(DocumentEvent e) { onChange.run(); }
+        };
+    }
+
+    private JDialog buildModalDialog(String title, JComponent content, Dimension size) {
+        JDialog dialog = new JDialog(frame, title, false);
+        dialog.add(content);
+        dialog.setSize(size);
+        dialog.setLocationRelativeTo(frame);
+        dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+        bindEscapeToDispose(dialog);
+        return dialog;
+    }
+
+    private static ArrayList<UserInfo> excludeSelf(List<UserInfo> participants, String myUserId) {
+        ArrayList<UserInfo> others = new ArrayList<>();
+        for (UserInfo p : participants) {
+            if (myUserId == null || !p.getUserId().equals(myUserId)) others.add(p);
+        }
+        return others;
+    }
+
+    private static String buildParticipantSummary(List<UserInfo> others, int maxNames) {
+        if (others.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        int limit = Math.min(maxNames, others.size());
+        for (int i = 0; i < limit; i++) {
+            if (i > 0) sb.append(", ");
+            sb.append(others.get(i).getName());
+        }
+        if (others.size() > maxNames) {
+            sb.append(" +").append(others.size() - maxNames).append(" more");
+        }
+        return sb.toString();
+    }
+
+    private static ArrayList<UserInfo> displayParticipants(ArrayList<UserInfo> active, ArrayList<UserInfo> historical) {
+        return !active.isEmpty() ? active : historical;
+    }
+
     private Image createAppIcon() {
-        int size = 32;
+        int size = Constants.APP_ICON_SIZE_PX;
         java.awt.image.BufferedImage img =
             new java.awt.image.BufferedImage(size, size, java.awt.image.BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = img.createGraphics();
@@ -610,18 +661,19 @@ public class ClientUI {
         return img;
     }
 
-    /** Format a message timestamp as "LLL dd, HH:mm" (or include the year if it
-     *  isn't the current year). Shared by message renderers. */
+    private static final DateTimeFormatter FMT_SAME_YEAR =
+            DateTimeFormatter.ofPattern("LLL dd, HH:mm", java.util.Locale.ENGLISH);
+    private static final DateTimeFormatter FMT_OTHER_YEAR =
+            DateTimeFormatter.ofPattern("LLL dd yyyy, HH:mm", java.util.Locale.ENGLISH);
+
+    /** Includes year only when not current year. */
     private static String formatMessageTimestamp(java.util.Date when) {
         ZonedDateTime zdt = when.toInstant().atZone(ZoneId.systemDefault());
-        DateTimeFormatter dtf = zdt.getYear() == ZonedDateTime.now().getYear()
-                ? DateTimeFormatter.ofPattern("LLL dd, HH:mm", java.util.Locale.ENGLISH)
-                : DateTimeFormatter.ofPattern("LLL dd yyyy, HH:mm", java.util.Locale.ENGLISH);
+        DateTimeFormatter dtf = zdt.getYear() == ZonedDateTime.now().getYear() ? FMT_SAME_YEAR : FMT_OTHER_YEAR;
         return zdt.format(dtf);
     }
 
-    /** Look up a sender's display name in a conversation's historical participants
-     *  (so removed users still show their name). Returns null if not found. */
+    /** Preserves removed-user names for historical render. */
     private static String resolveHistoricalSenderName(Conversation conv, String senderId) {
         if (conv == null) return null;
         for (UserInfo p : conv.getHistoricalParticipants()) {
@@ -724,12 +776,11 @@ public class ClientUI {
         }
     }
 
-    // =========================================================================
     class ScreenCards extends JPanel {
-        CardLayout layout;
-        MainView main;
-        LoginView login;
-        RegisterView register;
+        private CardLayout layout;
+        private MainView main;
+        private LoginView login;
+        private RegisterView register;
 
         ScreenCards() {
             layout = new CardLayout();
@@ -737,13 +788,12 @@ public class ClientUI {
             login = new LoginView();
             register = new RegisterView();
             main = new MainView();
-            add(login, "login");
-            add(register, "register");
-            add(main, "main");
+            add(login, Constants.CARD_LOGIN);
+            add(register, Constants.CARD_REGISTER);
+            add(main, Constants.CARD_MAIN);
         }
     }
 
-    // =========================================================================
     class RegisterView extends JPanel {
         JTextField userId;
         JTextField loginName;
@@ -771,7 +821,6 @@ public class ClientUI {
             createButton = new JButton("Create Account");
             backButton = new JButton("Back");
 
-            // Tooltips clarify which ID is which.
             userId.setToolTipText("Your organization-assigned employee ID. Must be pre-authorized.");
             loginName.setToolTipText("Choose a username for logging in. Letters, numbers, hyphens, or underscores only.");
 
@@ -788,7 +837,6 @@ public class ClientUI {
             gridConst.insets = new Insets(5, 5, 5, 5);
             gridConst.fill = GridBagConstraints.HORIZONTAL;
 
-            // "Employee ID" is organization-assigned and validated against the authorized list.
             gridConst.gridx = 0; gridConst.gridy = 0;
             inputPanel.add(new JLabel("Employee ID"), gridConst);
             gridConst.gridx = 1; gridConst.gridwidth = 2;
@@ -806,7 +854,6 @@ public class ClientUI {
 
             gridConst.gridx = 0; gridConst.gridy = 3;
             inputPanel.add(new JLabel("Password"), gridConst);
-            // Password text field with Show/Hide toggle.
             gridConst.gridx = 1;
             inputPanel.add(passwordFieldWithToggle(password), gridConst);
 
@@ -843,12 +890,10 @@ public class ClientUI {
         }
 
         private void wireBackButton() {
-            // Route through showLoginView so clearLoginAndRegisterFields() is called.
             backButton.addActionListener(e -> showLoginView());
         }
     }
 
-    // =========================================================================
     class LoginView extends JPanel {
         JTextField loginIdField;
         JPasswordField passwordField;
@@ -863,7 +908,6 @@ public class ClientUI {
             loginButton = new JButton("Login");
             createButton = new JButton("Create Account");
 
-            // Tooltip clarifies the field is the login username, not the Employee ID.
             loginIdField.setToolTipText("Your chosen login username (not your Employee ID).");
 
             JLabel heading = new JLabel("Login", SwingConstants.CENTER);
@@ -884,7 +928,6 @@ public class ClientUI {
             gridConst.gridx = 0;
             gridConst.gridy = 1;
             inputPanel.add(new JLabel("Password"), gridConst);
-            // Password text field with Show/Hide toggle.
             gridConst.gridx = 1;
             inputPanel.add(passwordFieldWithToggle(passwordField), gridConst);
             gridConst.gridx = 2;
@@ -908,12 +951,10 @@ public class ClientUI {
             loginIdField.addActionListener(loginAction);
             passwordField.addActionListener(loginAction);
 
-            // Route through showRegisterView so fields are cleared.
             createButton.addActionListener(e -> showRegisterView());
         }
     }
 
-    // =========================================================================
     class MainView extends JPanel {
         private static final int MIN_CONVERSATION_LIST_WIDTH = 240;
         ConversationView conversationView;
@@ -948,9 +989,8 @@ public class ClientUI {
 
     }
 
-    // =========================================================================
     class ConversationView extends JPanel {
-        JLabel participantsLabel;
+        private JLabel participantsLabel;
         final DefaultListModel<Object> conversationMessageListModel = new DefaultListModel<>();
         final JList<Object> list = new JList<>(conversationMessageListModel);
         private JScrollPane messageScrollPane;
@@ -965,12 +1005,13 @@ public class ClientUI {
         // Set true on insert by setListModel or appendMessageToConversationView; cleared on
         // model clear (setListModel/clearConversation). EDT-only access.
         private boolean modelHasDivider = false;
-        JButton addButton;
-        JButton leaveButton;
-        JTextField text;
-        JButton sendButton;
-        JDialog addDialog;
-        SelectUserWindow addUserWindow;
+        private boolean scrollPending = false;
+        private JButton addButton;
+        private JButton leaveButton;
+        private JTextField messageInputField;
+        private JButton sendButton;
+        private JDialog addDialog;
+        private SelectUserWindow addUserWindow;
 
         private final JLabel placeholderLabel = new JLabel("Select a conversation to start chatting", SwingConstants.CENTER);
 
@@ -982,7 +1023,6 @@ public class ClientUI {
             private NewMessagesDivider() {}
         }
 
-        // Use JTextArea-based bubbles for deterministic wrapping.
         private final class MessageCellRenderer extends JPanel implements ListCellRenderer<Object> {
             private final JPanel bubble = new JPanel(new BorderLayout(0, 2));
             private final JTextArea headerArea = new JTextArea();
@@ -990,6 +1030,8 @@ public class ClientUI {
             // A separate component returned for NewMessagesDivider sentinels.
             private final JPanel dividerPanel = new JPanel(new BorderLayout(6, 0));
             private final JLabel dividerLabel = new JLabel("New messages", SwingConstants.CENTER);
+            private final java.util.HashMap<Long, MessageRow> rowCache = new java.util.HashMap<>();
+            private Conversation cachedFor;
 
             MessageCellRenderer() {
                 setLayout(new BorderLayout());
@@ -1027,7 +1069,7 @@ public class ClientUI {
                 dividerPanel.add(left, BorderLayout.WEST);
                 dividerPanel.add(dividerLabel, BorderLayout.CENTER);
                 dividerPanel.add(right, BorderLayout.EAST);
-                dividerPanel.setPreferredSize(new Dimension(10, 22));
+                dividerPanel.setPreferredSize(new Dimension(Constants.DIVIDER_PANEL_DIM));
                 dividerPanel.getAccessibleContext().setAccessibleName("New messages divider");
             }
 
@@ -1038,14 +1080,21 @@ public class ClientUI {
 
                 if (value instanceof NewMessagesDivider) {
                     dividerPanel.setBackground(list.getBackground());
-                    // Make the embedded label transparent so the bg shows through evenly.
                     dividerLabel.setOpaque(false);
                     return dividerPanel;
                 }
 
                 Message msg = (Message) value;
-                MessageRow row = MessageRow.forConversation(
-                        msg, controller.getCurrentConversation(), controller.getCurrentUserInfo());
+                Conversation curr = controller.getCurrentConversation();
+                if (curr != cachedFor) {
+                    rowCache.clear();
+                    cachedFor = curr;
+                }
+                MessageRow row = rowCache.get(msg.getSequenceNumber());
+                if (row == null) {
+                    row = MessageRow.forConversation(msg, curr, controller.getCurrentUserInfo());
+                    rowCache.put(msg.getSequenceNumber(), row);
+                }
 
                 removeAll();
                 setBackground(list.getBackground());
@@ -1084,7 +1133,7 @@ public class ClientUI {
             }
 
             private void installBubbleWidth(int wrapPx) {
-                int safe = Math.max(120, wrapPx);
+                int safe = Math.max(Constants.MIN_BUBBLE_WIDTH_PX, wrapPx);
                 headerArea.setSize(new Dimension(safe, Short.MAX_VALUE));
                 Dimension headerPref = headerArea.getPreferredSize();
                 bodyArea.setSize(new Dimension(safe, Short.MAX_VALUE));
@@ -1122,8 +1171,8 @@ public class ClientUI {
                         baseWidth -= vsb.getWidth();
                     }
                 }
-                int usable = baseWidth - 28;
-                return usable > 0 ? (int) (usable * 0.66) : 220;
+                int usable = baseWidth - Constants.BUBBLE_INSET_PX;
+                return usable > 0 ? (int) (usable * BUBBLE_WRAP_FRACTION) : 220;
             }
         }
 
@@ -1131,8 +1180,8 @@ public class ClientUI {
             participantsLabel = new JLabel();
             addButton = new JButton("Add");
             leaveButton = new JButton("Leave");
-            text = new JTextField(15);
-            text.setEnabled(false);
+            messageInputField = new JTextField(15);
+            messageInputField.setEnabled(false);
             sendButton = new JButton("Send");
             addButton.setEnabled(false);
             leaveButton.setEnabled(false);
@@ -1172,7 +1221,6 @@ public class ClientUI {
             };
             list.addComponentListener(wrapResizeAdapter);
 
-            // Layered center panel: placeholder shows when no conversation is selected.
             JPanel centerPanel = new JPanel(new BorderLayout());
             messageScrollPane = new JScrollPane(list);
             messageScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
@@ -1185,11 +1233,11 @@ public class ClientUI {
             messageScrollPane.getVerticalScrollBar().addAdjustmentListener(e -> {
                 JScrollBar vsb = (JScrollBar) e.getSource();
                 int max = vsb.getMaximum() - vsb.getVisibleAmount();
-                boolean newAtBottom = (vsb.getValue() >= max - 4);
+                boolean newAtBottom = (vsb.getValue() >= max - Constants.SCROLL_BOTTOM_TOLERANCE_PX);
                 boolean wasAtBottom = userIsAtBottom;
                 userIsAtBottom = newAtBottom;
                 if (newAtBottom && !wasAtBottom) {
-                    controller.replayReadAdvanceIfNeeded();
+                    onScrollReachedBottom();
                 }
             });
             centerPanel.add(messageScrollPane, BorderLayout.CENTER);
@@ -1201,7 +1249,7 @@ public class ClientUI {
             charCountLabel.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 4));
             JPanel sendPane = new JPanel(new BorderLayout());
             sendPane.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 0));
-            sendPane.add(text, BorderLayout.CENTER);
+            sendPane.add(messageInputField, BorderLayout.CENTER);
             JPanel sendRight = new JPanel(new BorderLayout());
             sendRight.add(charCountLabel, BorderLayout.WEST);
             sendRight.add(sendButton, BorderLayout.EAST);
@@ -1216,12 +1264,7 @@ public class ClientUI {
                 addUserWindow = new SelectUserWindow(
                     users -> controller.addToConversation(users, controller.getCurrentConversationId()));
 
-                addDialog = new JDialog(frame, "Select User", false);
-                addDialog.add(addUserWindow);
-                addDialog.setSize(SELECT_USER_DIALOG_SIZE);
-                addDialog.setLocationRelativeTo(frame);
-                addDialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-                bindEscapeToDispose(addDialog);
+                addDialog = buildModalDialog(Constants.DLG_SELECT_USER, addUserWindow, SELECT_USER_DIALOG_SIZE);
 
                 addDialog.addWindowListener(new WindowAdapter() {
                     @Override
@@ -1251,7 +1294,7 @@ public class ClientUI {
             });
 
             // 500-char hard cap
-            ((javax.swing.text.AbstractDocument) text.getDocument()).setDocumentFilter(
+            ((javax.swing.text.AbstractDocument) messageInputField.getDocument()).setDocumentFilter(
                     new javax.swing.text.DocumentFilter() {
                         private static final int MAX = 500;
                         @Override
@@ -1274,43 +1317,43 @@ public class ClientUI {
                         }
                     });
 
-            text.getDocument().addDocumentListener(new DocumentListener() {
+            messageInputField.getDocument().addDocumentListener(new DocumentListener() {
 
-                private void update() {
-                    int len = text.getText().length();
+                private void update(DocumentEvent e) {
+                    int len = e.getDocument().getLength();
                     charCountLabel.setText(len + "/500");
                     charCountLabel.setForeground(len >= 500 ? Color.RED : UIManager.getColor("Label.foreground"));
-                    sendButton.setEnabled(!text.getText().trim().isEmpty());
+                    sendButton.setEnabled(len > 0 && !messageInputField.getText().trim().isEmpty());
                 }
 
                 @Override
                 public void insertUpdate(DocumentEvent e) {
-                    update();
+                    update(e);
                 }
 
                 @Override
                 public void removeUpdate(DocumentEvent e) {
-                    update();
+                    update(e);
                 }
 
                 @Override
                 public void changedUpdate(DocumentEvent e) {
-                    update();
+                    update(e);
                 }
             });
 
             sendButton.addActionListener(e -> doSend());
 
-            text.addActionListener(e -> doSend());
+            messageInputField.addActionListener(e -> doSend());
 
         }
 
         private void doSend() {
             if (controller.getCurrentConversation() == null) return;
-            String msg = text.getText();
+            String msg = messageInputField.getText();
             if (msg.trim().isEmpty()) return;
             controller.sendMessage(controller.getCurrentConversation().getConversationId(), msg);
-            text.setText("");
+            messageInputField.setText("");
             // Sending a reply is an unambiguous read-acknowledgement.
             removeDividerNow();
         }
@@ -1320,12 +1363,7 @@ public class ClientUI {
             setListModel(currConv, lastReadAtOpen);
         }
 
-        /**
-         * Fix E2: race-free overload. Uses the message list captured atomically with
-         * {@code lastReadAtOpen} by {@link ClientController#openConversationAtomically(long)}
-         * so the divider boundary always matches the consistent (lastRead, messages) pair —
-         * even if {@link Conversation#append} fires between capture and render.
-         */
+        /** Fix E2: caller atomically captures (lastRead, messages); divider can't drift. */
         public void setListModel(ClientController.ConversationOpenSnapshot snap) {
             setListModel(snap.conversation, snap.lastReadAtOpen, snap.messages);
         }
@@ -1335,25 +1373,9 @@ public class ClientUI {
         }
 
         private void setListModel(Conversation currConv, long lastReadAtOpen, ArrayList<Message> msgs) {
-            // Exclude self; show up to 3 names, then append "+N more".
             UserInfo me = controller.getCurrentUserInfo();
             String myId = (me != null) ? me.getUserId() : null;
-            ArrayList<UserInfo> others = new ArrayList<>();
-            for (UserInfo p : currConv.getParticipants()) {
-                if (!p.getUserId().equals(myId)) {
-                    others.add(p);
-                }
-            }
-            StringBuilder memberSb = new StringBuilder();
-            int limit = Math.min(3, others.size());
-            for (int i = 0; i < limit; i++) {
-                if (i > 0) memberSb.append(", ");
-                memberSb.append(others.get(i).getName());
-            }
-            if (others.size() > 3) {
-                memberSb.append(" +").append(others.size() - 3).append(" more");
-            }
-            final String finalMember = memberSb.toString();
+            final String finalMember = buildParticipantSummary(excludeSelf(currConv.getParticipants(), myId), 3);
             final long finalLastReadAtOpen = lastReadAtOpen;
             SwingUtilities.invokeLater(() -> {
                 displayedLastReadSeq = finalLastReadAtOpen;
@@ -1380,21 +1402,18 @@ public class ClientUI {
                 }
                 modelHasDivider = dividerInserted;
                 refreshWrapLayout();
-                text.setEnabled(true);
+                messageInputField.setEnabled(true);
                 addButton.setEnabled(true);
                 leaveButton.setEnabled(true);
-                sendButton.setEnabled(!text.getText().trim().isEmpty());
+                sendButton.setEnabled(!messageInputField.getText().trim().isEmpty());
                 placeholderLabel.setVisible(false);
-                SwingUtilities.invokeLater(() -> {
-                    int last = list.getModel().getSize() - 1;
-                    if (last >= 0) list.ensureIndexIsVisible(last);
-                    scrollToBottom();
-                    refreshWrapLayout();
-                });
+                int last = list.getModel().getSize() - 1;
+                if (last >= 0) list.ensureIndexIsVisible(last);
+                scrollToBottom();
+                refreshWrapLayout();
             });
         }
 
-        /** Clears the view and disables action buttons (no conversation active). */
         public void clearConversation() {
             SwingUtilities.invokeLater(() -> {
                 displayedLastReadSeq = 0L;
@@ -1404,7 +1423,7 @@ public class ClientUI {
                 participantsLabel.setText("");
                 conversationMessageListModel.clear();
                 refreshWrapLayout();
-                text.setEnabled(false);
+                messageInputField.setEnabled(false);
                 addButton.setEnabled(false);
                 leaveButton.setEnabled(false);
                 sendButton.setEnabled(false);
@@ -1424,13 +1443,20 @@ public class ClientUI {
             return this.conversationMessageListModel;
         }
 
-        /** Hands keyboard focus to the message input. */
         void focusInput() {
-            text.requestFocusInWindow();
+            messageInputField.requestFocusInWindow();
         }
 
         public boolean isAddingUser() {
             return isDialogShowing(addDialog);
+        }
+
+        public void propagateAddUserSelection(UserInfo user) {
+            if (user != null && addUserWindow != null) addUserWindow.addUser(user);
+        }
+
+        private void onScrollReachedBottom() {
+            controller.replayReadAdvanceIfNeeded();
         }
 
         public void markDisplayedReadUpTo(long sequenceNumber) {
@@ -1478,30 +1504,27 @@ public class ClientUI {
         }
 
         private void scrollToBottom() {
-            if (messageScrollPane == null) return;
             JScrollBar vsb = messageScrollPane.getVerticalScrollBar();
-            if (vsb == null) return;
             // Defer one more tick so layout/model updates settle before forcing bottom.
             SwingUtilities.invokeLater(() -> vsb.setValue(vsb.getMaximum()));
         }
     }
 
-    // =========================================================================
     class DirectoryView extends JPanel {
-        JLabel profileUserIdLabel;
-        JLabel profileNameLabel;
-        JLabel pickerBannerLabel;
-        JTextField searchField;
-        DefaultListModel<UserInfo> listModel = new DefaultListModel<>();
-        final JList<UserInfo> list = new JList<>(listModel);
-        JButton logoutButton;
-        JButton createConversationButton;
-        JButton adminButton;
-        JDialog createDialog;
-        JDialog adminDialog;
-        UserInfo selecting;
-        SelectUserWindow createConversationUserWindow;
-        AdminConversationSearchWindow adminConversationSearchWindow;
+        private JLabel profileUserIdLabel;
+        private JLabel profileNameLabel;
+        private JLabel pickerBannerLabel;
+        private JTextField searchField;
+        private final DefaultListModel<UserInfo> listModel = new DefaultListModel<>();
+        private final JList<UserInfo> list = new JList<>(listModel);
+        private JButton logoutButton;
+        private JButton createConversationButton;
+        private JButton adminButton;
+        private JDialog createDialog;
+        private JDialog adminDialog;
+        private UserInfo selectedDirectoryUser;
+        private SelectUserWindow createConversationUserWindow;
+        private AdminConversationSearchWindow adminConversationSearchWindow;
 
         DirectoryView() {
             buildLayout();
@@ -1521,7 +1544,7 @@ public class ClientUI {
             pickerBannerLabel.setFont(pickerBannerLabel.getFont().deriveFont(Font.BOLD));
             pickerBannerLabel.setVisible(false);
 
-            searchField = makePlaceholderField("Search users...", 15);
+            searchField = new PlaceholderTextField("Search users...", 15);
             logoutButton = new JButton("Log Out");
             createConversationButton = new JButton("Create Conversation");
             createConversationButton.setEnabled(false);
@@ -1566,24 +1589,19 @@ public class ClientUI {
         }
 
         private void wireSearchField() {
-            searchField.getDocument().addDocumentListener(new DocumentListener() {
-                @Override public void insertUpdate(DocumentEvent e) { filter(); }
-                @Override public void removeUpdate(DocumentEvent e) { filter(); }
-                @Override public void changedUpdate(DocumentEvent e) { filter(); }
+            searchField.getDocument().addDocumentListener(filteringListener(this::applyDirectoryFilter));
+        }
 
-                private void filter() {
-                    String text = searchField.getText().toUpperCase();
-                    listModel.clear();
-                    // Exclude the logged-in user from the directory list.
-                    UserInfo me = controller.getCurrentUserInfo();
-                    String myId = (me != null) ? me.getUserId() : null;
-                    for(UserInfo item: controller.getFilteredDirectory(text)) {
-                        if (myId == null || !item.getUserId().equals(myId)) {
-                            listModel.addElement(item);
-                        }
-                    }
+        private void applyDirectoryFilter() {
+            String query = searchField.getText().toUpperCase();
+            listModel.clear();
+            UserInfo me = controller.getCurrentUserInfo();
+            String myId = (me != null) ? me.getUserId() : null;
+            for (UserInfo item : controller.getFilteredDirectory(query)) {
+                if (myId == null || !item.getUserId().equals(myId)) {
+                    listModel.addElement(item);
                 }
-            });
+            }
         }
 
         private void wireLogoutButton() {
@@ -1597,15 +1615,10 @@ public class ClientUI {
                 createConversationUserWindow = new SelectUserWindow(users -> controller.createConversation(users));
                 // Seed the picker with the current directory selection so the
                 // first selection is honored without requiring reselection.
-                if (selecting != null) {
-                    createConversationUserWindow.addUser(selecting);
+                if (selectedDirectoryUser != null) {
+                    createConversationUserWindow.addUser(selectedDirectoryUser);
                 }
-                createDialog = new JDialog(frame, "Select User", false);
-                createDialog.add(createConversationUserWindow);
-                createDialog.setSize(SELECT_USER_DIALOG_SIZE);
-                createDialog.setLocationRelativeTo(frame);
-                createDialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-                bindEscapeToDispose(createDialog);
+                createDialog = buildModalDialog(Constants.DLG_SELECT_USER, createConversationUserWindow, SELECT_USER_DIALOG_SIZE);
 
                 createDialog.addWindowListener(new WindowAdapter() {
                     @Override
@@ -1624,7 +1637,7 @@ public class ClientUI {
                 // has exactly one user, Swing auto-selects index 0 on render, and a click
                 // on that already-selected row is a no-op — addUser is never called.
                 list.clearSelection();
-                selecting = null;
+                selectedDirectoryUser = null;
 
                 createDialog.setVisible(true);
             });
@@ -1634,17 +1647,12 @@ public class ClientUI {
             adminButton.addActionListener(e -> {
                 if (focusExistingDialog(adminDialog)) return;
 
-                if (selecting == null) {
+                if (selectedDirectoryUser == null) {
                     return;
                 }
-                controller.adminGetUserConversations(selecting.getUserId());
+                controller.adminGetUserConversations(selectedDirectoryUser.getUserId());
                 adminConversationSearchWindow = new AdminConversationSearchWindow();
-                adminDialog = new JDialog(frame, "Searching Conversations", false);
-                adminDialog.add(adminConversationSearchWindow);
-                adminDialog.setSize(ADMIN_SEARCH_DIALOG_SIZE);
-                adminDialog.setLocationRelativeTo(frame);
-                adminDialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-                bindEscapeToDispose(adminDialog);
+                adminDialog = buildModalDialog(Constants.DLG_ADMIN_SEARCH, adminConversationSearchWindow, ADMIN_SEARCH_DIALOG_SIZE);
 
                 adminDialog.addWindowListener(new WindowAdapter() {
                     @Override
@@ -1670,26 +1678,22 @@ public class ClientUI {
                 if (e.getValueIsAdjusting()) {
                     return;
                 }
-                selecting = selectedValue;
+                selectedDirectoryUser = selectedValue;
 
-                JDialog addDialog = cards.main.conversationView.addDialog;
-                boolean inPickerMode = isDialogShowing(createDialog) || isDialogShowing(addDialog);
+                ConversationView convView = cards.main.conversationView;
+                boolean addingUser = convView.isAddingUser();
+                boolean inPickerMode = isDialogShowing(createDialog) || addingUser;
                 pickerBannerLabel.setVisible(inPickerMode);
 
-                if (selecting != null && !isDialogShowing(createDialog) && !isDialogShowing(adminDialog) && !isDialogShowing(addDialog)) {
+                if (selectedDirectoryUser != null && !isDialogShowing(createDialog) && !isDialogShowing(adminDialog) && !addingUser) {
                     createConversationButton.setEnabled(true);
                     adminButton.setEnabled(true);
                 } else if (isDialogShowing(createDialog)) {
-                    createConversationUserWindow.addUser(selecting);
-                } else if (isDialogShowing(addDialog)) {
-                    if (selecting != null) cards.main.conversationView.addUserWindow.addUser(selecting);
+                    createConversationUserWindow.addUser(selectedDirectoryUser);
+                } else if (addingUser) {
+                    convView.propagateAddUserSelection(selectedDirectoryUser);
                 }
             });
-        }
-
-        public void setListModel(DefaultListModel<UserInfo> model) {
-            this.listModel = model;
-            list.setModel(model);
         }
 
         public DefaultListModel<UserInfo> getListModel() {
@@ -1704,23 +1708,15 @@ public class ClientUI {
             return isDialogShowing(adminDialog);
         }
 
-        public DefaultListModel<ConversationMetadata> getAdminConversationModel() {
-            if(adminConversationSearchWindow == null) {
-                return new DefaultListModel<>();
-            }
-            return adminConversationSearchWindow.getAdminConversationSearch();
-        }
-
         /** Drops the selected directory user without firing the selection listener side effects. */
         void clearSelecting() {
             list.clearSelection();
-            selecting = null;
+            selectedDirectoryUser = null;
         }
 
 
     }
 
-    // =========================================================================
     class ConversationListView extends JPanel {
         JTextField searchField;
         DefaultListModel<Conversation> listModel = new DefaultListModel<>();
@@ -1765,35 +1761,23 @@ public class ClientUI {
             public Component getListCellRendererComponent(
                     JList<? extends Conversation> list, Conversation value, int index,
                     boolean isSelected, boolean cellHasFocus) {
-                Conversation conv = value;
                 UserInfo me = controller.getCurrentUserInfo();
                 String myId = (me != null) ? me.getUserId() : null;
-
-                ArrayList<UserInfo> others = new ArrayList<>();
-                for (UserInfo p : conv.getParticipants()) {
-                    if (!p.getUserId().equals(myId)) {
-                        others.add(p);
-                    }
-                }
+                ArrayList<UserInfo> others = excludeSelf(value.getParticipants(), myId);
 
                 String display;
-                if (conv.getType() == shared.enums.ConversationType.PRIVATE) {
-                    String otherName = others.isEmpty() ? "(empty)" : others.get(0).getName();
-                    display = "DM: " + otherName;
+                if (value.getType() == shared.enums.ConversationType.PRIVATE) {
+                    String otherName = others.isEmpty() ? Constants.EMPTY_PARTICIPANT_PLACEHOLDER : others.get(0).getName();
+                    display = Constants.DM_PREFIX + otherName;
                 } else {
-                    StringBuilder sb = new StringBuilder("Group: ");
-                    for (int i = 0; i < others.size(); i++) {
-                        if (i > 0) sb.append(", ");
-                        sb.append(others.get(i).getName());
-                    }
-                    if (others.isEmpty()) sb.append("(empty)");
-                    display = sb.toString();
+                    String summary = buildParticipantSummary(others, Integer.MAX_VALUE);
+                    display = Constants.GROUP_PREFIX + (summary.isEmpty() ? Constants.EMPTY_PARTICIPANT_PLACEHOLDER : summary);
                 }
 
-                int unread = ClientController.unreadCount(conv, me);
+                int unread = ClientController.unreadCount(value, me);
                 if (unread > 0) {
                     nameLabel.setFont(list.getFont().deriveFont(Font.BOLD));
-                    badgeLabel.setText(unread > 99 ? "99+" : Integer.toString(unread));
+                    badgeLabel.setText(unread > Constants.UNREAD_BADGE_CAP ? Constants.UNREAD_BADGE_CAP_TEXT : Integer.toString(unread));
                     badgeLabel.setVisible(true);
                     getAccessibleContext().setAccessibleName(display + " (" + unread + " unread)");
                 } else {
@@ -1822,7 +1806,7 @@ public class ClientUI {
         }
 
         private void buildLayout() {
-            searchField = makePlaceholderField("Search conversations...", 15);
+            searchField = new PlaceholderTextField("Search conversations...", 15);
 
             setLayout(new BorderLayout());
             setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
@@ -1834,19 +1818,15 @@ public class ClientUI {
         }
 
         private void wireSearchField() {
-            searchField.getDocument().addDocumentListener(new DocumentListener() {
-                @Override public void insertUpdate(DocumentEvent e) { filter(); }
-                @Override public void removeUpdate(DocumentEvent e) { filter(); }
-                @Override public void changedUpdate(DocumentEvent e) { filter(); }
+            searchField.getDocument().addDocumentListener(filteringListener(this::applyConversationFilter));
+        }
 
-                private void filter() {
-                    String text = searchField.getText().toUpperCase();
-                    listModel.clear();
-                    for (Conversation item : controller.getFilteredConversationList(text)) {
-                        listModel.addElement(item);
-                    }
-                }
-            });
+        private void applyConversationFilter() {
+            String query = searchField.getText().toUpperCase();
+            listModel.clear();
+            for (Conversation item : controller.getFilteredConversationList(query)) {
+                listModel.addElement(item);
+            }
         }
 
         private void wireListSelectionListener() {
@@ -1875,17 +1855,11 @@ public class ClientUI {
             });
         }
 
-        public void setListModel(DefaultListModel<Conversation> model) {
-            this.listModel = model;
-            list.setModel(model);
-        }
-
         public DefaultListModel<Conversation> getListModel() {
             return this.listModel;
         }
     }
 
-    // =========================================================================
     class SelectUserWindow extends JPanel {
         final DefaultListModel<UserInfo> model = new DefaultListModel<>();
         final JList<UserInfo> list = new JList<>(model);
@@ -1957,8 +1931,8 @@ public class ClientUI {
         private void wireListSelectionListener() {
             list.addListSelectionListener(e -> {
                 if (!e.getValueIsAdjusting()) {
-                    UserInfo selecting = list.getSelectedValue();
-                    removeButton.setEnabled(selecting != null);
+                    UserInfo toRemove = list.getSelectedValue();
+                    removeButton.setEnabled(toRemove != null);
                 }
             });
         }
@@ -1988,7 +1962,6 @@ public class ClientUI {
 
     }
 
-    // =========================================================================
     class AdminConversationSearchWindow extends JPanel {
         JTextField searchField;
         final DefaultListModel<ConversationMetadata> model = new DefaultListModel<>();
@@ -1996,8 +1969,6 @@ public class ClientUI {
         JButton closeButton;
         ViewerPanel viewerPanel;
 
-        // Renders each search result as "[ID: N] TYPE • K participant(s) • last active <ts>"
-        // (or "no messages yet"). Modeled on ConversationCellRenderer above.
         private final class AdminConversationCellRenderer extends DefaultListCellRenderer {
             @Override
             public Component getListCellRendererComponent(
@@ -2007,13 +1978,12 @@ public class ClientUI {
                 if (value instanceof ConversationMetadata) {
                     ConversationMetadata m = (ConversationMetadata) value;
                     ArrayList<UserInfo> active = m.getParticipants();
-                    ArrayList<UserInfo> historical = m.getHistoricalParticipants();
-                    boolean orphan = (active == null || active.isEmpty());
-                    ArrayList<UserInfo> sourceList = !orphan ? active : historical;
+                    ArrayList<UserInfo> sourceList = displayParticipants(active, m.getHistoricalParticipants());
+                    boolean orphan = active.isEmpty();
 
-                    String who;
+                    String participantsSummary;
                     if (sourceList == null || sourceList.isEmpty()) {
-                        who = "0 participant(s)";
+                        participantsSummary = "0 participant(s)";
                     } else {
                         StringBuilder sb = new StringBuilder();
                         if (orphan) sb.append("(left) ");
@@ -2022,33 +1992,31 @@ public class ClientUI {
                             UserInfo p = sourceList.get(i);
                             sb.append(p.getName()).append(" (").append(p.getUserId()).append(')');
                         }
-                        who = sb.toString();
+                        participantsSummary = sb.toString();
                     }
 
-                    String activity;
+                    String lastActivityLabel;
                     long ts = m.getLastMessageTimestampMillis();
                     if (ts <= 0L) {
-                        activity = "no messages yet";
+                        lastActivityLabel = "no messages yet";
                     } else {
-                        activity = "last active " + formatMessageTimestamp(new java.util.Date(ts));
+                        lastActivityLabel = "last active " + formatMessageTimestamp(new java.util.Date(ts));
                     }
                     setText("[ID: " + m.getConversationId() + "]  "
                             + m.getType() + "  •  "
-                            + who + "  •  "
-                            + activity);
+                            + participantsSummary + "  •  "
+                            + lastActivityLabel);
                 }
                 return this;
             }
         }
 
-        // Read-only renderer for the right-pane message list. Holds a local Conversation
-        // reference (set by ViewerPanel before populating the model) and resolves sender
-        // names from that conversation's historicalParticipants — does NOT touch
-        // controller.getCurrentConversation()/Id/UserInfo. No unread-bold logic; admins
-        // have no read pointer in the viewed conversation.
+        // Resolves senders from the locally-held Conversation (admin has no current-conversation context).
         private final class AdminMessageCellRenderer extends JPanel implements ListCellRenderer<Message> {
             private final JLabel label = new JLabel();
             private Conversation viewedConv;
+            private final java.util.HashMap<Long, String> htmlCache = new java.util.HashMap<>();
+            private int cachedWrapPx = -1;
 
             AdminMessageCellRenderer() {
                 setLayout(new BorderLayout());
@@ -2059,39 +2027,51 @@ public class ClientUI {
                         BorderFactory.createEmptyBorder(4, 10, 4, 10)));
             }
 
-            void setConversation(Conversation conv) { this.viewedConv = conv; }
+            void setConversation(Conversation conv) {
+                this.viewedConv = conv;
+                htmlCache.clear();
+            }
 
             @Override
             public Component getListCellRendererComponent(
                     JList<? extends Message> list, Message msg, int index,
                     boolean isSelected, boolean cellHasFocus) {
-                MessageRow row = MessageRow.forAdmin(msg, viewedConv);
-                String displayText = row.headerText + " " + row.body;
-
                 int listW = list.getWidth();
                 int wrapPx = listW > 0 ? (int) (listW * BUBBLE_WRAP_FRACTION) : 360;
+                if (wrapPx != cachedWrapPx) {
+                    htmlCache.clear();
+                    cachedWrapPx = wrapPx;
+                }
+                String html = htmlCache.get(msg.getSequenceNumber());
+                if (html == null) {
+                    MessageRow row = MessageRow.forAdmin(msg, viewedConv);
+                    html = escapeAndWrapHtml(row.headerText + " " + row.body, wrapPx);
+                    htmlCache.put(msg.getSequenceNumber(), html);
+                }
 
                 removeAll();
                 setBackground(list.getBackground());
                 label.setBackground(list.getBackground());
                 label.setFont(label.getFont().deriveFont(Font.PLAIN));
-                label.setText(escapeAndWrapHtml(displayText, wrapPx));
+                label.setText(html);
                 add(label, BorderLayout.WEST);
                 return this;
             }
         }
 
-        // Right pane of the split: read-only message viewer for the selected conversation.
-        // Starts on a placeholder; replaced by the message scroll list once a conversation
-        // is loaded. No input field, no Send/Add/Leave buttons.
+        // Right pane of the split: read-only message viewer; placeholder until a conversation loads.
         final class ViewerPanel extends JPanel {
+            private static final String CARD_EMPTY = "empty";
+            private static final String CARD_MESSAGES = "messages";
+
             JLabel participantsLabel = new JLabel(" ");
             DefaultListModel<Message> msgModel = new DefaultListModel<>();
             JList<Message> msgList = new JList<>(msgModel);
-            JLabel placeholder = new JLabel("Select a conversation to preview", SwingConstants.CENTER);
+            JLabel emptyStateLabel = new JLabel("Select a conversation to preview", SwingConstants.CENTER);
             JScrollPane scroll;
             AdminMessageCellRenderer renderer = new AdminMessageCellRenderer();
-            boolean populated = false;
+            private final CardLayout bodyCards = new CardLayout();
+            private final JPanel body = new JPanel(bodyCards);
 
             ViewerPanel() {
                 setLayout(new BorderLayout());
@@ -2111,39 +2091,28 @@ public class ClientUI {
                     }
                 });
 
-                add(placeholder, BorderLayout.CENTER);
+                body.add(emptyStateLabel, CARD_EMPTY);
+                body.add(scroll, CARD_MESSAGES);
+                add(body, BorderLayout.CENTER);
             }
 
             void loadConversation(Conversation conv) {
                 if (conv == null) return;
                 renderer.setConversation(conv);
                 ArrayList<UserInfo> active = conv.getParticipants();
-                ArrayList<UserInfo> historical = conv.getHistoricalParticipants();
-                StringBuilder names = new StringBuilder();
-                ArrayList<UserInfo> sourceList = !active.isEmpty() ? active : historical;
-                for (int i = 0; i < sourceList.size(); i++) {
-                    if (i > 0) names.append(", ");
-                    names.append(sourceList.get(i).getName());
-                }
+                ArrayList<UserInfo> sourceList = displayParticipants(active, conv.getHistoricalParticipants());
+                String summary = buildParticipantSummary(sourceList, Integer.MAX_VALUE);
                 String prefix = active.isEmpty() ? "Former participants: " : "Participants: ";
-                participantsLabel.setText(prefix + (sourceList.isEmpty() ? "(none)" : names.toString()));
+                participantsLabel.setText(prefix + (summary.isEmpty() ? "(none)" : summary));
 
                 msgModel.clear();
                 ArrayList<Message> messages = conv.getMessages();
                 if (messages.isEmpty()) {
-                    placeholder.setText("No messages yet");
-                    if (populated) {
-                        remove(scroll);
-                        add(placeholder, BorderLayout.CENTER);
-                        populated = false;
-                    }
+                    emptyStateLabel.setText("No messages yet");
+                    bodyCards.show(body, CARD_EMPTY);
                 } else {
                     for (Message m : messages) msgModel.addElement(m);
-                    if (!populated) {
-                        remove(placeholder);
-                        add(scroll, BorderLayout.CENTER);
-                        populated = true;
-                    }
+                    bodyCards.show(body, CARD_MESSAGES);
                     SwingUtilities.invokeLater(() -> {
                         msgList.setFixedCellHeight(10);
                         msgList.setFixedCellHeight(-1);
@@ -2151,8 +2120,6 @@ public class ClientUI {
                         if (last >= 0) msgList.ensureIndexIsVisible(last);
                     });
                 }
-                revalidate();
-                repaint();
             }
         }
 
@@ -2165,7 +2132,7 @@ public class ClientUI {
         }
 
         private void buildLayout() {
-            searchField = makePlaceholderField("Search conversations...", 15);
+            searchField = new PlaceholderTextField("Search conversations...", 15);
             closeButton = new JButton("Close");
 
             setLayout(new BorderLayout());
@@ -2179,7 +2146,7 @@ public class ClientUI {
             viewerPanel = new ViewerPanel();
 
             JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftPanel, viewerPanel);
-            split.setDividerLocation(320);
+            split.setDividerLocation(Constants.ADMIN_SPLIT_DIVIDER_PX);
             split.setResizeWeight(0.0);
             add(split, BorderLayout.CENTER);
 
@@ -2199,23 +2166,18 @@ public class ClientUI {
         }
 
         private void wireSearchField() {
-            searchField.getDocument().addDocumentListener(new DocumentListener() {
-                @Override public void insertUpdate(DocumentEvent e) { filter(); }
-                @Override public void removeUpdate(DocumentEvent e) { filter(); }
-                @Override public void changedUpdate(DocumentEvent e) { filter(); }
+            searchField.getDocument().addDocumentListener(filteringListener(this::applyAdminSearchFilter));
+        }
 
-                private void filter() {
-                    String text = searchField.getText().toUpperCase();
-                    model.clear();
-                    for (ConversationMetadata item : controller.getFilteredAdminConversationSearch(text)) {
-                        model.addElement(item);
-                    }
-                }
-            });
+        private void applyAdminSearchFilter() {
+            String query = searchField.getText().toUpperCase();
+            model.clear();
+            for (ConversationMetadata item : controller.getFilteredAdminConversationSearch(query)) {
+                model.addElement(item);
+            }
         }
 
         private void wireListSelectionListener() {
-            // Selecting a row pulls the full conversation silently — no Join button.
             list.addListSelectionListener(e -> {
                 if (e.getValueIsAdjusting()) return;
                 ConversationMetadata sel = list.getSelectedValue();
@@ -2226,7 +2188,6 @@ public class ClientUI {
         }
 
         private void wireCloseButton() {
-            // Close button just disposes the dialog; existing windowClosed handler does cleanup.
             closeButton.addActionListener(e -> {
                 Window window = SwingUtilities.getWindowAncestor(this);
                 if (window != null) window.dispose();
@@ -2237,7 +2198,7 @@ public class ClientUI {
             return model;
         }
 
-        /** #193 entry point — called from ClientUI.showAdminConversationView. */
+        /** Called from ClientUI.showAdminConversationView. */
         public void loadConversation(Conversation conv) {
             viewerPanel.loadConversation(conv);
         }
