@@ -323,7 +323,7 @@ public class ClientUI {
         return "<html><body style='width:" + safe + "px'>" + sb + "</body></html>";
     }
 
-    /** #141: outer JPanel wraps field so layout swaps survive Show/Hide toggle. */
+    /** Outer JPanel wraps field so layout swaps survive Show/Hide toggle. */
     private static JPanel passwordFieldWithToggle(JPasswordField field) {
         JPanel wrap = new JPanel(new BorderLayout(2, 0));
         JButton toggle = new JButton("Show");
@@ -406,7 +406,7 @@ public class ClientUI {
         });
     }
 
-    /** #138: shown when the server is unreachable so the user isn't stuck staring at a hung UI. */
+    /** Shown when the server is unreachable so the user isn't stuck staring at a hung UI. */
     public void showNetworkError() {
         SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
                 frame,
@@ -415,7 +415,7 @@ public class ClientUI {
                 JOptionPane.ERROR_MESSAGE));
     }
 
-    /** #140/#142: drives the visible "submit in flight" state for both login and register. */
+    /** Drives the visible "submit in flight" state for both login and register. */
     public void setLoginInFlight(boolean inFlight) {
         SwingUtilities.invokeLater(() -> {
             cards.login.loginButton.setEnabled(!inFlight);
