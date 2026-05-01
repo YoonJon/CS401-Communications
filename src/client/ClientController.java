@@ -54,9 +54,9 @@ public class ClientController {
 
     private boolean loggedIn;
     private UserInfo currentUser;
-    /** #140/#142: true while a LOGIN or REGISTER request is enqueued and unresolved. */
+    /** True while a LOGIN or REGISTER request is enqueued and unresolved. */
     private volatile boolean authInFlight = false;
-    /** #139: cached on register() so handleRegisterResultResponse can pre-fill the login screen. */
+    /** Cached on register() so handleRegisterResultResponse can pre-fill the login screen. */
     private volatile String lastRegisteredLoginName = null;
 
     // -------------------------------------------------------------------------
@@ -114,26 +114,7 @@ public class ClientController {
         startInactivityDetectorThread();
     }
 
-    /** Runs the request loop in the current thread (blocking). For tests / headless use. */
-    void runRequestLoop() {
-        try {
-            ensureConnected();
-        } catch (IOException e) {
-            connectionStatus = ConnectionStatus.NOT_CONNECTED;
-            e.printStackTrace();
-            return;
-        }
-        try {
-            while (!Thread.currentThread().isInterrupted()) {
-                Request r = requestQueue.take();
-                sendRequest(r);
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-    }
-
-    /** Package-private test seam: accepts a pre-built (or null) GUI; no Swing window opened. */
+    /** Test-only seam (non-production flow): accepts a pre-built (or null) GUI; no Swing window opened. */
     ClientController(String hostIp, int hostPort, ClientUI guiOverride) {
         this.hostIp = hostIp;
         this.hostPort = hostPort;
@@ -252,7 +233,7 @@ public class ClientController {
 
     private void handleLoginResultResponse(Response response) {
         LoginResult lr = (LoginResult) response.getPayload();
-        // #193: coalesce field reset + UI updates into a single EDT task so the in-flight
+        // Coalesce field reset + UI updates into a single EDT task so the in-flight
         // flag and visible button state can never be observed out-of-order with each other.
         SwingUtilities.invokeLater(() -> {
             authInFlight = false;
@@ -280,13 +261,13 @@ public class ClientController {
 
     private void handleRegisterResultResponse(Response response) {
         RegisterResult rr = (RegisterResult) response.getPayload();
-        // #193: same EDT coalescing as handleLoginResultResponse.
+        // Same EDT coalescing as handleLoginResultResponse.
         SwingUtilities.invokeLater(() -> {
             authInFlight = false;
             if (gui != null) gui.setLoginInFlight(false);
             switch (rr.getRegisterStatus()) {
                 case SUCCESS:
-                    // #139B: pre-fill the just-registered loginName on the login screen.
+                    // Pre-fill the just-registered loginName on the login screen.
                     if (gui != null) gui.showLoginView(lastRegisteredLoginName);
                     break;
                 case USER_ID_TAKEN:
@@ -342,7 +323,7 @@ public class ClientController {
                 // Auto-open the newly created conversation in the center panel.
                 setCurrentConversationId(conv.getConversationId());
                 SwingUtilities.invokeLater(() -> gui.updateMessageListModel(conv));
-                // TODO: call gui.selectConversationInList(conv) once that method exists on ClientUI
+                // Follow-up enhancement: call gui.selectConversationInList(conv) when UI support is added.
             }
         }
     }
@@ -440,7 +421,7 @@ public class ClientController {
     private synchronized void ensureConnected() throws IOException {
         if (connectionStatus == ConnectionStatus.CONNECTED) return;
         connectionStatus = ConnectionStatus.CONNECTING;
-        // #138: bounded connect timeout so unreachable server fails fast instead of hanging ~75s.
+        // Bounded connect timeout so unreachable server fails fast instead of hanging ~75s.
         socket = new Socket();
         socket.connect(new InetSocketAddress(hostIp, hostPort), CONNECT_TIMEOUT_MS);
         // OOS must be created and flushed BEFORE OIS on both sides to avoid header deadlock
@@ -460,7 +441,7 @@ public class ClientController {
 
     /** Matches DataManager.handleRegister — payload: RegisterCredentials(userId, loginName, password, name). */
     public void register(String userId, String realName, String loginName, char[] password) {
-        if (authInFlight) return; // #140: drop rapid duplicate clicks
+        if (authInFlight) return; // Drop rapid duplicate clicks.
         authInFlight = true;
         lastRegisteredLoginName = loginName;
         if (gui != null) gui.setLoginInFlight(true);
@@ -470,7 +451,7 @@ public class ClientController {
 
     /** Matches DataManager.handleLogin — payload: LoginCredentials(loginName, password). */
     public void login(String loginName, char[] password) {
-        if (authInFlight) return; // #140: drop rapid duplicate clicks
+        if (authInFlight) return; // Drop rapid duplicate clicks.
         authInFlight = true;
         if (gui != null) gui.setLoginInFlight(true);
         LoginCredentials creds = new LoginCredentials(loginName, new String(password));
@@ -495,13 +476,13 @@ public class ClientController {
         if (gui != null) gui.showLoginView();
     }
 
-    /** #55/#124: read the cached admin search results so the dialog can seed itself on open
+    /** Read the cached admin search results so the dialog can seed itself on open
      *  even if the response arrived before the dialog finished constructing. */
     public ArrayList<ConversationMetadata> getCurrentAdminConversationSearch() {
         return currentAdminConversationSearch;
     }
 
-    /** #128: clear the cached admin search results so reopening the dialog starts fresh. */
+    /** Clear the cached admin search results so reopening the dialog starts fresh. */
     public void clearAdminConversationSearch() {
         currentAdminConversationSearch.clear();
     }
@@ -591,7 +572,7 @@ public class ClientController {
     public UserInfo getCurrentUserInfo() { return currentUser; }
     public boolean isLoggedIn()           { return loggedIn; }
 
-    /** Package-private: seeds the directory list for unit tests without a live server. */
+    /** Test-only seam (non-production flow): seeds the directory list for unit tests without a live server. */
     void setCurrentDirectoryForTesting(ArrayList<UserInfo> dir) {
         this.currentDirectory = new ArrayList<>(dir);
     }
@@ -721,7 +702,7 @@ public class ClientController {
                 } catch (IOException e) {
                     connectionStatus = ConnectionStatus.NOT_CONNECTED;
                     if (authInFlight) {
-                        // #138: drop the queued auth request and notify the user instead of
+                        // Drop the queued auth request and notify the user instead of
                         // silently retrying the unreachable server forever.
                         authInFlight = false;
                         if (gui != null) {
