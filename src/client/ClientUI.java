@@ -1326,7 +1326,7 @@ public class ClientUI {
 
         /**
          * Fix E2: race-free overload. Uses the message list captured atomically with
-         * {@code lastReadAtOpen} by {@link ClientController#getConversationSnapshotForOpen(long)}
+         * {@code lastReadAtOpen} by {@link ClientController#openConversationAtomically(long)}
          * so the divider boundary always matches the consistent (lastRead, messages) pair —
          * even if {@link Conversation#append} fires between capture and render.
          */

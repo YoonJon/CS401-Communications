@@ -656,7 +656,6 @@ class ClientController
 + ClientController(hostIp: String, hostPort: int)
 ~ ClientController(hostIp: String, hostPort: int, guiOverride: ClientUI)   // package-private; tests/headless — optional null GUI, conditional thread start
 - close(): void   // shutdown hook; interrupts workers and disconnectSocket
-~ runRequestLoop(): void         // package-private; blocking drain in caller thread (tests / headless)
 ~ processResponse(response: Response): void   // package-private for tests without a socket
 ~ setCurrentDirectoryForTesting(dir: ArrayList<UserInfo>): void   // package-private test seam
 

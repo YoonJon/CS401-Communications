@@ -707,11 +707,11 @@ class ClientControllerTest {
     }
 
     // =========================================================================
-    // 18. getConversationSnapshotForOpen (Fix E2) — race-free open capture
+    // 18. openConversationAtomically (Fix E2) — race-free open capture
     // =========================================================================
 
     @Test
-    void getConversationSnapshotForOpen_returnsAtomicPair() {
+    void openConversationAtomically_returnsAtomicPair() {
         ClientController c = headless();
         c.processResponse(loginSuccessAliceWithConv()); // conv id=100, no messages
         c.setCurrentConversationId(100L);
@@ -722,7 +722,7 @@ class ClientControllerTest {
         c.getCurrentUserInfo().setLastRead(100L, 5L);
 
         ClientController.ConversationOpenSnapshot snap =
-                c.getConversationSnapshotForOpen(100L);
+                c.openConversationAtomically(100L);
         assertNotNull(snap);
         assertSame(live, snap.conversation, "snapshot exposes the live Conversation reference");
         assertEquals(5L, snap.lastReadAtOpen);
@@ -737,18 +737,18 @@ class ClientControllerTest {
     }
 
     @Test
-    void getConversationSnapshotForOpen_unknownConv_returnsNull() {
+    void openConversationAtomically_unknownConv_returnsNull() {
         ClientController c = headless();
         c.processResponse(loginSuccessAliceWithConv());
-        assertNull(c.getConversationSnapshotForOpen(99999L),
+        assertNull(c.openConversationAtomically(99999L),
                 "snapshot for an unknown conversation id is null");
     }
 
     @Test
-    void getConversationSnapshotForOpen_notLoggedIn_returnsNull() {
+    void openConversationAtomically_notLoggedIn_returnsNull() {
         ClientController c = headless();
         // No login performed → currentUser is null.
-        assertNull(c.getConversationSnapshotForOpen(100L),
+        assertNull(c.openConversationAtomically(100L),
                 "snapshot before login is null");
     }
 }
