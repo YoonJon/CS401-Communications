@@ -4,10 +4,15 @@ import shared.networking.User.UserInfo;
 import shared.enums.ConversationType;
 import java.io.*;
 import java.util.ArrayList;
+import java.util.Comparator;
 
 
 public class Conversation implements ResponsePayload {
     private static final long serialVersionUID = 1L;
+
+    private static final Comparator<UserInfo> BY_NAME_THEN_ID =
+        Comparator.comparing(UserInfo::getName, String.CASE_INSENSITIVE_ORDER)
+                  .thenComparing(UserInfo::getUserId);
 
     private final long conversationId;
     private final ArrayList<Message> messages;
@@ -28,6 +33,7 @@ public class Conversation implements ResponsePayload {
         this.conversationId = conversationId;
         this.messages = new ArrayList<>();
         this.participants = new ArrayList<>(participants != null ? participants : new ArrayList<>());
+        this.participants.sort(BY_NAME_THEN_ID);
         this.historicalParticipants = new ArrayList<>(this.participants);
         this.type = this.participants.size() == 2 ? ConversationType.PRIVATE : ConversationType.GROUP;
     }
@@ -52,6 +58,10 @@ public class Conversation implements ResponsePayload {
             if (historicalParticipants != null) {
                 historicalParticipants.add(u);
             }
+        }
+        participants.sort(BY_NAME_THEN_ID);
+        if (historicalParticipants != null) {
+            historicalParticipants.sort(BY_NAME_THEN_ID);
         }
     }
 
@@ -119,5 +129,15 @@ public class Conversation implements ResponsePayload {
             e.printStackTrace();
         }
         return null;
+    }
+
+    private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
+        in.defaultReadObject();
+        if (participants != null) {
+            participants.sort(BY_NAME_THEN_ID);
+        }
+        if (historicalParticipants != null) {
+            historicalParticipants.sort(BY_NAME_THEN_ID);
+        }
     }
 }

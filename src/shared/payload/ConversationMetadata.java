@@ -3,9 +3,14 @@ package shared.payload;
 import shared.networking.User.UserInfo;
 import shared.enums.ConversationType;
 import java.util.ArrayList;
+import java.util.Comparator;
 
 public class ConversationMetadata implements ResponsePayload {
     private static final long serialVersionUID = 1L;
+
+    private static final Comparator<UserInfo> BY_NAME_THEN_ID =
+        Comparator.comparing(UserInfo::getName, String.CASE_INSENSITIVE_ORDER)
+                  .thenComparing(UserInfo::getUserId);
 
     private final long conversationId;
     private final ArrayList<UserInfo> participants;
@@ -27,7 +32,9 @@ public class ConversationMetadata implements ResponsePayload {
                                 int unreadCount, String displayName) {
         this.conversationId = c_id;
         this.participants = p != null ? new ArrayList<>(p) : new ArrayList<>();
+        this.participants.sort(BY_NAME_THEN_ID);
         this.historicalParticipants = hp != null ? new ArrayList<>(hp) : new ArrayList<>();
+        this.historicalParticipants.sort(BY_NAME_THEN_ID);
         this.type = t;
         this.lastMessagePreview = lastMessagePreview;
         this.lastMessageTimestampMillis = lastMessageTimestampMillis;
