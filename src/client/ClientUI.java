@@ -152,7 +152,7 @@ public class ClientUI {
         showLoginView(null);
     }
 
-    /** #139B: pre-fill login id (e.g. with the just-registered loginName) before showing the screen. */
+    /** Pre-fill login id (e.g. with the just-registered loginName) before showing the screen. */
     public void showLoginView(String prefilledLoginId) {
         SwingUtilities.invokeLater(() -> {
             // Fix 5: dispose any open dialogs before switching to login
@@ -246,7 +246,7 @@ public class ClientUI {
         return "<html><body style='width:" + safe + "px'>" + sb + "</body></html>";
     }
 
-    /** #141: wrap a password field with a Show/Hide toggle button. The wrapper JPanel takes the
+    /** Wrap a password field with a Show/Hide toggle button. The wrapper JPanel takes the
      *  field's place in any layout; the field reference itself is unchanged. */
     private static JPanel passwordFieldWithToggle(JPasswordField field) {
         JPanel wrap = new JPanel(new BorderLayout(2, 0));
@@ -306,7 +306,7 @@ public class ClientUI {
 
     public void showLoginError(LoginStatus loginStatus) {
         SwingUtilities.invokeLater(() -> {
-            // #139A: always clear the password on login failure.
+            // Always clear the password on login failure.
             cards.login.passwordField.setText("");
             String msg;
             String title = "Login Error";
@@ -318,7 +318,7 @@ public class ClientUI {
                     msg = "No account exists. Please create an account.";
                     break;
                 case DUPLICATE_SESSION:
-                    // #144: coherent, actionable copy that doesn't contradict itself.
+                    // Keep copy coherent and actionable without contradictions.
                     title = "Session Already Active";
                     msg = "You are already logged in from another location. Please log out of "
                         + "that session first, then try again. If you closed the app without "
@@ -331,7 +331,7 @@ public class ClientUI {
         });
     }
 
-    /** #138: shown when the server is unreachable so the user isn't stuck staring at a hung UI. */
+    /** Shown when the server is unreachable so the user isn't stuck staring at a hung UI. */
     public void showNetworkError() {
         SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
                 frame,
@@ -340,7 +340,7 @@ public class ClientUI {
                 JOptionPane.ERROR_MESSAGE));
     }
 
-    /** #140/#142: drives the visible "submit in flight" state for both login and register. */
+    /** Drives the visible "submit in flight" state for both login and register. */
     public void setLoginInFlight(boolean inFlight) {
         SwingUtilities.invokeLater(() -> {
             if (cards == null) return; // pre-EDT init guard
@@ -415,7 +415,7 @@ public class ClientUI {
             // Route through ConversationView so auto-switch flows (first conversation,
             // leave-to-next conversation, etc.) also enable input and action buttons.
             cards.main.conversationView.setListModel(conversation);
-            // Issue #189: auto-switch should hand focus to message input, not leave it on
+            // Auto-switch should hand focus to message input, not leave it on
             // a stale directory selection.
             cards.main.directoryView.list.clearSelection();
             cards.main.directoryView.selecting = null;
@@ -441,7 +441,7 @@ public class ClientUI {
                 int last = cards.main.conversationView.list.getModel().getSize() - 1;
                 if (last >= 0) cards.main.conversationView.list.ensureIndexIsVisible(last);
             });
-            // Issue #176: notify user when window is not active
+            // Notify user when window is not active.
             UserInfo me = controller.getCurrentUserInfo();
             boolean fromOther = me != null && !message.getSenderId().equals(me.getUserId());
             if (fromOther && !frame.isActive()) {
@@ -543,7 +543,7 @@ public class ClientUI {
         }
     }
 
-    // =========================================================================
+    // -------------------------------------------------------------------------
     class ScreenCards extends JPanel {
         CardLayout layout;
         MainView main;
@@ -562,7 +562,7 @@ public class ClientUI {
         }
     }
 
-    // =========================================================================
+    // -------------------------------------------------------------------------
     class RegisterView extends JPanel {
         JTextField userId;
         JTextField loginName;
@@ -585,11 +585,11 @@ public class ClientUI {
         	createButton = new JButton("Create Account");
         	backButton = new JButton("Back");
 
-        	// #143: tooltips clarify which ID is which.
+        	// Tooltips clarify which ID is which.
         	userId.setToolTipText("Your organization-assigned employee ID. Must be pre-authorized.");
         	loginName.setToolTipText("Choose a username for logging in. Letters, numbers, hyphens, or underscores only.");
 
-        	// #146: heading at the top of the form.
+        	// Heading at the top of the form.
         	JLabel heading = new JLabel("Register / Create Account", SwingConstants.CENTER);
         	heading.setFont(heading.getFont().deriveFont(Font.BOLD, heading.getFont().getSize() + 6f));
         	heading.setBorder(BorderFactory.createEmptyBorder(20, 0, 10, 0));
@@ -605,7 +605,7 @@ public class ClientUI {
             gridConst.insets = new Insets(5, 5, 5, 5);
             gridConst.fill = GridBagConstraints.HORIZONTAL;
 
-            // #143: "User ID" → "Employee ID" (organization-assigned, validated against authorized list).
+            // "User ID" -> "Employee ID" (organization-assigned, validated against authorized list).
             gridConst.gridx = 0;
             gridConst.gridy = 0;
             inputPanel.add(new JLabel("Employee ID"), gridConst);
@@ -639,7 +639,7 @@ public class ClientUI {
             gridConst.gridy = 3;
             inputPanel.add(new JLabel("Password"), gridConst);
 
-            // #141: password text field with Show/Hide toggle on the right side of the label
+            // Password text field with Show/Hide toggle on the right side of the label.
             gridConst.gridx = 1;
             inputPanel.add(passwordFieldWithToggle(password), gridConst);
 
@@ -648,7 +648,7 @@ public class ClientUI {
             gridConst.gridy = 4;
             inputPanel.add(new JLabel("Confirm Password"), gridConst);
 
-            // #141: confirmation password field also gets a toggle
+            // Confirmation password field also gets a toggle.
             gridConst.gridx = 1;
             inputPanel.add(passwordFieldWithToggle(passwordAgain), gridConst);
 
@@ -660,7 +660,7 @@ public class ClientUI {
             // locate these parts at the center of the window
             add(inputPanel, BorderLayout.CENTER);
 
-            // #137: extract submit lambda so Enter on any field also fires it.
+            // Shared submit lambda so Enter on any field also fires it.
             ActionListener createAction = e -> {
                 char[] pwd1 = password.getPassword();
                 char[] pwd2 = passwordAgain.getPassword();
@@ -680,12 +680,12 @@ public class ClientUI {
             password.addActionListener(createAction);
             passwordAgain.addActionListener(createAction);
 
-            // #148: route through showLoginView so clearLoginAndRegisterFields() is called.
+            // Route through showLoginView so clearLoginAndRegisterFields() is called.
             backButton.addActionListener(e -> showLoginView());
         }
     }
 
-    // =========================================================================
+    // -------------------------------------------------------------------------
     class LoginView extends JPanel {
         JTextField login_idField;
         JPasswordField passwordField;
@@ -702,10 +702,10 @@ public class ClientUI {
             loginButton = new JButton("Login");
             createButton = new JButton("Create Account");
 
-            // #143: tooltip clarifies the field is the login username, not the Employee ID.
+            // Tooltip clarifies the field is the login username, not the Employee ID.
             login_idField.setToolTipText("Your chosen login username (not your Employee ID).");
 
-            // #146: heading at the top of the form.
+            // Heading at the top of the form.
             JLabel heading = new JLabel("Login", SwingConstants.CENTER);
             heading.setFont(heading.getFont().deriveFont(Font.BOLD, heading.getFont().getSize() + 6f));
             heading.setBorder(BorderFactory.createEmptyBorder(20, 0, 10, 0));
@@ -728,7 +728,7 @@ public class ClientUI {
             gridConst.gridx = 0;
             gridConst.gridy = 1;
             inputPanel.add(new JLabel("Password"), gridConst);
-            // #141: password text field with Show/Hide toggle on the right side of the label
+            // Password text field with Show/Hide toggle on the right side of the label.
             gridConst.gridx = 1;
             inputPanel.add(passwordFieldWithToggle(passwordField), gridConst);
             // add login button next to the fields
@@ -757,12 +757,12 @@ public class ClientUI {
             login_idField.addActionListener(loginAction);
             passwordField.addActionListener(loginAction);
 
-            // #148 (symmetric): route through showRegisterView so fields are cleared.
+            // Symmetric behavior: route through showRegisterView so fields are cleared.
             createButton.addActionListener(e -> showRegisterView());
         }
     }
 
-    // =========================================================================
+    // -------------------------------------------------------------------------
     class MainView extends JPanel {
         private static final int MIN_CONVERSATION_LIST_WIDTH = 240;
         ConversationView conversationView;
@@ -800,7 +800,7 @@ public class ClientUI {
 
     }
 
-    // =========================================================================
+    // -------------------------------------------------------------------------
     class ConversationView extends JPanel {
         JLabel participantsLabel;
         DefaultListModel<Message> conversationMessageListModel = new DefaultListModel<>();
@@ -819,7 +819,7 @@ public class ClientUI {
         // Fix 8: placeholder label shown when no conversation is selected
         private final JLabel placeholderLabel = new JLabel("Select a conversation to start chatting", SwingConstants.CENTER);
 
-        // Fix 6/#196: use JTextArea-based bubbles for deterministic wrapping.
+        // Use JTextArea-based bubbles for deterministic wrapping.
         private final class MessageCellRenderer extends JPanel implements ListCellRenderer<Message> {
             private final JPanel bubble = new JPanel(new BorderLayout(0, 2));
             private final JTextArea headerArea = new JTextArea();
@@ -1015,7 +1015,7 @@ public class ClientUI {
             // Fix 6: install the reusable cell renderer
             list.setCellRenderer(new MessageCellRenderer());
 
-            // Fix #183/#196: re-invalidate cached row heights whenever either the list or
+            // Re-invalidate cached row heights whenever either the list or
             // its viewport changes size so wrap width updates with window resizing.
             ComponentAdapter wrapResizeAdapter = new ComponentAdapter() {
                 @Override public void componentResized(ComponentEvent e) {
@@ -1075,7 +1075,7 @@ public class ClientUI {
                     public void windowClosed(WindowEvent e) {
                         addDialog = null;
                     }
-                    // #149: focus the list on open so Tab order is correct and Delete works.
+                    // Focus the list on open so Tab order is correct and Delete works.
                     @Override
                     public void windowOpened(WindowEvent e) {
                         addUserWindow.list.requestFocusInWindow();
@@ -1262,7 +1262,7 @@ public class ClientUI {
         }
     }
 
-    // =========================================================================
+    // -------------------------------------------------------------------------
     class DirectoryView extends JPanel {
         JLabel profileUserIdLabel;
         JLabel profileNameLabel;
@@ -1297,7 +1297,7 @@ public class ClientUI {
             createConversationButton.setEnabled(false);
 
             // construct admin button unconditionally and enable later if the user is admin
-            // #127: tooltip explains the prerequisite (a user must be selected). Label kept
+            // Tooltip explains the prerequisite (a user must be selected). Label kept
             // as "Admin" per the silent-viewer feature; the dialog itself shows what the
             // admin is doing.
             adminButton = new JButton("Admin");
@@ -1384,7 +1384,7 @@ public class ClientUI {
                 }
 
             	createConversationUserWindow = new SelectUserWindow(users -> controller.createConversation(users));
-                // Issue #192: seed the picker with the current directory selection
+                // Seed the picker with the current directory selection.
                 // so the first selection is honored without requiring reselection.
                 if (selecting != null) {
                     createConversationUserWindow.addUser(selecting);
@@ -1401,7 +1401,7 @@ public class ClientUI {
                     public void windowClosed(WindowEvent e) {
                         createDialog = null;
                     }
-                    // #149: focus the list on open so Tab order is correct and Delete works.
+                    // Focus the list on open so Tab order is correct and Delete works.
                     @Override
                     public void windowOpened(WindowEvent e) {
                         createConversationUserWindow.list.requestFocusInWindow();
@@ -1442,7 +1442,7 @@ public class ClientUI {
                 adminDialog.addWindowListener(new WindowAdapter() {
                     @Override
                     public void windowClosed(WindowEvent e) {
-                    	// #128: clear all admin-dialog state so reopening shows a fresh empty list.
+                    	// Clear all admin-dialog state so reopening shows a fresh empty list.
                     	// Do NOT disable adminButton here — the directory selection listener
                     	// owns its enable/disable state, and disabling on close traps the
                     	// button in a dead state when the same user is still selected (the
@@ -1513,7 +1513,7 @@ public class ClientUI {
 
     }
 
-    // =========================================================================
+    // -------------------------------------------------------------------------
     class ConversationListView extends JPanel {
         JTextField searchField;
         DefaultListModel<Conversation> listModel = new DefaultListModel<>();
@@ -1590,8 +1590,7 @@ public class ClientUI {
                 }
             });
 
-            // TODO: label the conversation
-            // TODO: unread markers
+            // Planned UX follow-up: richer conversation row labels and unread badges.
             // add action for selecting an item from the list
             list.addListSelectionListener(e-> {
                 if (suppressSelectionEvents) {
@@ -1627,7 +1626,7 @@ public class ClientUI {
         }
     }
 
-    // =========================================================================
+    // -------------------------------------------------------------------------
     class SelectUserWindow extends JPanel {
         DefaultListModel<UserInfo> model = new DefaultListModel<>();
         JList<UserInfo> list = new JList<>(model);
@@ -1698,7 +1697,7 @@ public class ClientUI {
 			    }
             });
 
-            // #149: Delete key on the list invokes Remove (so the button is reachable by keyboard).
+            // Delete key on the list invokes Remove (so the button is reachable by keyboard).
             list.getInputMap(JComponent.WHEN_FOCUSED)
                     .put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), "removeSelected");
             list.getInputMap(JComponent.WHEN_FOCUSED)
@@ -1723,7 +1722,7 @@ public class ClientUI {
 
     }
 
-    // =========================================================================
+    // -------------------------------------------------------------------------
     class AdminConversationSearchWindow extends JPanel {
         JTextField searchField;
         DefaultListModel<ConversationMetadata> model = new DefaultListModel<>();
@@ -1731,7 +1730,7 @@ public class ClientUI {
         JButton closeButton;
         ViewerPanel viewerPanel;
 
-        // #126: render each search result as "[ID: N] TYPE • K participant(s) • last active <ts>"
+        // Render each search result as "[ID: N] TYPE • K participant(s) • last active <ts>".
         // (or "no messages yet"). Modeled on ConversationCellRenderer above.
         private final class AdminConversationCellRenderer extends DefaultListCellRenderer {
             @Override
@@ -1922,7 +1921,7 @@ public class ClientUI {
             // LEFT pane — search field + conversation list
             JPanel leftPanel = new JPanel(new BorderLayout());
             leftPanel.add(searchField, BorderLayout.NORTH);
-            // #126: install the custom cell renderer so each row shows ID, type, count, recency.
+            // Install the custom cell renderer so each row shows ID, type, count, recency.
             list.setCellRenderer(new AdminConversationCellRenderer());
             leftPanel.add(new JScrollPane(list), BorderLayout.CENTER);
 
@@ -1940,7 +1939,7 @@ public class ClientUI {
             buttonPane.add(closeButton);
             add(buttonPane, BorderLayout.SOUTH);
 
-            // #55/#124: seed from the controller's cache. If the ADMIN_CONVERSATION_RESULT
+            // Seed from the controller's cache. If the ADMIN_CONVERSATION_RESULT
             // response arrived before this window was constructed (race on fast loopback),
             // the data is already in the cache and we render it immediately. The async
             // updateAdminConversationSearchModel callback path stays for late responses.
@@ -1984,7 +1983,7 @@ public class ClientUI {
         	return model;
         }
 
-        /** #193 entry point — called from ClientUI.showAdminConversationView. */
+        /** Entry point called from ClientUI.showAdminConversationView. */
         public void loadConversation(Conversation conv) {
             viewerPanel.loadConversation(conv);
         }

@@ -35,10 +35,6 @@ public class ConnectionListener {
     private volatile boolean running = false;
     private volatile ServerSocket serverSocket;
 
-    public ConnectionListener(ServerController serverController) {
-        this("localhost", 8080, serverController);
-    }
-
     public ConnectionListener(String hostAddress, int hostPort, ServerController serverController) {
         this.hostPort = hostPort;
         this.hostAddress = hostAddress;
@@ -82,7 +78,7 @@ public class ConnectionListener {
     /**
      * Returns the TCP port the server socket is actually bound to.
      * Blocks up to 5 seconds for {@link #listen()} to bind the socket.
-     * Useful for tests that use port 0 (OS-assigned port).
+     * Primarily a test-support seam (non-production flow), especially for port 0 (OS-assigned port).
      *
      * @return bound port number, or -1 on timeout / bind failure
      */
