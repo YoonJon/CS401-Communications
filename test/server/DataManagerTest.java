@@ -5,7 +5,13 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.AfterEach;
@@ -308,5 +314,102 @@ public class DataManagerTest {
         // --- Participant query helper (used later by ServerController for fan-out)
         ArrayList<User.UserInfo> participants = dm.getParticipantList(convGroup);
         assertEquals(Integer.valueOf(4), Integer.valueOf(participants.size()), "participant list size");
+    }
+
+    // -------------------------------------------------------------------------
+    // Issue #210 — duplicate PRIVATE conversations should be rejected
+    // -------------------------------------------------------------------------
+
+    private long createPrivate(String aId, String aName, String bId, String bName, String requesterId) {
+        Response r = dm.handleCreateConversation(new Request(RequestType.CREATE_CONVERSATION,
+                new CreateConversationPayload(roster(ui(aId, aName), ui(bId, bName))),
+                requesterId));
+        assertEquals(ResponseType.CONVERSATION, r.getType());
+        return ((Conversation) r.getPayload()).getConversationId();
+    }
+
+    @Test
+    void handleCreateConversation_privateDuplicate_returnsSameConversationId() {
+        long first = createPrivate("u1", "Alice", "u2", "Bob", "u1");
+        long second = createPrivate("u1", "Alice", "u2", "Bob", "u1");
+        assertEquals(first, second, "duplicate PRIVATE create must reuse existing id");
+    }
+
+    @Test
+    void handleCreateConversation_privateOrderIndependent_returnsSameId() {
+        long first = createPrivate("u1", "Alice", "u2", "Bob", "u1");
+        // Reverse roster order — server should still match the existing PRIVATE.
+        long second = createPrivate("u2", "Bob", "u1", "Alice", "u2");
+        assertEquals(first, second, "PRIVATE dedupe must be order-independent");
+    }
+
+    @Test
+    void handleCreateConversation_privateAfterOneLeft_allocatesNewId() {
+        long first = createPrivate("u1", "Alice", "u2", "Bob", "u1");
+
+        Response leave = dm.handleLeaveConversation(new Request(RequestType.LEAVE_CONVERSATION,
+                new LeaveConversationPayload(first),
+                "u2"));
+        assertEquals(ResponseType.LEAVE_RESULT, leave.getType());
+
+        long second = createPrivate("u1", "Alice", "u2", "Bob", "u1");
+        assertNotEquals(first, second,
+                "after one party leaves, a fresh PRIVATE pair create must allocate a new id");
+    }
+
+    @Test
+    void handleCreateConversation_privateThenGroupSameMembers_distinctIds() {
+        long pvt = createPrivate("u1", "Alice", "u2", "Bob", "u1");
+        Response group = dm.handleCreateConversation(new Request(RequestType.CREATE_CONVERSATION,
+                new CreateConversationPayload(roster(ui("u1", "Alice"), ui("u2", "Bob"), ui("u3", "Carol"))),
+                "u1"));
+        assertEquals(ResponseType.CONVERSATION, group.getType());
+        long groupId = ((Conversation) group.getPayload()).getConversationId();
+        assertNotEquals(pvt, groupId, "PRIVATE dedupe must not match a GROUP");
+    }
+
+    @Test
+    void handleCreateConversation_groupTwice_distinctIds() {
+        // GROUP dedupe is intentionally out of scope: identical group rosters create distinct conversations.
+        Response g1 = dm.handleCreateConversation(new Request(RequestType.CREATE_CONVERSATION,
+                new CreateConversationPayload(roster(ui("u1", "Alice"), ui("u2", "Bob"), ui("u3", "Carol"))),
+                "u1"));
+        Response g2 = dm.handleCreateConversation(new Request(RequestType.CREATE_CONVERSATION,
+                new CreateConversationPayload(roster(ui("u1", "Alice"), ui("u2", "Bob"), ui("u3", "Carol"))),
+                "u1"));
+        long id1 = ((Conversation) g1.getPayload()).getConversationId();
+        long id2 = ((Conversation) g2.getPayload()).getConversationId();
+        assertNotEquals(id1, id2, "GROUP creation should remain non-deduped");
+    }
+
+    @Test
+    void handleCreateConversation_concurrentDuplicatePrivate_yieldsSingleConversation() throws Exception {
+        // Race two simultaneous CREATE_CONVERSATION calls for the same PRIVATE pair through a
+        // CountDownLatch barrier. The synchronized check-then-put inside handleCreateConversation
+        // must ensure exactly one Conversation is created and both responses share its id.
+        final int threads = 8;
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        try {
+            CountDownLatch start = new CountDownLatch(1);
+            ArrayList<Future<Long>> futures = new ArrayList<>();
+            for (int i = 0; i < threads; i++) {
+                futures.add(pool.submit(() -> {
+                    start.await();
+                    Response r = dm.handleCreateConversation(new Request(RequestType.CREATE_CONVERSATION,
+                            new CreateConversationPayload(roster(ui("u1", "Alice"), ui("u2", "Bob"))),
+                            "u1"));
+                    return ((Conversation) r.getPayload()).getConversationId();
+                }));
+            }
+            start.countDown();
+            Set<Long> distinctIds = new HashSet<>();
+            for (Future<Long> f : futures) {
+                distinctIds.add(f.get(5, TimeUnit.SECONDS));
+            }
+            assertEquals(1, distinctIds.size(),
+                    "concurrent duplicate PRIVATE creates must collapse to a single conversation id");
+        } finally {
+            pool.shutdownNow();
+        }
     }
 }

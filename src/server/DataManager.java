@@ -48,6 +48,9 @@ public class DataManager {
     /** Conversation id → user ids in that conversation. */
     private ConcurrentMap<Long, Set<String>> userIDsByConversationID;
     private ConcurrentMap<Long, Conversation> conversationsByConversationID;
+    /** Serializes check-then-put in {@link #handleCreateConversation} so concurrent
+     *  creates for the same PRIVATE pair cannot race past the duplicate-detection scan. */
+    private final Object createConversationLock = new Object();
     private Map<String, String> authorizedUsers;
     private ArrayList<String> authorizedAdminIds;
     private CopyOnWriteArrayList<UserInfo> directoryUserInfos;
@@ -611,13 +614,30 @@ public class DataManager {
         }
         ArrayList<Conversation> conversationList = new ArrayList<>();
         for (Long conversationId : conversationIDs) {
-            conversationList.add(conversationsByConversationID.get(conversationId));
+            Conversation c = conversationsByConversationID.get(conversationId);
+            if (c != null) {
+                conversationList.add(c);
+            }
         }
+        // #214: sort most-recent-first so the wire payload is deterministic.
+        // Tie-break by conversationId desc so empty conversations keep stable order.
+        conversationList.sort((a, b) -> {
+            int cmp = Long.compare(latestSequenceNumberOrId(b), latestSequenceNumberOrId(a));
+            if (cmp != 0) return cmp;
+            return Long.compare(b.getConversationId(), a.getConversationId());
+        });
         return new Response(ResponseType.LOGIN_RESULT, new LoginResult(
             shared.enums.LoginStatus.SUCCESS,
             user.toUserInfo(),
             conversationList,
             getDirectorySnapshot()));
+    }
+
+    private static long latestSequenceNumberOrId(Conversation c) {
+        if (c == null) return 0L;
+        ArrayList<Message> msgs = c.getMessages();
+        if (msgs == null || msgs.isEmpty()) return c.getConversationId();
+        return msgs.get(msgs.size() - 1).getSequenceNumber();
     }
 
     public Response handleSendMessage(Request request) {
@@ -666,13 +686,34 @@ public class DataManager {
         if (participants == null || participants.isEmpty()) {
             return null;
         }
-        long conversationId = nextConversationId();
-        // Derives PRIVATE vs GROUP from participant count; seeds historicalParticipants from this list.
-        Conversation conversation = new Conversation(conversationId, participants);
-        conversationsByConversationID.put(conversationId, conversation);
-        linkParticipantsToConversation(conversationId, conversation.getParticipants());
-        persistConversation(conversation);
-        return new Response(ResponseType.CONVERSATION, conversation);
+        synchronized (createConversationLock) {
+            // For PRIVATE (2-participant) creates, return the existing conversation if one already
+            // exists with the same active roster. Group dedupe is intentionally out of scope.
+            if (participants.size() == 2) {
+                String aId = participants.get(0) != null ? participants.get(0).getUserId() : null;
+                String bId = participants.get(1) != null ? participants.get(1).getUserId() : null;
+                if (aId != null && bId != null) {
+                    Set<Long> aConvIds = conversationIDsByUserID.getOrDefault(aId, Collections.emptySet());
+                    for (Long cid : aConvIds) {
+                        Conversation existing = conversationsByConversationID.get(cid);
+                        if (existing == null || existing.getType() != ConversationType.PRIVATE) {
+                            continue;
+                        }
+                        ArrayList<UserInfo> active = existing.getParticipants();
+                        if (containsParticipant(active, aId) && containsParticipant(active, bId)) {
+                            return new Response(ResponseType.CONVERSATION, existing);
+                        }
+                    }
+                }
+            }
+            long conversationId = nextConversationId();
+            // Derives PRIVATE vs GROUP from participant count; seeds historicalParticipants from this list.
+            Conversation conversation = new Conversation(conversationId, participants);
+            conversationsByConversationID.put(conversationId, conversation);
+            linkParticipantsToConversation(conversationId, conversation.getParticipants());
+            persistConversation(conversation);
+            return new Response(ResponseType.CONVERSATION, conversation);
+        }
     }
 
     public Response handleAddToConversation(Request request) {
