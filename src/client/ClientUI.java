@@ -514,12 +514,10 @@ public class ClientUI {
                 });
             }
             // Slide the per-message read snapshot forward only when the OS window is
-            // active AND the user is parked at the bottom — i.e. they can actually see
-            // the message. Otherwise leave the snapshot frozen; the deferred read-advance
-            // buffer on the controller will replay on the next window activation or
-            // scroll-to-bottom transition, which calls back into markDisplayedReadUpTo to
-            // re-sync. Do NOT call updateReadMessages here — the controller owns that
-            // wire concern via tryAdvanceReadOnInbound.
+            // active AND the user is parked at the bottom. Otherwise leave the snapshot
+            // frozen; the controller's deferred read-advance buffer replays on the next
+            // window activation or scroll-to-bottom, calling back into markDisplayedReadUpTo.
+            // Do NOT call updateReadMessages here — the controller owns the wire concern.
             if (frame.isActive() && cv.userIsAtBottom) {
                 cv.markDisplayedReadUpTo(message.getSequenceNumber());
             }
@@ -544,10 +542,8 @@ public class ClientUI {
                 cards.main.conversationView.markDisplayedReadUpTo(sequenceNumber));
     }
 
-    /** Fix E1: composed-gate input for {@link ClientController#tryAdvanceReadOnInbound}.
-     *  Returns true when the user is parked at (or near) the bottom of the open conversation,
-     *  i.e. they can actually see freshly-arrived messages. Read from the network reader
-     *  thread, so the underlying field is volatile. */
+    /** True when user is parked at the bottom of the open conversation.
+     *  Read from the network reader thread; underlying field is volatile. */
     public boolean userIsViewingBottom() {
         if (cards == null || cards.main == null || cards.main.conversationView == null) {
             return true;

@@ -1,5 +1,6 @@
 package client;
 
+import java.io.Closeable;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.ObjectInputStream;
@@ -18,46 +19,25 @@ import shared.payload.*;
 
 public class ClientController {
 
-    // -------------------------------------------------------------------------
-    // UI
-    // -------------------------------------------------------------------------
-
     private final ClientUI gui;
-
-    // -------------------------------------------------------------------------
-    // Server endpoint (fixed for this controller instance)
-    // -------------------------------------------------------------------------
-
     private final String hostIp;
     private final int hostPort;
-
-    // -------------------------------------------------------------------------
-    // TCP connection + object streams
-    // -------------------------------------------------------------------------
 
     private volatile ConnectionStatus connectionStatus = ConnectionStatus.NOT_CONNECTED;
     private Socket socket;
     private ObjectOutputStream outputStream;
     private ObjectInputStream inputStream;
 
-    // -------------------------------------------------------------------------
-    // Outbound requests + background workers
-    // -------------------------------------------------------------------------
-
     private final LinkedBlockingDeque<Request> requestQueue = new LinkedBlockingDeque<>();
     private Thread requestDrainThread;
     private Thread responseListenerThread;
     private Thread inactivityDetectorThread;
 
-    // -------------------------------------------------------------------------
-    // Session (authenticated user)
-    // -------------------------------------------------------------------------
-
     private volatile boolean loggedIn = false;
     /**
-     * The reference is reassigned off-EDT (response listener publishes a fresh instance with
-     * lastRead pre-populated); after publication, the lastRead map is mutated only on the EDT.
-     * volatile ensures readers observe the freshest reference.
+     * Reassigned off-EDT (response listener publishes a fresh instance with lastRead pre-populated);
+     * after publication, the lastRead map is mutated only on the EDT. volatile ensures readers
+     * observe the freshest reference.
      */
     private volatile UserInfo currentUser;
     /** Atomic so rapid duplicate clicks lose the compareAndSet race rather than both passing
@@ -68,21 +48,11 @@ public class ClientController {
     private static final int AUTH_WATCHDOG_MS = 15_000;
     private volatile String lastRegisteredLoginName = null;
 
-    // -------------------------------------------------------------------------
-    // Client-side caches backing list views / filters
-    // -------------------------------------------------------------------------
-
     private final List<Conversation> conversations = Collections.synchronizedList(new ArrayList<>());
     /** -1 means no conversation selected. */
     private volatile long currentConversationId = -1;
     private ArrayList<UserInfo> currentDirectory = new ArrayList<>();
     private ArrayList<ConversationMetadata> currentAdminConversationSearch = new ArrayList<>();
-
-    // -------------------------------------------------------------------------
-    // Window-focus gate: inbound messages while the OS window is inactive must
-    // NOT advance the read pointer. Buffer the per-conversation max sequence
-    // and replay on activation, coalescing a burst into one UPDATE_READ_MESSAGES.
-    // -------------------------------------------------------------------------
 
     /** Defaults true so headless tests and pre-window-event states do not suppress reads. */
     private final AtomicBoolean windowActive = new AtomicBoolean(true);
@@ -93,15 +63,7 @@ public class ClientController {
      */
     private final HashMap<Long, Long> deferredReadAdvance = new HashMap<>();
 
-    // -------------------------------------------------------------------------
-    // Server path liveness (updated on inbound server-driven signals, e.g. PONG)
-    // -------------------------------------------------------------------------
-
     private volatile long lastServerActivityMillis = System.currentTimeMillis();
-
-    // -------------------------------------------------------------------------
-    // Tunables
-    // -------------------------------------------------------------------------
 
     /** Bounded so an unreachable server fails fast (~7s) rather than the ~75s OS default. */
     private static final int CONNECT_TIMEOUT_MS = 7000;
@@ -146,11 +108,8 @@ public class ClientController {
         disconnectSocket();
     }
 
-    /**
-     * Closes streams and socket without stopping background threads, so they can wait for the
-     * next lazy reconnect. Field swaps happen under {@code synchronized(this)} so concurrent
-     * {@link #ensureConnected} / {@link #sendRequest} calls observe a consistent (out, in, socket) triple.
-     */
+    /** Field swaps under {@code synchronized(this)} so concurrent ensureConnected/sendRequest
+     *  observe a consistent (out, in, socket) triple. Threads stay alive for lazy reconnect. */
     private void disconnectSocket() {
         final ObjectOutputStream out;
         final ObjectInputStream in;
@@ -161,9 +120,13 @@ public class ClientController {
             sock = socket;      socket = null;
             connectionStatus = ConnectionStatus.NOT_CONNECTED;
         }
-        try { if (in != null) in.close(); } catch (IOException ignored) {}
-        try { if (out != null) out.close(); } catch (IOException ignored) {}
-        try { if (sock != null && !sock.isClosed()) sock.close(); } catch (IOException ignored) {}
+        closeQuietly(in, out, sock);
+    }
+
+    private static void closeQuietly(Closeable... streams) {
+        for (Closeable s : streams) {
+            if (s != null) try { s.close(); } catch (IOException ignored) {}
+        }
     }
 
     /** Test seam: drive response handling directly without a live socket. */
@@ -171,51 +134,23 @@ public class ClientController {
         if (response == null) return;
         lastServerActivityMillis = System.currentTimeMillis();
         switch (response.getType()) {
-            case LOGIN_RESULT:
-                handleLoginResultResponse(response);
-                break;
-            case REGISTER_RESULT:
-                handleRegisterResultResponse(response);
-                break;
-            case MESSAGE:
-                handleMessageResponse(response);
-                break;
-            case CONVERSATION:
-                handleConversationResponse(response);
-                break;
-            case LEAVE_RESULT:
-                handleLeaveResultResponse(response);
-                break;
-            case READ_MESSAGES_UPDATED:
-                handleReadMessagesUpdatedResponse(response);
-                break;
-            case ADMIN_CONVERSATION_RESULT:
-                handleAdminConversationResultResponse(response);
-                break;
-            case ADMIN_VIEW_CONVERSATION_RESULT:
-                handleAdminViewConversationResultResponse(response);
-                break;
-            case CONVERSATION_METADATA:
-                handleConversationMetadataResponse(response);
-                break;
-            case USER_CREATION:
-                handleUserCreationResponse(response);
-                break;
-            case CONNECTED:
-                connectionStatus = ConnectionStatus.CONNECTED;
-                break;
-            case PONG:
-                // lastServerActivityMillis already updated above; nothing else to do.
-                break;
-            default:
-                break;
+            case LOGIN_RESULT:                   handleLoginResultResponse(response); break;
+            case REGISTER_RESULT:                handleRegisterResultResponse(response); break;
+            case MESSAGE:                        handleMessageResponse(response); break;
+            case CONVERSATION:                   handleConversationResponse(response); break;
+            case LEAVE_RESULT:                   handleLeaveResultResponse(response); break;
+            case READ_MESSAGES_UPDATED:          handleReadMessagesUpdatedResponse(response); break;
+            case ADMIN_CONVERSATION_RESULT:      handleAdminConversationResultResponse(response); break;
+            case ADMIN_VIEW_CONVERSATION_RESULT: handleAdminViewConversationResultResponse(response); break;
+            case USER_CREATION:                  handleUserCreationResponse(response); break;
+            case CONNECTED:                      connectionStatus = ConnectionStatus.CONNECTED; break;
+            case PONG:                           break;
+            default:                             break;
         }
     }
 
     private void handleLoginResultResponse(Response response) {
         LoginResult lr = (LoginResult) response.getPayload();
-        // Coalesce field reset + UI updates into one EDT task so the in-flight flag and
-        // button state cannot be observed out-of-order.
         SwingUtilities.invokeLater(() -> {
             authInFlight.set(false);
             cancelAuthWatchdog();
@@ -224,20 +159,15 @@ public class ClientController {
                 case SUCCESS:
                     loggedIn = true;
                     currentUser = lr.getUserInfo();
-                    // Defense-in-depth: server already sorts the wire payload, but re-sort
-                    // here so the controller's recency invariant holds for any direct consumer.
-                    ArrayList<Conversation> sorted = lr.getConversationList() != null
-                            ? new ArrayList<>(lr.getConversationList()) : new ArrayList<>();
-                    sorted.sort((a, b) -> Long.compare(latestSequenceNumber(b), latestSequenceNumber(a)));
                     synchronized (conversations) {
                         conversations.clear();
-                        conversations.addAll(sorted);
+                        if (lr.getConversationList() != null) {
+                            conversations.addAll(lr.getConversationList());
+                        }
                     }
                     currentDirectory = lr.getDirectoryUserInfoList() != null
                             ? lr.getDirectoryUserInfoList() : new ArrayList<>();
-                    if (gui != null) {
-                        gui.showMainView();
-                    }
+                    if (gui != null) gui.showMainView();
                     break;
                 case INVALID_CREDENTIALS:
                 case NO_ACCOUNT_EXISTS:
@@ -275,8 +205,8 @@ public class ClientController {
         boolean shouldAdvanceLastRead = false;
         // The lastRead-advance decision must happen under the same monitor that
         // openConversationAtomically uses, so a click-to-open cannot capture a stale lastRead.
-        // The setLastRead mutation is deferred to the EDT (per UserInfo's contract); EDT
-        // preserves submission order, so the per-conversation pointer stays monotonic.
+        // setLastRead is deferred to the EDT (per UserInfo's contract); EDT preserves submission
+        // order, so the per-conversation pointer stays monotonic.
         synchronized (conversations) {
             for (int i = 0; i < conversations.size(); i++) {
                 if (conversations.get(i).getConversationId() == msg.getConversationId()) {
@@ -316,28 +246,6 @@ public class ClientController {
         }
     }
 
-    /**
-     * Gate is {@code windowActive && userIsViewingBottom}: optimistically advance
-     * {@code currentUser.lastRead} and ask the server to persist; otherwise buffer the
-     * per-conversation max seq for replay on the next window activation.
-     * <p>Test seam: {@link #handleMessageResponse} inlines the same decision on the live
-     * path under the {@code conversations} monitor — keep the two implementations in sync.
-     * Headless callers (gui == null) implicitly satisfy the bottom-viewing predicate.
-     */
-    void tryAdvanceReadOnInbound(long convId, long seq) {
-        UserInfo me = currentUser;
-        if (me == null) return;
-        boolean userViewingBottom = (gui == null) || gui.userIsViewingBottom();
-        if (windowActive.get() && userViewingBottom) {
-            me.setLastRead(convId, seq);
-            updateReadMessages(convId, seq);
-        } else {
-            synchronized (conversations) {
-                deferredReadAdvance.merge(convId, seq, Math::max);
-            }
-        }
-    }
-
     public void setWindowActive(boolean active) {
         windowActive.set(active);
     }
@@ -346,12 +254,8 @@ public class ClientController {
         return windowActive.get();
     }
 
-    /**
-     * Drain {@link #deferredReadAdvance}: send one UPDATE_READ_MESSAGES per conversation at the
-     * highest deferred seq, advance local lastRead, and re-sync the open conversation. Idempotent
-     * on an empty buffer. Drain-and-clear runs under {@code synchronized(conversations)} so it
-     * cannot race a concurrent inbound merging into the same map.
-     */
+    /** Drain-and-clear runs under {@code synchronized(conversations)} so it cannot race a
+     *  concurrent inbound merging into the same map. Idempotent on an empty buffer. */
     public void replayReadAdvanceIfNeeded() {
         UserInfo me = currentUser;
         if (me == null) return;
@@ -393,33 +297,7 @@ public class ClientController {
             if (isNew) {
                 setCurrentConversationId(conv.getConversationId());
                 SwingUtilities.invokeLater(() -> gui.updateMessageListModel(conv));
-                // TODO: call gui.selectConversationInList(conv) once that method exists on ClientUI
             }
-        }
-    }
-
-    private void handleConversationMetadataResponse(Response response) {
-        ConversationMetadata meta = (ConversationMetadata) response.getPayload();
-        // TODO(meta-merge): meta is currently never merged into the matching Conversation —
-        // fold participant updates in, or delete this handler if the emitter has been removed.
-        ArrayList<Conversation> snapshot;
-        synchronized (conversations) {
-            boolean found = false;
-            for (Conversation c : conversations) {
-                if (c.getConversationId() == meta.getConversationId()) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                System.err.println("CONVERSATION_METADATA: no matching conversation for id=" + meta.getConversationId());
-                return;
-            }
-            snapshot = new ArrayList<>(conversations);
-        }
-        if (gui != null) {
-            final ArrayList<Conversation> snap = snapshot;
-            SwingUtilities.invokeLater(() -> gui.updateConversationListModel(snap));
         }
     }
 
@@ -463,9 +341,9 @@ public class ClientController {
         UserInfo fresh = updated.getUpdatedUserInfo();
         UserInfo old = currentUser;
         if (old != null) {
-            // Preserve any local optimistic advance the server has not yet acked.
-            // The defensive copy is load-bearing: getLastReadMap() returns an unmodifiable
-            // view of the live HashMap, so iterating it raw races a concurrent EDT writer.
+            // Preserve any local optimistic advance the server has not yet acked. Defensive copy
+            // is load-bearing: getLastReadMap() returns an unmodifiable view of the live HashMap,
+            // so iterating it raw races a concurrent EDT writer.
             Map<Long, Long> oldEntries = new HashMap<>(old.getLastReadMap());
             for (Map.Entry<Long, Long> e : oldEntries.entrySet()) {
                 long convId = e.getKey();
@@ -503,8 +381,7 @@ public class ClientController {
         }
     }
 
-    /** Synchronized so the state flip and stream creation happen atomically — concurrent
-     *  callers either skip at the CONNECTED check or wait their turn. */
+    /** Synchronized so the state flip and stream creation happen atomically. */
     private synchronized void ensureConnected() throws IOException {
         if (connectionStatus == ConnectionStatus.CONNECTED) return;
         socket = new Socket();
@@ -527,10 +404,6 @@ public class ClientController {
         UserInfo me = requireSession();
         return (me != null && me.getUserType() == UserType.ADMIN) ? me : null;
     }
-
-    // -------------------------------------------------------------------------
-    // Public action methods — each maps 1-to-1 with a DataManager handler.
-    // -------------------------------------------------------------------------
 
     public void register(String userId, String realName, String loginName, char[] password) {
         if (!authInFlight.compareAndSet(false, true)) return;
@@ -572,22 +445,15 @@ public class ClientController {
         }
     }
 
-    /**
-     * Clears local session synchronously and switches to the login view. The wire LOGOUT and
-     * stream teardown run on a daemon helper so the EDT never blocks on socket I/O.
-     * <p>Ordering: clear {@link #requestQueue} BEFORE nulling the streams, so any request the
-     * drain thread already took will, on its next {@link #sendRequest(Request)} call, observe
-     * {@code outputStream == null} and drop silently. The captured stream refs are local to the
-     * helper, letting a subsequent re-login rebuild a fresh connection without racing the
-     * in-flight LOGOUT write.
-     */
+    /** Clears local session synchronously and switches to the login view. The wire LOGOUT and
+     *  stream teardown run on a daemon helper so the EDT never blocks on socket I/O. The queue
+     *  is cleared BEFORE nulling streams so any request the drain thread already took observes
+     *  outputStream==null on its next sendRequest and drops silently. */
     public void logout() {
         UserInfo me = requireSession();
         if (me == null) return;
         String userId = me.getUserId();
         requestQueue.clear();
-        // Capture-and-null under `this` so concurrent ensureConnected/sendRequest see a
-        // consistent (out, in, socket) triple.
         final ObjectOutputStream out;
         final ObjectInputStream in;
         final Socket sock;
@@ -620,9 +486,7 @@ public class ClientController {
                 out.flush();
             } catch (IOException ignored) { /* socket already gone */ }
         }
-        try { if (in != null) in.close(); } catch (IOException ignored) {}
-        try { if (out != null) out.close(); } catch (IOException ignored) {}
-        try { if (sock != null && !sock.isClosed()) sock.close(); } catch (IOException ignored) {}
+        closeQuietly(in, out, sock);
     }
 
     /** Defensive copy: the live list is reassigned + cleared on the EDT. */
@@ -699,10 +563,6 @@ public class ClientController {
                 new JoinConversationPayload(conversationId), currentUser.getUserId()));
     }
 
-    // -------------------------------------------------------------------------
-    // UI/local filtering + read-only accessors.
-    // -------------------------------------------------------------------------
-
     public void searchDirectory(String query) {
         if (gui == null) return;
         gui.updateDirectoryModel(getFilteredDirectory(query));
@@ -760,7 +620,7 @@ public class ClientController {
     private static long latestSequenceNumber(Conversation c) {
         if (c == null) return 0L;
         if (c.getMessages().isEmpty()) {
-            // No messages yet; fall back to conversationId for creation-recency ordering.
+            // Fall back to conversationId for creation-recency ordering.
             return c.getConversationId();
         }
         return c.getMessages().get(c.getMessages().size() - 1).getSequenceNumber();
@@ -809,15 +669,10 @@ public class ClientController {
         return null;
     }
 
-    /**
-     * Atomically capture (conversation, viewer's lastRead at open time, message-list snapshot)
-     * AND publish {@code currentConversationId} in one critical section. Without atomic capture,
-     * a message arriving between the lastRead read and the snapshot could land on the wrong side
-     * of the "New messages" divider.
-     * <p>Lock order: {@code conversations} → {@code Conversation.this} — matches
-     * {@link #handleMessageResponse}, so deadlock is impossible.
-     * <p>Returns null if no user is logged in or the conversation is unknown.
-     */
+    /** Atomically capture (conversation, viewer's lastRead at open time, message-list snapshot)
+     *  AND publish currentConversationId in one critical section, so a message arriving between
+     *  the lastRead read and the snapshot cannot land on the wrong side of the divider.
+     *  Lock order: conversations → Conversation.this — matches handleMessageResponse. */
     public ConversationOpenSnapshot openConversationAtomically(long id) {
         UserInfo me = currentUser;
         if (me == null) return null;
@@ -846,52 +701,31 @@ public class ClientController {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Read/unread math — public statics delegate so existing call sites (UI
-    // renderers, tests pinning ClientController.isUnread / etc.) keep compiling.
-    // -------------------------------------------------------------------------
-
-    private static final class ReadCalc {
-        private ReadCalc() {}
-
-        static boolean isUnread(Conversation conv, UserInfo viewer) {
-            if (conv == null || viewer == null) return false;
-            long lastReadSeq = viewer.getLastRead(conv.getConversationId());
-            ArrayList<Message> msgs = conv.getMessages();
-            long latestSeq = msgs.isEmpty() ? 0L : msgs.get(msgs.size() - 1).getSequenceNumber();
-            return latestSeq > lastReadSeq;
-        }
-
-        static boolean isMessageUnread(Message msg, long displayedLastReadSeq) {
-            if (msg == null) return false;
-            return msg.getSequenceNumber() > displayedLastReadSeq;
-        }
-
-        /** O(unread) backward scan: relies on {@link Conversation#append} being the only
-         *  mutator and appending in monotonic seq order. */
-        static int unreadCount(Conversation conv, UserInfo viewer) {
-            if (conv == null || viewer == null) return 0;
-            long lastReadSeq = viewer.getLastRead(conv.getConversationId());
-            ArrayList<Message> msgs = conv.getMessages();
-            int count = 0;
-            for (int i = msgs.size() - 1; i >= 0; i--) {
-                if (msgs.get(i).getSequenceNumber() > lastReadSeq) count++;
-                else break;
-            }
-            return count;
-        }
-    }
-
     public static boolean isUnread(Conversation conv, UserInfo viewer) {
-        return ReadCalc.isUnread(conv, viewer);
+        if (conv == null || viewer == null) return false;
+        long lastReadSeq = viewer.getLastRead(conv.getConversationId());
+        ArrayList<Message> msgs = conv.getMessages();
+        long latestSeq = msgs.isEmpty() ? 0L : msgs.get(msgs.size() - 1).getSequenceNumber();
+        return latestSeq > lastReadSeq;
     }
 
     public static boolean isMessageUnread(Message msg, long displayedLastReadSeq) {
-        return ReadCalc.isMessageUnread(msg, displayedLastReadSeq);
+        if (msg == null) return false;
+        return msg.getSequenceNumber() > displayedLastReadSeq;
     }
 
+    /** O(unread) backward scan: relies on Conversation#append being the only mutator and
+     *  appending in monotonic seq order. */
     public static int unreadCount(Conversation conv, UserInfo viewer) {
-        return ReadCalc.unreadCount(conv, viewer);
+        if (conv == null || viewer == null) return 0;
+        long lastReadSeq = viewer.getLastRead(conv.getConversationId());
+        ArrayList<Message> msgs = conv.getMessages();
+        int count = 0;
+        for (int i = msgs.size() - 1; i >= 0; i--) {
+            if (msgs.get(i).getSequenceNumber() > lastReadSeq) count++;
+            else break;
+        }
+        return count;
     }
 
     /** Synchronized to prevent interleaved writes on the shared output stream. */
@@ -911,47 +745,57 @@ public class ClientController {
         requestQueue.add(r);
     }
 
-    // -------------------------------------------------------------------------
-    // Background thread starters (daemon workers for queue drain, responses,
-    // and connection / ping keepalive).
-    // -------------------------------------------------------------------------
+    private void awaitConnected() {
+        while (!Thread.currentThread().isInterrupted()
+                && connectionStatus != ConnectionStatus.CONNECTED) {
+            try {
+                Thread.sleep(RECONNECT_POLL_MS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+    }
+
+    private void attemptSendOrBackoff(Request r) {
+        try {
+            ensureConnected();
+            sendRequest(r);
+        } catch (IOException e) {
+            connectionStatus = ConnectionStatus.NOT_CONNECTED;
+            if (authInFlight.compareAndSet(true, false)) {
+                // Drop the queued auth and notify rather than silently retrying an unreachable
+                // server forever. EDT-marshal the GUI work.
+                SwingUtilities.invokeLater(() -> {
+                    cancelAuthWatchdog();
+                    if (gui != null) {
+                        gui.setLoginInFlight(false);
+                        gui.showNetworkError();
+                    }
+                });
+            } else {
+                requestQueue.addFirst(r);
+            }
+            e.printStackTrace();
+            try {
+                Thread.sleep(RETRY_BACKOFF_MS);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
 
     private void startRequestDrainThread() {
         requestDrainThread = new Thread(() -> {
             while (!Thread.currentThread().isInterrupted()) {
-                Request r = null;
+                Request r;
                 try {
                     r = requestQueue.take();
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     break;
                 }
-                try {
-                    ensureConnected();
-                    sendRequest(r);
-                } catch (IOException e) {
-                    connectionStatus = ConnectionStatus.NOT_CONNECTED;
-                    if (authInFlight.compareAndSet(true, false)) {
-                        // Drop the queued auth and notify, rather than silently retrying an
-                        // unreachable server forever. EDT-marshal the GUI work.
-                        SwingUtilities.invokeLater(() -> {
-                            cancelAuthWatchdog();
-                            if (gui != null) {
-                                gui.setLoginInFlight(false);
-                                gui.showNetworkError();
-                            }
-                        });
-                    } else {
-                        requestQueue.addFirst(r);
-                    }
-                    e.printStackTrace();
-                    try {
-                        Thread.sleep(RETRY_BACKOFF_MS);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
-                }
+                attemptSendOrBackoff(r);
             }
         }, "request-drain");
         requestDrainThread.setDaemon(true);
@@ -961,18 +805,9 @@ public class ClientController {
     private void startResponseListenerThread() {
         responseListenerThread = new Thread(() -> {
             while (!Thread.currentThread().isInterrupted()) {
-                while (!Thread.currentThread().isInterrupted()
-                        && connectionStatus != ConnectionStatus.CONNECTED) {
-                    try {
-                        Thread.sleep(RECONNECT_POLL_MS);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
-                }
+                awaitConnected();
                 if (Thread.currentThread().isInterrupted()) break;
 
-                readLoop:
                 while (!Thread.currentThread().isInterrupted()
                         && connectionStatus == ConnectionStatus.CONNECTED && inputStream != null) {
                     try {
@@ -982,11 +817,11 @@ public class ClientController {
                         }
                     } catch (EOFException | SocketException e) {
                         connectionStatus = ConnectionStatus.NOT_CONNECTED;
-                        break readLoop;
+                        break;
                     } catch (IOException | ClassNotFoundException e) {
                         connectionStatus = ConnectionStatus.NOT_CONNECTED;
                         e.printStackTrace();
-                        break readLoop;
+                        break;
                     }
                 }
             }
@@ -998,15 +833,7 @@ public class ClientController {
     private void startInactivityDetectorThread() {
         inactivityDetectorThread = new Thread(() -> {
             while (!Thread.currentThread().isInterrupted()) {
-                while (!Thread.currentThread().isInterrupted()
-                        && connectionStatus != ConnectionStatus.CONNECTED) {
-                    try {
-                        Thread.sleep(RECONNECT_POLL_MS);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
-                }
+                awaitConnected();
                 if (Thread.currentThread().isInterrupted()) break;
 
                 while (!Thread.currentThread().isInterrupted()
