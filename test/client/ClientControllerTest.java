@@ -444,4 +444,311 @@ class ClientControllerTest {
         c.processResponse(adminConversationResult());
         assertEquals(0, c.getFilteredAdminConversationSearch("nosuch99").size());
     }
+
+    // =========================================================================
+    // 13. isUnread (issue #209) — pure helper used by the conversation cell renderer
+    // =========================================================================
+
+    @Test
+    void isUnread_nullArguments_returnsFalse() {
+        assertFalse(ClientController.isUnread(null, alice()));
+        assertFalse(ClientController.isUnread(conv(1L, alice(), bob()), null));
+        assertFalse(ClientController.isUnread(null, null));
+    }
+
+    @Test
+    void isUnread_emptyConversation_returnsFalse() {
+        assertFalse(ClientController.isUnread(conv(1L, alice(), bob()), alice()));
+    }
+
+    @Test
+    void isUnread_lastReadMatchesLatest_returnsFalse() {
+        Conversation c = conv(1L, alice(), bob());
+        c.append(new Message("hi", 5L, new Date(), NetworkingSeedData.BOB_ID, 1L));
+        UserInfo viewer = alice();
+        viewer.setLastRead(1L, 5L);
+        assertFalse(ClientController.isUnread(c, viewer));
+    }
+
+    @Test
+    void isUnread_lastReadAheadOfLatest_returnsFalse() {
+        // Stale local cursor ahead of the latest known message; treat as read.
+        Conversation c = conv(1L, alice(), bob());
+        c.append(new Message("hi", 3L, new Date(), NetworkingSeedData.BOB_ID, 1L));
+        UserInfo viewer = alice();
+        viewer.setLastRead(1L, 99L);
+        assertFalse(ClientController.isUnread(c, viewer));
+    }
+
+    @Test
+    void isUnread_lastReadTrailsLatest_returnsTrue() {
+        Conversation c = conv(1L, alice(), bob());
+        c.append(new Message("hi", 5L, new Date(), NetworkingSeedData.BOB_ID, 1L));
+        UserInfo viewer = alice();
+        viewer.setLastRead(1L, 4L);
+        assertTrue(ClientController.isUnread(c, viewer));
+    }
+
+    @Test
+    void isUnread_noLastReadEntry_treatsAsZero() {
+        Conversation c = conv(1L, alice(), bob());
+        c.append(new Message("hi", 1L, new Date(), NetworkingSeedData.BOB_ID, 1L));
+        // alice() default lastRead map empty; getLastRead(1L) returns 0L; latestSeq=1 → unread
+        assertTrue(ClientController.isUnread(c, alice()));
+    }
+
+    // =========================================================================
+    // 15. isMessageUnread — per-message dot predicate paired with the open-conv
+    //     snapshot so the per-message renderer and sidebar (isUnread) stay aligned.
+    // =========================================================================
+
+    private static Message msg(long seq) {
+        return new Message("x", seq, new Date(), NetworkingSeedData.BOB_ID, 100L);
+    }
+
+    @Test
+    void isMessageUnread_nullMessage_returnsFalse() {
+        assertFalse(ClientController.isMessageUnread(null, 0L));
+        assertFalse(ClientController.isMessageUnread(null, 99L));
+    }
+
+    @Test
+    void isMessageUnread_seqAboveSnapshot_returnsTrue() {
+        assertTrue(ClientController.isMessageUnread(msg(5L), 4L));
+    }
+
+    @Test
+    void isMessageUnread_seqEqualsSnapshot_returnsFalse() {
+        // Boundary: snapshot pointer covers seqs <= it; exactly-equal means already read.
+        assertFalse(ClientController.isMessageUnread(msg(5L), 5L));
+    }
+
+    @Test
+    void isMessageUnread_seqBelowSnapshot_returnsFalse() {
+        assertFalse(ClientController.isMessageUnread(msg(3L), 5L));
+    }
+
+    @Test
+    void isMessageUnread_zeroSnapshot_unreadForAnyPositiveSeq() {
+        // Open-time snapshot is 0 (no prior read pointer); first message is unread.
+        assertTrue(ClientController.isMessageUnread(msg(1L), 0L));
+    }
+
+    // =========================================================================
+    // 16. Window-focus gate (Fix A) — inbound messages while the window is
+    //     inactive must NOT advance the read pointer or send UPDATE_READ_MESSAGES.
+    //     They are buffered per-conversation and replayed (coalesced to max seq)
+    //     on window activation.
+    // =========================================================================
+
+    @Test
+    void inboundMessage_openConv_windowActive_advancesLastReadAndEnqueuesUpdate() {
+        ClientController c = headless();
+        c.processResponse(loginSuccessAliceWithConv());
+        c.setCurrentConversationId(100L);
+        assertTrue(c.isWindowActive(), "default windowActive=true");
+
+        int baseline = c.requestQueueDepthForTesting();
+        c.processResponse(messageFor(100L, "hi"));
+
+        assertEquals(baseline + 1, c.requestQueueDepthForTesting());
+        Request last = c.peekLastRequestForTesting();
+        assertNotNull(last);
+        assertEquals(RequestType.UPDATE_READ_MESSAGES, last.getType());
+        // optimistic local advance
+        assertTrue(c.getCurrentUserInfo().getLastRead(100L) >= 1L);
+    }
+
+    @Test
+    void inboundMessage_openConv_windowInactive_doesNotEnqueueAndBuffersDeferred() {
+        ClientController c = headless();
+        c.processResponse(loginSuccessAliceWithConv());
+        c.setCurrentConversationId(100L);
+        c.setWindowActive(false);
+
+        long lastReadBefore = c.getCurrentUserInfo().getLastRead(100L);
+        int baseline = c.requestQueueDepthForTesting();
+        c.processResponse(messageFor(100L, "hi"));
+
+        assertEquals(baseline, c.requestQueueDepthForTesting(),
+                "no UPDATE_READ_MESSAGES while window inactive");
+        assertEquals(lastReadBefore, c.getCurrentUserInfo().getLastRead(100L),
+                "lastRead must not advance while window inactive");
+    }
+
+    @Test
+    void replayReadAdvance_drainsDeferredAndCoalescesToMaxSeq() {
+        ClientController c = headless();
+        c.processResponse(loginSuccessAliceWithConv());
+        c.setCurrentConversationId(100L);
+        c.setWindowActive(false);
+
+        // 5 messages at seqs 1..5 buffer to a single max-seq=5 deferred entry.
+        Message m1 = new Message("a", 1L, new Date(), NetworkingSeedData.BOB_ID, 100L);
+        Message m2 = new Message("b", 2L, new Date(), NetworkingSeedData.BOB_ID, 100L);
+        Message m3 = new Message("c", 3L, new Date(), NetworkingSeedData.BOB_ID, 100L);
+        Message m4 = new Message("d", 4L, new Date(), NetworkingSeedData.BOB_ID, 100L);
+        Message m5 = new Message("e", 5L, new Date(), NetworkingSeedData.BOB_ID, 100L);
+        c.processResponse(new Response(ResponseType.MESSAGE, m1));
+        c.processResponse(new Response(ResponseType.MESSAGE, m2));
+        c.processResponse(new Response(ResponseType.MESSAGE, m3));
+        c.processResponse(new Response(ResponseType.MESSAGE, m4));
+        c.processResponse(new Response(ResponseType.MESSAGE, m5));
+
+        int baseline = c.requestQueueDepthForTesting();
+        c.setWindowActive(true);
+        c.replayReadAdvanceIfNeeded();
+
+        assertEquals(baseline + 1, c.requestQueueDepthForTesting(),
+                "5-msg burst must coalesce into exactly one UPDATE_READ_MESSAGES");
+        Request last = c.peekLastRequestForTesting();
+        assertEquals(RequestType.UPDATE_READ_MESSAGES, last.getType());
+        assertEquals(5L, c.getCurrentUserInfo().getLastRead(100L),
+                "lastRead advances to max deferred seq");
+    }
+
+    @Test
+    void replayReadAdvance_emptyBuffer_isNoOp() {
+        ClientController c = headless();
+        c.processResponse(loginSuccessAliceWithConv());
+        c.setCurrentConversationId(100L);
+
+        int baseline = c.requestQueueDepthForTesting();
+        assertDoesNotThrow(c::replayReadAdvanceIfNeeded);
+        assertEquals(baseline, c.requestQueueDepthForTesting());
+    }
+
+    @Test
+    void replayReadAdvance_skipsConvsWhereLastReadAlreadyAhead() {
+        ClientController c = headless();
+        c.processResponse(loginSuccessAliceWithConv());
+        c.setCurrentConversationId(100L);
+        c.setWindowActive(false);
+
+        // Buffer one inbound seq=2.
+        Message m = new Message("x", 2L, new Date(), NetworkingSeedData.BOB_ID, 100L);
+        c.processResponse(new Response(ResponseType.MESSAGE, m));
+
+        // Independently push lastRead ahead of the buffered max.
+        c.getCurrentUserInfo().setLastRead(100L, 99L);
+
+        int baseline = c.requestQueueDepthForTesting();
+        c.setWindowActive(true);
+        c.replayReadAdvanceIfNeeded();
+
+        assertEquals(baseline, c.requestQueueDepthForTesting(),
+                "no request when lastRead already exceeds the deferred max");
+        assertEquals(99L, c.getCurrentUserInfo().getLastRead(100L),
+                "lastRead must not regress");
+    }
+
+    // =========================================================================
+    // 17. unreadCount (Fix D) — sidebar badge backing function
+    // =========================================================================
+
+    @Test
+    void unreadCount_nullArguments_returnZero() {
+        Conversation c = conv(100L, alice());
+        assertEquals(0, ClientController.unreadCount(null, alice()));
+        assertEquals(0, ClientController.unreadCount(c, null));
+        assertEquals(0, ClientController.unreadCount(null, null));
+    }
+
+    @Test
+    void unreadCount_emptyConversation_returnsZero() {
+        Conversation c = conv(100L, alice());
+        assertEquals(0, ClientController.unreadCount(c, alice()));
+    }
+
+    @Test
+    void unreadCount_lastReadAtLatest_returnsZero() {
+        Conversation c = conv(100L, alice());
+        c.append(new Message("a", 1L, new Date(), NetworkingSeedData.BOB_ID, 100L));
+        c.append(new Message("b", 2L, new Date(), NetworkingSeedData.BOB_ID, 100L));
+        c.append(new Message("c", 3L, new Date(), NetworkingSeedData.BOB_ID, 100L));
+        UserInfo me = alice();
+        me.setLastRead(100L, 3L);
+        assertEquals(0, ClientController.unreadCount(c, me));
+    }
+
+    @Test
+    void unreadCount_zeroLastRead_returnsAll() {
+        Conversation c = conv(100L, alice());
+        c.append(new Message("a", 1L, new Date(), NetworkingSeedData.BOB_ID, 100L));
+        c.append(new Message("b", 2L, new Date(), NetworkingSeedData.BOB_ID, 100L));
+        c.append(new Message("c", 3L, new Date(), NetworkingSeedData.BOB_ID, 100L));
+        c.append(new Message("d", 4L, new Date(), NetworkingSeedData.BOB_ID, 100L));
+        c.append(new Message("e", 5L, new Date(), NetworkingSeedData.BOB_ID, 100L));
+        // alice's lastRead map empty → getLastRead(100L) == 0L
+        assertEquals(5, ClientController.unreadCount(c, alice()));
+    }
+
+    @Test
+    void unreadCount_partialRead_returnsRemainder() {
+        Conversation c = conv(100L, alice());
+        c.append(new Message("a", 1L, new Date(), NetworkingSeedData.BOB_ID, 100L));
+        c.append(new Message("b", 2L, new Date(), NetworkingSeedData.BOB_ID, 100L));
+        c.append(new Message("c", 3L, new Date(), NetworkingSeedData.BOB_ID, 100L));
+        c.append(new Message("d", 4L, new Date(), NetworkingSeedData.BOB_ID, 100L));
+        c.append(new Message("e", 5L, new Date(), NetworkingSeedData.BOB_ID, 100L));
+        UserInfo me = alice();
+        me.setLastRead(100L, 2L);
+        assertEquals(3, ClientController.unreadCount(c, me));
+    }
+
+    @Test
+    void unreadCount_staleLastReadAhead_returnsZero() {
+        Conversation c = conv(100L, alice());
+        c.append(new Message("a", 1L, new Date(), NetworkingSeedData.BOB_ID, 100L));
+        c.append(new Message("b", 2L, new Date(), NetworkingSeedData.BOB_ID, 100L));
+        UserInfo me = alice();
+        me.setLastRead(100L, 99L); // stale pointer ahead of latest
+        assertEquals(0, ClientController.unreadCount(c, me));
+    }
+
+    // =========================================================================
+    // 18. getConversationSnapshotForOpen (Fix E2) — race-free open capture
+    // =========================================================================
+
+    @Test
+    void getConversationSnapshotForOpen_returnsAtomicPair() {
+        ClientController c = headless();
+        c.processResponse(loginSuccessAliceWithConv()); // conv id=100, no messages
+        c.setCurrentConversationId(100L);
+        // Stage one already-seen message and set lastRead to it.
+        Conversation live = c.getCurrentConversation();
+        assertNotNull(live);
+        live.append(new Message("seen", 5L, new Date(), NetworkingSeedData.BOB_ID, 100L));
+        c.getCurrentUserInfo().setLastRead(100L, 5L);
+
+        ClientController.ConversationOpenSnapshot snap =
+                c.getConversationSnapshotForOpen(100L);
+        assertNotNull(snap);
+        assertSame(live, snap.conversation, "snapshot exposes the live Conversation reference");
+        assertEquals(5L, snap.lastReadAtOpen);
+        assertEquals(1, snap.messages.size());
+        assertEquals(5L, snap.messages.get(0).getSequenceNumber());
+
+        // Mutate the underlying conversation AFTER capture; snapshot must not change.
+        live.append(new Message("after", 6L, new Date(), NetworkingSeedData.BOB_ID, 100L));
+        c.getCurrentUserInfo().setLastRead(100L, 6L);
+        assertEquals(5L, snap.lastReadAtOpen, "lastReadAtOpen is frozen at capture time");
+        assertEquals(1, snap.messages.size(), "messages list is a defensive copy");
+    }
+
+    @Test
+    void getConversationSnapshotForOpen_unknownConv_returnsNull() {
+        ClientController c = headless();
+        c.processResponse(loginSuccessAliceWithConv());
+        assertNull(c.getConversationSnapshotForOpen(99999L),
+                "snapshot for an unknown conversation id is null");
+    }
+
+    @Test
+    void getConversationSnapshotForOpen_notLoggedIn_returnsNull() {
+        ClientController c = headless();
+        // No login performed → currentUser is null.
+        assertNull(c.getConversationSnapshotForOpen(100L),
+                "snapshot before login is null");
+    }
 }
