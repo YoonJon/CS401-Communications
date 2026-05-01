@@ -17,141 +17,191 @@ import java.util.ArrayList;
 
 public class ClientUI {
 
-    /** Last time a global key/mouse AWT event was observed (UI "user active"). */
-    private volatile long lastUserActivityMillis = System.currentTimeMillis();
-
     private final ClientController controller;
     private JFrame frame;
     private ScreenCards cards;
     private DefaultListModel<UserInfo> directoryModel;
     private DefaultListModel<Object> conversationMessageModel;
     private DefaultListModel<Conversation> conversationListModel;
-    /** Fires on the EDT every 5s to compare wall clock to {@link #lastUserActivityMillis}. */
-    private final Timer userIdlePollTimer;
-
-    private static final int USER_IDLE_POLL_MS = 5_000;
-    /** Optional: end session after this much in-app UI idle time (0 disables). Default 30 minutes. */
-    private static final long USER_IDLE_LOGOUT_AFTER_MS = 30L * 60L * 1000L;
+    private final IdleWatcher idleWatcher;
 
     private int unreadWhileAway = 0;
     private volatile boolean suppressActivationReset = false;
     private static final String BASE_TITLE = "Communication Application";
 
-    public ClientUI(ClientController controller) {
-        this.controller = controller;
+    private static final Dimension MAIN_FRAME_MIN_SIZE       = new Dimension(900, 600);
+    private static final Dimension SELECT_USER_DIALOG_SIZE   = new Dimension(300, 400);
+    private static final Dimension ADMIN_SEARCH_DIALOG_SIZE  = new Dimension(900, 600);
+    private static final double    BUBBLE_WRAP_FRACTION      = 0.70;
 
-        // Fix 3: wrap ALL frame setup in invokeLater so it runs on the EDT.
-        SwingUtilities.invokeLater(() -> {
-            try {
-                UIManager.setLookAndFeel("javax.swing.plaf.nimbus.NimbusLookAndFeel");
-            } catch (Exception ignored) {
-                // If Nimbus is unavailable, keep current LAF and continue.
-            }
-
-            // Temporary dark-mode test theme (global UI defaults).
-            UIManager.put("control", new Color(43, 43, 43));
-            UIManager.put("info", new Color(60, 63, 65));
-            UIManager.put("nimbusBase", new Color(60, 63, 65));
-            UIManager.put("nimbusAlertYellow", new Color(248, 187, 0));
-            UIManager.put("nimbusDisabledText", new Color(128, 128, 128));
-            UIManager.put("nimbusFocus", new Color(115, 164, 209));
-            UIManager.put("nimbusGreen", new Color(176, 179, 50));
-            UIManager.put("nimbusInfoBlue", new Color(66, 139, 221));
-            UIManager.put("nimbusLightBackground", new Color(43, 43, 43));
-            UIManager.put("nimbusOrange", new Color(191, 98, 4));
-            UIManager.put("nimbusRed", new Color(169, 46, 34));
-            UIManager.put("nimbusSelectedText", new Color(255, 255, 255));
-            UIManager.put("nimbusSelectionBackground", new Color(75, 110, 175));
-            UIManager.put("text", new Color(220, 220, 220));
-            UIManager.put("Panel.background", new Color(43, 43, 43));
-            UIManager.put("Label.foreground", new Color(220, 220, 220));
-            UIManager.put("TextField.background", new Color(60, 63, 65));
-            UIManager.put("TextField.foreground", new Color(220, 220, 220));
-            UIManager.put("TextField.caretForeground", new Color(220, 220, 220));
-            UIManager.put("TextArea.background", new Color(60, 63, 65));
-            UIManager.put("TextArea.foreground", new Color(220, 220, 220));
-            UIManager.put("TextArea.caretForeground", new Color(220, 220, 220));
-            UIManager.put("Button.background", new Color(60, 63, 65));
-            UIManager.put("Button.foreground", new Color(220, 220, 220));
-            UIManager.put("List.background", new Color(43, 43, 43));
-            UIManager.put("List.foreground", new Color(220, 220, 220));
-            UIManager.put("List.selectionBackground", new Color(75, 110, 175));
-            UIManager.put("List.selectionForeground", new Color(255, 255, 255));
-            UIManager.put("OptionPane.background", new Color(43, 43, 43));
-            UIManager.put("OptionPane.messageForeground", new Color(220, 220, 220));
-
-            frame = new JFrame();
-            frame.setTitle(BASE_TITLE);
-            frame.setIconImage(createAppIcon());
-            // Fix 2a: enforce minimum window size
-            frame.setMinimumSize(new java.awt.Dimension(900, 600));
-            cards = new ScreenCards();
-            directoryModel = cards.main.directoryView.getListModel();
-            conversationMessageModel = cards.main.conversationView.getListModel();
-            conversationListModel = cards.main.conversationListView.getListModel();
-            frame.add(cards);
-            frame.pack();
-            frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-            frame.setLocationRelativeTo(null);
-            frame.setVisible(true);
-
-            frame.addWindowListener(new WindowAdapter() {
-                @Override public void windowActivated(WindowEvent e) {
-                    // Fix A: tell the controller the window is active and drain any
-                    // deferred read-advances that piled up while we were inactive.
-                    controller.setWindowActive(true);
-                    controller.replayReadAdvanceIfNeeded();
-                    if (suppressActivationReset) {
-                        suppressActivationReset = false;
-                        return;
-                    }
-                    unreadWhileAway = 0;
-                    frame.setTitle(BASE_TITLE);
-                }
-                @Override public void windowDeactivated(WindowEvent e) {
-                    controller.setWindowActive(false);
-                }
-            });
-
-            JRootPane rp = frame.getRootPane();
-            InputMap im = rp.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
-            ActionMap am = rp.getActionMap();
-            im.put(KeyStroke.getKeyStroke(KeyEvent.VK_L, InputEvent.CTRL_DOWN_MASK), "shortcutLogout");
-            im.put(KeyStroke.getKeyStroke(KeyEvent.VK_N, InputEvent.CTRL_DOWN_MASK), "shortcutNewConv");
-            am.put("shortcutLogout", new AbstractAction() {
-                @Override public void actionPerformed(ActionEvent e) {
-                    if (controller.isLoggedIn()) controller.logout();
-                }
-            });
-            am.put("shortcutNewConv", new AbstractAction() {
-                @Override public void actionPerformed(ActionEvent e) {
-                    if (controller.isLoggedIn()
-                            && cards.main.directoryView.createConversationButton.isEnabled()) {
-                        cards.main.directoryView.createConversationButton.doClick();
-                    }
-                }
-            });
-
-            Toolkit.getDefaultToolkit().addAWTEventListener(
-                e -> {
-                    lastUserActivityMillis = System.currentTimeMillis();
-                },
-                AWTEvent.KEY_EVENT_MASK | AWTEvent.MOUSE_EVENT_MASK
-            );
-        });
-
-        userIdlePollTimer = new Timer(USER_IDLE_POLL_MS, e -> onUserIdlePollTick());
-        userIdlePollTimer.setRepeats(true);
-        userIdlePollTimer.start();
+    /** Named RGB constants for the dark-mode theme. Values are unchanged from the
+     *  original inline literals — this class only gives them readable names. */
+    private static final class Theme {
+        // Surfaces
+        static final Color SURFACE_BG          = new Color(43, 43, 43);
+        static final Color FIELD_BG            = new Color(60, 63, 65);
+        // Text
+        static final Color TEXT_PRIMARY        = new Color(220, 220, 220);
+        static final Color TEXT_ON_OWN_BUBBLE  = new Color(235, 235, 235);
+        static final Color WHITE               = new Color(255, 255, 255);
+        // Nimbus accent palette
+        static final Color NIMBUS_FOCUS         = new Color(115, 164, 209);
+        static final Color NIMBUS_GREEN         = new Color(176, 179, 50);
+        static final Color NIMBUS_INFO_BLUE     = new Color(66, 139, 221);
+        static final Color NIMBUS_ORANGE        = new Color(191, 98, 4);
+        static final Color NIMBUS_RED           = new Color(169, 46, 34);
+        static final Color NIMBUS_ALERT_YELLOW  = new Color(248, 187, 0);
+        static final Color NIMBUS_DISABLED_TEXT = new Color(128, 128, 128);
+        static final Color NIMBUS_SELECTION_BG  = new Color(75, 110, 175);
+        // App-specific
+        static final Color OWN_BUBBLE_BG = new Color(66, 95, 120);
+        static final Color BUBBLE_BORDER = new Color(180, 180, 180);
+        static final Color BANNER_FG     = new Color(0, 100, 180);
+        static final Color APP_ICON_BG   = new Color(33, 150, 243);
     }
 
-    /** Runs on EDT each timer tick: elapsed time since last AWT user input. */
-    private void onUserIdlePollTick() {
-        long idleMs = System.currentTimeMillis() - lastUserActivityMillis;
-        if (USER_IDLE_LOGOUT_AFTER_MS > 0
-                && controller.isLoggedIn()
-                && idleMs >= USER_IDLE_LOGOUT_AFTER_MS) {
-            controller.logout();
+    public ClientUI(ClientController controller) {
+        this.controller = controller;
+        this.idleWatcher = new IdleWatcher();
+
+        SwingUtilities.invokeLater(() -> {
+            applyNimbusLookAndFeel();
+            applyDarkModeTheme();
+            initFrameAndCards();
+            installWindowListener();
+            installKeyboardShortcuts();
+            idleWatcher.installAwtListener();
+        });
+
+        idleWatcher.start();
+    }
+
+    private void applyNimbusLookAndFeel() {
+        try {
+            UIManager.setLookAndFeel("javax.swing.plaf.nimbus.NimbusLookAndFeel");
+        } catch (Exception ignored) {
+            // If Nimbus is unavailable, keep current LAF and continue.
+        }
+    }
+
+    private void applyDarkModeTheme() {
+        UIManager.put("control", Theme.SURFACE_BG);
+        UIManager.put("info", Theme.FIELD_BG);
+        UIManager.put("nimbusBase", Theme.FIELD_BG);
+        UIManager.put("nimbusAlertYellow", Theme.NIMBUS_ALERT_YELLOW);
+        UIManager.put("nimbusDisabledText", Theme.NIMBUS_DISABLED_TEXT);
+        UIManager.put("nimbusFocus", Theme.NIMBUS_FOCUS);
+        UIManager.put("nimbusGreen", Theme.NIMBUS_GREEN);
+        UIManager.put("nimbusInfoBlue", Theme.NIMBUS_INFO_BLUE);
+        UIManager.put("nimbusLightBackground", Theme.SURFACE_BG);
+        UIManager.put("nimbusOrange", Theme.NIMBUS_ORANGE);
+        UIManager.put("nimbusRed", Theme.NIMBUS_RED);
+        UIManager.put("nimbusSelectedText", Theme.WHITE);
+        UIManager.put("nimbusSelectionBackground", Theme.NIMBUS_SELECTION_BG);
+        UIManager.put("text", Theme.TEXT_PRIMARY);
+        UIManager.put("Panel.background", Theme.SURFACE_BG);
+        UIManager.put("Label.foreground", Theme.TEXT_PRIMARY);
+        UIManager.put("TextField.background", Theme.FIELD_BG);
+        UIManager.put("TextField.foreground", Theme.TEXT_PRIMARY);
+        UIManager.put("TextField.caretForeground", Theme.TEXT_PRIMARY);
+        UIManager.put("TextArea.background", Theme.FIELD_BG);
+        UIManager.put("TextArea.foreground", Theme.TEXT_PRIMARY);
+        UIManager.put("TextArea.caretForeground", Theme.TEXT_PRIMARY);
+        UIManager.put("Button.background", Theme.FIELD_BG);
+        UIManager.put("Button.foreground", Theme.TEXT_PRIMARY);
+        UIManager.put("List.background", Theme.SURFACE_BG);
+        UIManager.put("List.foreground", Theme.TEXT_PRIMARY);
+        UIManager.put("List.selectionBackground", Theme.NIMBUS_SELECTION_BG);
+        UIManager.put("List.selectionForeground", Theme.WHITE);
+        UIManager.put("OptionPane.background", Theme.SURFACE_BG);
+        UIManager.put("OptionPane.messageForeground", Theme.TEXT_PRIMARY);
+    }
+
+    private void initFrameAndCards() {
+        frame = new JFrame();
+        frame.setTitle(BASE_TITLE);
+        frame.setIconImage(createAppIcon());
+        frame.setMinimumSize(MAIN_FRAME_MIN_SIZE);
+        cards = new ScreenCards();
+        directoryModel = cards.main.directoryView.getListModel();
+        conversationMessageModel = cards.main.conversationView.getListModel();
+        conversationListModel = cards.main.conversationListView.getListModel();
+        frame.add(cards);
+        frame.pack();
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        frame.setLocationRelativeTo(null);
+        frame.setVisible(true);
+    }
+
+    private void installWindowListener() {
+        frame.addWindowListener(new WindowAdapter() {
+            @Override public void windowActivated(WindowEvent e) {
+                // Tell the controller the window is active and drain any
+                // deferred read-advances that piled up while we were inactive.
+                controller.setWindowActive(true);
+                controller.replayReadAdvanceIfNeeded();
+                if (suppressActivationReset) {
+                    suppressActivationReset = false;
+                    return;
+                }
+                unreadWhileAway = 0;
+                frame.setTitle(BASE_TITLE);
+            }
+            @Override public void windowDeactivated(WindowEvent e) {
+                controller.setWindowActive(false);
+            }
+        });
+    }
+
+    private void installKeyboardShortcuts() {
+        JRootPane rp = frame.getRootPane();
+        InputMap im = rp.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+        ActionMap am = rp.getActionMap();
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_L, InputEvent.CTRL_DOWN_MASK), "shortcutLogout");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_N, InputEvent.CTRL_DOWN_MASK), "shortcutNewConv");
+        am.put("shortcutLogout", new AbstractAction() {
+            @Override public void actionPerformed(ActionEvent e) {
+                if (controller.isLoggedIn()) controller.logout();
+            }
+        });
+        am.put("shortcutNewConv", new AbstractAction() {
+            @Override public void actionPerformed(ActionEvent e) {
+                if (controller.isLoggedIn()
+                        && cards.main.directoryView.createConversationButton.isEnabled()) {
+                    cards.main.directoryView.createConversationButton.doClick();
+                }
+            }
+        });
+    }
+
+    /** Tracks UI idleness via a global AWT key/mouse listener and ends the
+     *  session if the user has been inactive past {@link #LOGOUT_AFTER_MS}. */
+    private final class IdleWatcher {
+        private static final int POLL_MS = 5_000;
+        private static final long LOGOUT_AFTER_MS = 30L * 60L * 1000L;
+
+        private volatile long lastActivityMillis = System.currentTimeMillis();
+        private final Timer pollTimer;
+
+        IdleWatcher() {
+            pollTimer = new Timer(POLL_MS, e -> onTick());
+            pollTimer.setRepeats(true);
+        }
+
+        void start() { pollTimer.start(); }
+
+        void installAwtListener() {
+            Toolkit.getDefaultToolkit().addAWTEventListener(
+                e -> lastActivityMillis = System.currentTimeMillis(),
+                AWTEvent.KEY_EVENT_MASK | AWTEvent.MOUSE_EVENT_MASK
+            );
+        }
+
+        private void onTick() {
+            long idleMs = System.currentTimeMillis() - lastActivityMillis;
+            if (LOGOUT_AFTER_MS > 0 && controller.isLoggedIn() && idleMs >= LOGOUT_AFTER_MS) {
+                controller.logout();
+            }
         }
     }
 
@@ -162,16 +212,15 @@ public class ClientUI {
     /** #139B: pre-fill login id (e.g. with the just-registered loginName) before showing the screen. */
     public void showLoginView(String prefilledLoginId) {
         SwingUtilities.invokeLater(() -> {
-            // Fix 5: dispose any open dialogs before switching to login
             DirectoryView dv = cards.main.directoryView;
             ConversationView cv = cards.main.conversationView;
-            if (dv.createDialog != null && dv.createDialog.isVisible()) dv.createDialog.dispose();
-            if (dv.adminDialog != null && dv.adminDialog.isVisible()) dv.adminDialog.dispose();
-            if (cv.addDialog != null && cv.addDialog.isVisible()) cv.addDialog.dispose();
+            disposeIfVisible(dv.createDialog);
+            disposeIfVisible(dv.adminDialog);
+            disposeIfVisible(cv.addDialog);
 
             clearLoginAndRegisterFields();
             if (prefilledLoginId != null && !prefilledLoginId.isEmpty()) {
-                cards.login.login_idField.setText(prefilledLoginId);
+                cards.login.loginIdField.setText(prefilledLoginId);
             }
             cards.main.directoryView.adminButton.setVisible(false);
             cards.main.directoryView.revalidate();
@@ -199,7 +248,7 @@ public class ClientUI {
             boolean isAdmin = currentUser != null && currentUser.getUserType() == UserType.ADMIN;
             cards.main.directoryView.adminButton.setVisible(isAdmin);
             // Refresh directory list from the latest controller-side cache on main-view entry.
-            // Fix 6: exclude the logged-in user from the directory picker list
+            // Exclude the logged-in user from the directory picker list.
             String myId = (currentUser != null) ? currentUser.getUserId() : null;
             directoryModel.clear();
             for (UserInfo userInfo : controller.getFilteredDirectory("")) {
@@ -224,7 +273,6 @@ public class ClientUI {
                 idL.setForeground(Color.GRAY);
             }
             cards.layout.show(cards, "main");
-            // Fix 2b: repack and re-center after switching to main card
             frame.pack();
             frame.setLocationRelativeTo(null);
         });
@@ -276,7 +324,7 @@ public class ClientUI {
     }
 
     private void clearLoginAndRegisterFields() {
-        cards.login.login_idField.setText("");
+        cards.login.loginIdField.setText("");
         cards.login.passwordField.setText("");
         cards.register.userId.setText("");
         cards.register.name.setText("");
@@ -313,7 +361,7 @@ public class ClientUI {
 
     public void showLoginError(LoginStatus loginStatus) {
         SwingUtilities.invokeLater(() -> {
-            // #139A: always clear the password on login failure.
+            // Always clear the password on login failure.
             cards.login.passwordField.setText("");
             String msg;
             String title = "Login Error";
@@ -325,7 +373,6 @@ public class ClientUI {
                     msg = "No account exists. Please create an account.";
                     break;
                 case DUPLICATE_SESSION:
-                    // #144: coherent, actionable copy that doesn't contradict itself.
                     title = "Session Already Active";
                     msg = "You are already logged in from another location. Please log out of "
                         + "that session first, then try again. If you closed the app without "
@@ -374,41 +421,40 @@ public class ClientUI {
 
     public void updateConversationListModel(ArrayList<Conversation> conversations) {
         SwingUtilities.invokeLater(() -> {
-            // Fix 7: preserve selection across model rebuild
-            JList<Conversation> convList = cards.main.conversationListView.list;
-            cards.main.conversationListView.suppressSelectionEvents = true;
-            Conversation selected = convList.getSelectedValue();
-            Long selectedId = (selected != null) ? selected.getConversationId() : null;
+            ConversationListView clv = cards.main.conversationListView;
+            clv.withSuppressedSelection(() -> {
+                Conversation selected = clv.list.getSelectedValue();
+                Long selectedId = (selected != null) ? selected.getConversationId() : null;
 
-            // Sort by highest latest sequence number descending (most recent first),
-            // which also keeps offline-received updates ordered correctly on initial paint.
-            conversations.sort((a, b) -> {
-                ArrayList<Message> aMsgs = a.getMessages();
-                ArrayList<Message> bMsgs = b.getMessages();
-                long aSeq = aMsgs.isEmpty()
-                        ? a.getConversationId()
-                        : aMsgs.get(aMsgs.size() - 1).getSequenceNumber();
-                long bSeq = bMsgs.isEmpty()
-                        ? b.getConversationId()
-                        : bMsgs.get(bMsgs.size() - 1).getSequenceNumber();
-                return Long.compare(bSeq, aSeq);
-            });
+                // Sort by highest latest sequence number descending (most recent first),
+                // which also keeps offline-received updates ordered correctly on initial paint.
+                conversations.sort((a, b) -> {
+                    ArrayList<Message> aMsgs = a.getMessages();
+                    ArrayList<Message> bMsgs = b.getMessages();
+                    long aSeq = aMsgs.isEmpty()
+                            ? a.getConversationId()
+                            : aMsgs.get(aMsgs.size() - 1).getSequenceNumber();
+                    long bSeq = bMsgs.isEmpty()
+                            ? b.getConversationId()
+                            : bMsgs.get(bMsgs.size() - 1).getSequenceNumber();
+                    return Long.compare(bSeq, aSeq);
+                });
 
-            conversationListModel.clear();
-            for (Conversation conversation : conversations) {
-                conversationListModel.addElement(conversation);
-            }
+                conversationListModel.clear();
+                for (Conversation conversation : conversations) {
+                    conversationListModel.addElement(conversation);
+                }
 
-            // Restore selection after rebuild
-            if (selectedId != null) {
-                for (int i = 0; i < conversationListModel.getSize(); i++) {
-                    if (conversationListModel.getElementAt(i).getConversationId() == selectedId.longValue()) {
-                        convList.setSelectedIndex(i);
-                        break;
+                // Restore selection after rebuild.
+                if (selectedId != null) {
+                    for (int i = 0; i < conversationListModel.getSize(); i++) {
+                        if (conversationListModel.getElementAt(i).getConversationId() == selectedId.longValue()) {
+                            clv.list.setSelectedIndex(i);
+                            break;
+                        }
                     }
                 }
-            }
-            cards.main.conversationListView.suppressSelectionEvents = false;
+            });
         });
     }
 
@@ -422,22 +468,28 @@ public class ClientUI {
             // Route through ConversationView so auto-switch flows (first conversation,
             // leave-to-next conversation, etc.) also enable input and action buttons.
             cards.main.conversationView.setListModel(conversation);
-            // Issue #189: auto-switch should hand focus to message input, not leave it on
-            // a stale directory selection.
-            cards.main.directoryView.list.clearSelection();
-            cards.main.directoryView.selecting = null;
-            SwingUtilities.invokeLater(() -> cards.main.conversationView.text.requestFocusInWindow());
+            // Auto-switch should hand focus to message input, not leave it on a stale
+            // directory selection.
+            cards.main.directoryView.clearSelecting();
+            SwingUtilities.invokeLater(cards.main.conversationView::focusInput);
 
             ArrayList<Message> msgs = conversation.getMessages();
             if (!msgs.isEmpty()) {
-                Message last = msgs.get(msgs.size() - 1);
-                UserInfo me = controller.getCurrentUserInfo();
-                if (me != null) {
-                    me.setLastRead(conversation.getConversationId(), last.getSequenceNumber());
-                }
-                controller.updateReadMessages(conversation.getConversationId(), last.getSequenceNumber());
+                markConversationRead(conversation, msgs.get(msgs.size() - 1).getSequenceNumber());
             }
         });
+    }
+
+    /** Marks {@code conversation} as read up to {@code sequenceNumber} on both the
+     *  client-side model and the server. {@link ClientController#updateReadMessages}
+     *  is the network round-trip; the {@code setLastRead} call ahead of it keeps the
+     *  local cache in sync immediately. */
+    private void markConversationRead(Conversation conversation, long sequenceNumber) {
+        UserInfo me = controller.getCurrentUserInfo();
+        if (me != null) {
+            me.setLastRead(conversation.getConversationId(), sequenceNumber);
+        }
+        controller.updateReadMessages(conversation.getConversationId(), sequenceNumber);
     }
 
     public void appendMessageToConversationView(Message message) {
@@ -453,25 +505,24 @@ public class ClientUI {
                 cv.modelHasDivider = true;
             }
             conversationMessageModel.addElement(message);
-            // Fix 9 + Fix E1: auto-scroll to newest only when the user is parked at the
-            // bottom. Otherwise preserve their scroll position so they can read history.
+            // Auto-scroll to newest only when the user is parked at the bottom. Otherwise
+            // preserve their scroll position so they can read history.
             if (cv.userIsAtBottom) {
                 SwingUtilities.invokeLater(() -> {
                     int last = cv.list.getModel().getSize() - 1;
                     if (last >= 0) cv.list.ensureIndexIsVisible(last);
                 });
             }
-            // Composed gate (Fix A + Fix E1): slide the per-message snapshot forward only
-            // when the OS window is active AND the user is parked at the bottom — i.e. they
-            // can actually see the message. Otherwise leave the snapshot frozen; the deferred
-            // read-advance buffer on the controller will replay on the next window activation
-            // or scroll-to-bottom transition, which calls back into markDisplayedReadUpTo to
-            // re-sync. Do NOT call updateReadMessages here — the controller owns that wire
-            // concern via tryAdvanceReadOnInbound.
+            // Slide the per-message read snapshot forward only when the OS window is
+            // active AND the user is parked at the bottom — i.e. they can actually see
+            // the message. Otherwise leave the snapshot frozen; the deferred read-advance
+            // buffer on the controller will replay on the next window activation or
+            // scroll-to-bottom transition, which calls back into markDisplayedReadUpTo to
+            // re-sync. Do NOT call updateReadMessages here — the controller owns that
+            // wire concern via tryAdvanceReadOnInbound.
             if (frame.isActive() && cv.userIsAtBottom) {
                 cv.markDisplayedReadUpTo(message.getSequenceNumber());
             }
-            // Issue #176: notify user when window is not active
             if (fromOther && !frame.isActive()) {
                 unreadWhileAway++;
                 frame.setTitle(BASE_TITLE + " (" + unreadWhileAway + " new)");
@@ -552,7 +603,7 @@ public class ClientUI {
             new java.awt.image.BufferedImage(size, size, java.awt.image.BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = img.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g.setColor(new Color(33, 150, 243));
+        g.setColor(Theme.APP_ICON_BG);
         g.fillOval(0, 0, size, size);
         g.setColor(Color.WHITE);
         g.fillRoundRect(6, 7, 20, 14, 6, 6);
@@ -561,6 +612,90 @@ public class ClientUI {
         g.fillPolygon(xs, ys, 3);
         g.dispose();
         return img;
+    }
+
+    /** Format a message timestamp as "LLL dd, HH:mm" (or include the year if it
+     *  isn't the current year). Shared by message renderers. */
+    private static String formatMessageTimestamp(java.util.Date when) {
+        ZonedDateTime zdt = when.toInstant().atZone(ZoneId.systemDefault());
+        DateTimeFormatter dtf = zdt.getYear() == ZonedDateTime.now().getYear()
+                ? DateTimeFormatter.ofPattern("LLL dd, HH:mm", java.util.Locale.ENGLISH)
+                : DateTimeFormatter.ofPattern("LLL dd yyyy, HH:mm", java.util.Locale.ENGLISH);
+        return zdt.format(dtf);
+    }
+
+    /** Look up a sender's display name in a conversation's historical participants
+     *  (so removed users still show their name). Returns null if not found. */
+    private static String resolveHistoricalSenderName(Conversation conv, String senderId) {
+        if (conv == null) return null;
+        for (UserInfo p : conv.getHistoricalParticipants()) {
+            if (p.getUserId().equals(senderId)) return p.getName();
+        }
+        return null;
+    }
+
+    private static boolean isDialogShowing(JDialog d) {
+        return d != null && d.isVisible();
+    }
+
+    private static void disposeIfVisible(JDialog d) {
+        if (isDialogShowing(d)) d.dispose();
+    }
+
+    /** If {@code d} is already on screen, raise it and return true so the caller
+     *  can short-circuit instead of opening a second instance. */
+    private static boolean focusExistingDialog(JDialog d) {
+        if (!isDialogShowing(d)) return false;
+        d.toFront();
+        d.requestFocus();
+        return true;
+    }
+
+    /** Display-ready snapshot of a {@link Message} for the cell renderers.
+     *  Header text and sender resolution are computed once instead of being
+     *  recomputed inside each renderer's getListCellRendererComponent. */
+    private static final class MessageRow {
+        final String headerText;
+        final String body;
+        final String senderName;
+        final String timestamp;
+        final boolean isOwn;
+
+        private MessageRow(String headerText, String body, String senderName,
+                           String timestamp, boolean isOwn) {
+            this.headerText = headerText;
+            this.body = body;
+            this.senderName = senderName;
+            this.timestamp = timestamp;
+            this.isOwn = isOwn;
+        }
+
+        /** Built for the live conversation view: own messages elide the sender
+         *  name in the header so the bubble side ("EAST") carries the identity. */
+        static MessageRow forConversation(Message msg, Conversation conv, UserInfo me) {
+            String ts = formatMessageTimestamp(msg.getTimestamp());
+            String body = msg.getText() == null ? "" : msg.getText();
+            boolean isOwn = me != null && me.getUserId() != null
+                    && me.getUserId().equals(msg.getSenderId());
+            String senderName;
+            if (isOwn) {
+                senderName = me.getName();
+            } else {
+                String resolved = resolveHistoricalSenderName(conv, msg.getSenderId());
+                senderName = resolved != null ? resolved : "(former participant)";
+            }
+            String header = isOwn ? ts : (ts + " " + senderName + ":");
+            return new MessageRow(header, body, senderName, ts, isOwn);
+        }
+
+        /** Built for the admin viewer: no "me" concept, sender name always shown. */
+        static MessageRow forAdmin(Message msg, Conversation viewedConv) {
+            String ts = formatMessageTimestamp(msg.getTimestamp());
+            String body = msg.getText() == null ? "" : msg.getText();
+            String resolved = resolveHistoricalSenderName(viewedConv, msg.getSenderId());
+            String senderName = resolved != null ? resolved : "(former participant)";
+            return new MessageRow(ts + " " + senderName + ":", body, senderName, ts, false);
+        }
     }
 
     private static class PlaceholderTextField extends JTextField {
@@ -623,101 +758,81 @@ public class ClientUI {
         JButton backButton;
 
         RegisterView() {
-        	setLayout(new BorderLayout());
+            buildLayout();
+            wireRegisterButton();
+            wireBackButton();
+        }
 
-        	// initialize components
-        	JPanel inputPanel = new JPanel(new GridBagLayout());
-        	userId = new JTextField(15);
-        	name = new JTextField(15);
-        	loginName = new JTextField(15);
-        	password = new JPasswordField(15);
-        	passwordAgain = new JPasswordField(15);
-        	createButton = new JButton("Create Account");
-        	backButton = new JButton("Back");
+        private void buildLayout() {
+            setLayout(new BorderLayout());
 
-        	// #143: tooltips clarify which ID is which.
-        	userId.setToolTipText("Your organization-assigned employee ID. Must be pre-authorized.");
-        	loginName.setToolTipText("Choose a username for logging in. Letters, numbers, hyphens, or underscores only.");
+            JPanel inputPanel = new JPanel(new GridBagLayout());
+            userId = new JTextField(15);
+            name = new JTextField(15);
+            loginName = new JTextField(15);
+            password = new JPasswordField(15);
+            passwordAgain = new JPasswordField(15);
+            createButton = new JButton("Create Account");
+            backButton = new JButton("Back");
 
-        	// #146: heading at the top of the form.
-        	JLabel heading = new JLabel("Register / Create Account", SwingConstants.CENTER);
-        	heading.setFont(heading.getFont().deriveFont(Font.BOLD, heading.getFont().getSize() + 6f));
-        	heading.setBorder(BorderFactory.createEmptyBorder(20, 0, 10, 0));
-        	add(heading, BorderLayout.NORTH);
+            // Tooltips clarify which ID is which.
+            userId.setToolTipText("Your organization-assigned employee ID. Must be pre-authorized.");
+            loginName.setToolTipText("Choose a username for logging in. Letters, numbers, hyphens, or underscores only.");
 
-        	// layout for  the buttons
+            JLabel heading = new JLabel("Register / Create Account", SwingConstants.CENTER);
+            heading.setFont(heading.getFont().deriveFont(Font.BOLD, heading.getFont().getSize() + 6f));
+            heading.setBorder(BorderFactory.createEmptyBorder(20, 0, 10, 0));
+            add(heading, BorderLayout.NORTH);
+
             JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 0));
             buttonPanel.add(createButton);
             buttonPanel.add(backButton);
 
-        	// use grid layout to put the parts
-        	GridBagConstraints gridConst = new GridBagConstraints();
+            GridBagConstraints gridConst = new GridBagConstraints();
             gridConst.insets = new Insets(5, 5, 5, 5);
             gridConst.fill = GridBagConstraints.HORIZONTAL;
 
-            // #143: "User ID" → "Employee ID" (organization-assigned, validated against authorized list).
-            gridConst.gridx = 0;
-            gridConst.gridy = 0;
+            // "Employee ID" is organization-assigned and validated against the authorized list.
+            gridConst.gridx = 0; gridConst.gridy = 0;
             inputPanel.add(new JLabel("Employee ID"), gridConst);
-
-            // put the text field on the right side of the label
-            gridConst.gridx = 1;
-            gridConst.gridwidth = 2;
+            gridConst.gridx = 1; gridConst.gridwidth = 2;
             inputPanel.add(userId, gridConst);
 
-            // put the label for user name below User ID
-            gridConst.gridx = 0;
-            gridConst.gridy = 1;
-            gridConst.gridwidth = 1;
+            gridConst.gridx = 0; gridConst.gridy = 1; gridConst.gridwidth = 1;
             inputPanel.add(new JLabel("User Name"), gridConst);
-
-            // put the text field on the right side of the label
             gridConst.gridx = 1;
             inputPanel.add(name, gridConst);
 
-            // put the label for user name below User ID
-            gridConst.gridx = 0;
-            gridConst.gridy = 2;
+            gridConst.gridx = 0; gridConst.gridy = 2;
             inputPanel.add(new JLabel("Login ID"), gridConst);
-
-            // put the text field on the right side of the label
             gridConst.gridx = 1;
             inputPanel.add(loginName, gridConst);
 
-            // put the label for password below login Name
-            gridConst.gridx = 0;
-            gridConst.gridy = 3;
+            gridConst.gridx = 0; gridConst.gridy = 3;
             inputPanel.add(new JLabel("Password"), gridConst);
-
-            // #141: password text field with Show/Hide toggle on the right side of the label
+            // Password text field with Show/Hide toggle.
             gridConst.gridx = 1;
             inputPanel.add(passwordFieldWithToggle(password), gridConst);
 
-            // put the label for the password (confirmation)
-            gridConst.gridx = 0;
-            gridConst.gridy = 4;
+            gridConst.gridx = 0; gridConst.gridy = 4;
             inputPanel.add(new JLabel("Confirm Password"), gridConst);
-
-            // #141: confirmation password field also gets a toggle
             gridConst.gridx = 1;
             inputPanel.add(passwordFieldWithToggle(passwordAgain), gridConst);
 
-            // put the button layout below the fields
-            gridConst.gridx = 1;
-            gridConst.gridy = 5;
+            gridConst.gridx = 1; gridConst.gridy = 5;
             inputPanel.add(buttonPanel, gridConst);
 
-            // locate these parts at the center of the window
             add(inputPanel, BorderLayout.CENTER);
+        }
 
-            // #137: extract submit lambda so Enter on any field also fires it.
+        private void wireRegisterButton() {
+            // Extract submit lambda so Enter on any field also fires it.
             ActionListener createAction = e -> {
                 char[] pwd1 = password.getPassword();
                 char[] pwd2 = passwordAgain.getPassword();
                 if (java.util.Arrays.equals(pwd1, pwd2)) {
                     controller.register(userId.getText(), name.getText(), loginName.getText(), password.getPassword());
                 } else {
-                    // Fix 4: use frame as parent instead of null
                     JOptionPane.showMessageDialog(frame, "Passwords don't match. Type them again.", "Error", JOptionPane.ERROR_MESSAGE);
                 }
                 java.util.Arrays.fill(pwd1, '0');
@@ -729,33 +844,32 @@ public class ClientUI {
             loginName.addActionListener(createAction);
             password.addActionListener(createAction);
             passwordAgain.addActionListener(createAction);
+        }
 
-            // #148: route through showLoginView so clearLoginAndRegisterFields() is called.
+        private void wireBackButton() {
+            // Route through showLoginView so clearLoginAndRegisterFields() is called.
             backButton.addActionListener(e -> showLoginView());
         }
     }
 
     // =========================================================================
     class LoginView extends JPanel {
-        JTextField login_idField;
+        JTextField loginIdField;
         JPasswordField passwordField;
         JButton loginButton;
         JButton createButton;
 
         LoginView() {
-
             setLayout(new BorderLayout());
 
-            // initialize components
-            login_idField = new JTextField(15);
+            loginIdField = new JTextField(15);
             passwordField = new JPasswordField(15);
             loginButton = new JButton("Login");
             createButton = new JButton("Create Account");
 
-            // #143: tooltip clarifies the field is the login username, not the Employee ID.
-            login_idField.setToolTipText("Your chosen login username (not your Employee ID).");
+            // Tooltip clarifies the field is the login username, not the Employee ID.
+            loginIdField.setToolTipText("Your chosen login username (not your Employee ID).");
 
-            // #146: heading at the top of the form.
             JLabel heading = new JLabel("Login", SwingConstants.CENTER);
             heading.setFont(heading.getFont().deriveFont(Font.BOLD, heading.getFont().getSize() + 6f));
             heading.setBorder(BorderFactory.createEmptyBorder(20, 0, 10, 0));
@@ -766,48 +880,39 @@ public class ClientUI {
             gridConst.insets = new Insets(5, 5, 5, 5);
             gridConst.fill = GridBagConstraints.HORIZONTAL;
 
-
-            // add label for login_id
             gridConst.gridx = 0;
             gridConst.gridy = 0;
             inputPanel.add(new JLabel("Login ID"), gridConst);
-            // add text field on the right side of the label
             gridConst.gridx = 1;
-            inputPanel.add(login_idField, gridConst);
-            // add label for password below the login_id
+            inputPanel.add(loginIdField, gridConst);
             gridConst.gridx = 0;
             gridConst.gridy = 1;
             inputPanel.add(new JLabel("Password"), gridConst);
-            // #141: password text field with Show/Hide toggle on the right side of the label
+            // Password text field with Show/Hide toggle.
             gridConst.gridx = 1;
             inputPanel.add(passwordFieldWithToggle(passwordField), gridConst);
-            // add login button next to the fields
             gridConst.gridx = 2;
             gridConst.gridy = 0;
             gridConst.gridheight = 2;
             inputPanel.add(loginButton, gridConst);
 
-            // add create button below the text fields
             gridConst.gridx = 1;
             gridConst.gridy = 2;
             gridConst.insets = new Insets(20, 5, 5, 5);
 
-            // wrap a layout with create button which can be located on the middle
             JPanel createBtnPane = new JPanel();
             createBtnPane.setLayout(new FlowLayout(FlowLayout.CENTER));
             createBtnPane.add(createButton);
             inputPanel.add(createBtnPane, gridConst);
 
-            // add to loginView
             add(inputPanel, BorderLayout.CENTER);
 
-
-            ActionListener loginAction = e -> controller.login(login_idField.getText(), passwordField.getPassword());
+            ActionListener loginAction = e -> controller.login(loginIdField.getText(), passwordField.getPassword());
             loginButton.addActionListener(loginAction);
-            login_idField.addActionListener(loginAction);
+            loginIdField.addActionListener(loginAction);
             passwordField.addActionListener(loginAction);
 
-            // #148 (symmetric): route through showRegisterView so fields are cleared.
+            // Route through showRegisterView so fields are cleared.
             createButton.addActionListener(e -> showRegisterView());
         }
     }
@@ -820,31 +925,28 @@ public class ClientUI {
         ConversationListView conversationListView;
 
         MainView() {
-        	setLayout(new GridBagLayout());
-        	GridBagConstraints gridConst = new GridBagConstraints();
-        	conversationView = new ConversationView();
+            setLayout(new GridBagLayout());
+            GridBagConstraints gridConst = new GridBagConstraints();
+            conversationView = new ConversationView();
             directoryView = new DirectoryView();
             conversationListView = new ConversationListView();
             conversationListView.setMinimumSize(new Dimension(MIN_CONVERSATION_LIST_WIDTH, 0));
 
-        	gridConst.gridy = 0;
-        	gridConst.fill = GridBagConstraints.BOTH;
-        	gridConst.weighty = 1.0;
+            gridConst.gridy = 0;
+            gridConst.fill = GridBagConstraints.BOTH;
+            gridConst.weighty = 1.0;
 
-        	// left
-        	gridConst.gridx = 0;
-        	gridConst.weightx = 0.2; // 20%
-        	add(directoryView, gridConst);
+            gridConst.gridx = 0;
+            gridConst.weightx = 0.2;
+            add(directoryView, gridConst);
 
-        	// middle
-        	gridConst.gridx = 1;
-        	gridConst.weightx = 0.6; // 60%
-        	add(conversationView, gridConst);
+            gridConst.gridx = 1;
+            gridConst.weightx = 0.6;
+            add(conversationView, gridConst);
 
-        	// right
-        	gridConst.gridx = 2;
-        	gridConst.weightx = 0.2; // 20%
-        	add(conversationListView, gridConst);
+            gridConst.gridx = 2;
+            gridConst.weightx = 0.2;
+            add(conversationListView, gridConst);
 
         }
 
@@ -853,17 +955,17 @@ public class ClientUI {
     // =========================================================================
     class ConversationView extends JPanel {
         JLabel participantsLabel;
-        DefaultListModel<Object> conversationMessageListModel = new DefaultListModel<>();
-        JList<Object> list = new JList<>(conversationMessageListModel);
+        final DefaultListModel<Object> conversationMessageListModel = new DefaultListModel<>();
+        final JList<Object> list = new JList<>(conversationMessageListModel);
         private JScrollPane messageScrollPane;
         // Snapshot of read state at the time this conversation view was opened/refreshed.
         // Renderer uses this instead of live lastRead updates so unread markers remain meaningful.
         private long displayedLastReadSeq = 0L;
-        // Fix E1: track whether the vertical scrollbar is at (or within 4px of) the bottom.
+        // Tracks whether the vertical scrollbar is at (or within 4px of) the bottom.
         // Volatile because the network reader thread reads it via userIsViewingBottom() while the
         // EDT mutates it in the AdjustmentListener.
         private volatile boolean userIsAtBottom = true;
-        // Fix E1: tracks whether NewMessagesDivider.INSTANCE is currently in the list model.
+        // Tracks whether NewMessagesDivider.INSTANCE is currently in the list model.
         // Set true on insert by setListModel or appendMessageToConversationView; cleared on
         // model clear (setListModel/clearConversation). EDT-only access.
         private boolean modelHasDivider = false;
@@ -874,24 +976,22 @@ public class ClientUI {
         JDialog addDialog;
         SelectUserWindow addUserWindow;
 
-        // Fix 8: placeholder label shown when no conversation is selected
         private final JLabel placeholderLabel = new JLabel("Select a conversation to start chatting", SwingConstants.CENTER);
 
-        // Fix C: sentinel inserted into the message-list model to mark the boundary
+        // Sentinel inserted into the message-list model to mark the boundary
         // between messages already read at conversation-open time and unread messages
-        // that arrived since. Replaces the per-message ● dot with a single horizontal
-        // "─── New messages ───" cue.
+        // that arrived since. Renders as a single horizontal "─── New messages ───" cue.
         private static final class NewMessagesDivider {
             static final NewMessagesDivider INSTANCE = new NewMessagesDivider();
             private NewMessagesDivider() {}
         }
 
-        // Fix 6/#196: use JTextArea-based bubbles for deterministic wrapping.
+        // Use JTextArea-based bubbles for deterministic wrapping.
         private final class MessageCellRenderer extends JPanel implements ListCellRenderer<Object> {
             private final JPanel bubble = new JPanel(new BorderLayout(0, 2));
             private final JTextArea headerArea = new JTextArea();
             private final JTextArea bodyArea = new JTextArea();
-            // Fix C: a separate component returned for NewMessagesDivider sentinels.
+            // A separate component returned for NewMessagesDivider sentinels.
             private final JPanel dividerPanel = new JPanel(new BorderLayout(6, 0));
             private final JLabel dividerLabel = new JLabel("New messages", SwingConstants.CENTER);
 
@@ -900,7 +1000,7 @@ public class ClientUI {
                 setOpaque(true);
                 bubble.setOpaque(true);
                 bubble.setBorder(BorderFactory.createCompoundBorder(
-                        new LineBorder(new Color(180, 180, 180), 1, true),
+                        new LineBorder(Theme.BUBBLE_BORDER, 1, true),
                         BorderFactory.createEmptyBorder(4, 10, 4, 10)));
                 headerArea.setOpaque(false);
                 headerArea.setLineWrap(true);
@@ -919,7 +1019,7 @@ public class ClientUI {
                 bubble.add(bodyArea, BorderLayout.CENTER);
 
                 Color alert = UIManager.getColor("nimbusAlertYellow");
-                if (alert == null) alert = new Color(248, 187, 0);
+                if (alert == null) alert = Theme.NIMBUS_ALERT_YELLOW;
                 dividerPanel.setOpaque(true);
                 dividerPanel.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
                 dividerLabel.setForeground(alert);
@@ -948,86 +1048,43 @@ public class ClientUI {
                 }
 
                 Message msg = (Message) value;
+                MessageRow row = MessageRow.forConversation(
+                        msg, controller.getCurrentConversation(), controller.getCurrentUserInfo());
 
-                // Resolve sender's display name.
-                // Short-circuit to own name first so own messages always render correctly
-                // even if the cached conversation's participants list is stale or empty.
-                // Use historicalParticipants (not participants) so removed users still show their name.
-                String senderName = null;
-                UserInfo me = controller.getCurrentUserInfo();
-                if (me != null && me.getUserId() != null && me.getUserId().equals(msg.getSenderId())) {
-                    senderName = me.getName();
-                }
-                if (senderName == null) {
-                    Conversation conv = controller.getCurrentConversation();
-                    if (conv != null) {
-                        for (UserInfo p : conv.getHistoricalParticipants()) {
-                            if (p.getUserId().equals(msg.getSenderId())) {
-                                senderName = p.getName();
-                                break;
-                            }
-                        }
-                    }
-                }
-                // Last-resort fallback if even the historical roster has no record of this sender.
-                if (senderName == null) {
-                    senderName = "(former participant)";
-                }
-                ZonedDateTime zdt = msg.getTimestamp().toInstant().atZone(ZoneId.systemDefault());
-                DateTimeFormatter dtf = zdt.getYear() == ZonedDateTime.now().getYear()
-                        ? DateTimeFormatter.ofPattern("LLL dd, HH:mm", java.util.Locale.ENGLISH)
-                        : DateTimeFormatter.ofPattern("LLL dd yyyy, HH:mm", java.util.Locale.ENGLISH);
-                String ts = zdt.format(dtf);
-                String rawText = msg.getText() == null ? "" : msg.getText();
-                boolean isOwnMessage = msg.getSenderId().equals(controller.getCurrentUserInfo().getUserId());
-                String header = isOwnMessage ? ts : (ts + " " + senderName + ":");
-
-                // Remove prior label so we can re-add in the correct position
                 removeAll();
                 setBackground(list.getBackground());
-
                 // Compute wrap width from the viewport (not just list width) so bubbles
                 // adapt correctly when the conversation pane is resized.
-                int wrapPx = computeWrapWidthPx(list);
+                configureBubble(row.isOwn, row.headerText, row.body,
+                        computeWrapWidthPx(list), list.getFont(), list.getBackground());
 
-                // Fix C: per-message ● dot is gone — the NewMessagesDivider sentinel inserted
-                // into the model carries that signal now. Render every message plain.
-                if (isOwnMessage) {
-                    bubble.setBackground(new Color(66, 95, 120));
-                    headerArea.setBackground(bubble.getBackground());
-                    bodyArea.setBackground(bubble.getBackground());
-                    headerArea.setForeground(new Color(235, 235, 235));
-                    bodyArea.setForeground(new Color(235, 235, 235));
-                    headerArea.setText(header);
-                    headerArea.setFont(list.getFont().deriveFont(Font.PLAIN));
-                    bodyArea.setFont(list.getFont().deriveFont(Font.PLAIN));
-                    bodyArea.setText(rawText);
-                    installBubbleWidth(wrapPx);
-                    add(bubble, BorderLayout.EAST);
-                } else {
-                    bubble.setBackground(list.getBackground());
-                    headerArea.setBackground(bubble.getBackground());
-                    bodyArea.setBackground(bubble.getBackground());
-                    headerArea.setForeground(new Color(220, 220, 220));
-                    bodyArea.setForeground(new Color(220, 220, 220));
-                    headerArea.setText(header);
-                    headerArea.setFont(list.getFont().deriveFont(Font.PLAIN));
-                    bodyArea.setFont(list.getFont().deriveFont(Font.PLAIN));
-                    bodyArea.setText(rawText);
-                    installBubbleWidth(wrapPx);
-                    add(bubble, BorderLayout.WEST);
-                }
-
-                // Fix E3: accessible name for screen readers. Truncate long bodies so the
+                // Accessible name for screen readers. Truncate long bodies so the
                 // announcement stays manageable. Suffix "(unread)" when the message is past
                 // the per-cell read snapshot so a sweep through the list announces boundaries.
                 boolean isUnreadMsg = msg.getSequenceNumber() > displayedLastReadSeq;
                 String suffix = isUnreadMsg ? " (unread)" : "";
-                String shortBody = rawText.length() > 80 ? rawText.substring(0, 77) + "…" : rawText;
+                String shortBody = row.body.length() > 80 ? row.body.substring(0, 77) + "…" : row.body;
                 getAccessibleContext().setAccessibleName(
-                        senderName + " at " + ts + ", " + shortBody + suffix);
+                        row.senderName + " at " + row.timestamp + ", " + shortBody + suffix);
 
                 return this;
+            }
+
+            private void configureBubble(boolean isOwn, String header, String rawText,
+                                         int wrapPx, Font listFont, Color listBg) {
+                Color bg = isOwn ? Theme.OWN_BUBBLE_BG : listBg;
+                Color fg = isOwn ? Theme.TEXT_ON_OWN_BUBBLE : Theme.TEXT_PRIMARY;
+                bubble.setBackground(bg);
+                headerArea.setBackground(bg);
+                bodyArea.setBackground(bg);
+                headerArea.setForeground(fg);
+                bodyArea.setForeground(fg);
+                headerArea.setText(header);
+                headerArea.setFont(listFont.deriveFont(Font.PLAIN));
+                bodyArea.setFont(listFont.deriveFont(Font.PLAIN));
+                bodyArea.setText(rawText);
+                installBubbleWidth(wrapPx);
+                add(bubble, isOwn ? BorderLayout.EAST : BorderLayout.WEST);
             }
 
             private void installBubbleWidth(int wrapPx) {
@@ -1075,13 +1132,12 @@ public class ClientUI {
         }
 
         ConversationView() {
-        	participantsLabel = new JLabel();
+            participantsLabel = new JLabel();
             addButton = new JButton("Add");
             leaveButton = new JButton("Leave");
             text = new JTextField(15);
             text.setEnabled(false);
             sendButton = new JButton("Send");
-            // Fix 10: gate buttons — disabled until a conversation is selected
             addButton.setEnabled(false);
             leaveButton.setEnabled(false);
             sendButton.setEnabled(false);
@@ -1089,7 +1145,6 @@ public class ClientUI {
             setLayout(new BorderLayout());
             setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-            // conversation info is located on the upper side of the window
             JPanel infoPane = new JPanel(new GridBagLayout());
             GridBagConstraints gridConst = new GridBagConstraints();
             gridConst.insets = new Insets(5, 5, 5, 5);
@@ -1107,11 +1162,10 @@ public class ClientUI {
 
             add(infoPane, BorderLayout.NORTH);
 
-            // Fix 6: install the reusable cell renderer
             list.setCellRenderer(new MessageCellRenderer());
 
-            // Fix #183/#196: re-invalidate cached row heights whenever either the list or
-            // its viewport changes size so wrap width updates with window resizing.
+            // Re-invalidate cached row heights whenever either the list or its viewport
+            // changes size so wrap width updates with window resizing.
             ComponentAdapter wrapResizeAdapter = new ComponentAdapter() {
                 @Override public void componentResized(ComponentEvent e) {
                     list.setFixedCellHeight(10);
@@ -1122,13 +1176,13 @@ public class ClientUI {
             };
             list.addComponentListener(wrapResizeAdapter);
 
-            // Fix 8: create a layered center panel with the placeholder on top when no conversation
+            // Layered center panel: placeholder shows when no conversation is selected.
             JPanel centerPanel = new JPanel(new BorderLayout());
             messageScrollPane = new JScrollPane(list);
             messageScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
             messageScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
             messageScrollPane.getViewport().addComponentListener(wrapResizeAdapter);
-            // Fix E1: track whether the user is parked at the bottom of the message list.
+            // Track whether the user is parked at the bottom of the message list.
             // When they scroll up to read history, suppress the read-advance and per-message
             // snapshot slide so the unread cue persists. Drain the deferred-read buffer on
             // the up→bottom transition so the catch-up wire request fires once.
@@ -1147,7 +1201,6 @@ public class ClientUI {
             centerPanel.add(placeholderLabel, BorderLayout.SOUTH);
             add(centerPanel, BorderLayout.CENTER);
 
-            // sendPane is located on the bottom of the window
             JLabel charCountLabel = new JLabel("0/500");
             charCountLabel.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 4));
             JPanel sendPane = new JPanel(new BorderLayout());
@@ -1160,21 +1213,16 @@ public class ClientUI {
 
             add(sendPane, BorderLayout.SOUTH);
 
-            // add action to add button
             addButton.addActionListener(e -> {
 
-            	if (addDialog != null && addDialog.isVisible()) {
-            		addDialog.toFront();
-            		addDialog.requestFocus();
-                    return;
-                }
+                if (focusExistingDialog(addDialog)) return;
 
                 addUserWindow = new SelectUserWindow(
                     users -> controller.addToConversation(users, controller.getCurrentConversationId()));
 
                 addDialog = new JDialog(frame, "Select User", false);
                 addDialog.add(addUserWindow);
-                addDialog.setSize(300, 400);
+                addDialog.setSize(SELECT_USER_DIALOG_SIZE);
                 addDialog.setLocationRelativeTo(frame);
                 addDialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
                 bindEscapeToDispose(addDialog);
@@ -1184,7 +1232,7 @@ public class ClientUI {
                     public void windowClosed(WindowEvent e) {
                         addDialog = null;
                     }
-                    // #149: focus the list on open so Tab order is correct and Delete works.
+                    // Focus the list on open so Tab order is correct and Delete works.
                     @Override
                     public void windowOpened(WindowEvent e) {
                         addUserWindow.list.requestFocusInWindow();
@@ -1193,20 +1241,17 @@ public class ClientUI {
 
                 // Single-user picker fix: clear directory selection so the first click
                 // always emits a fresh ListSelectionEvent (see createConversationButton).
-                cards.main.directoryView.list.clearSelection();
-                cards.main.directoryView.selecting = null;
+                cards.main.directoryView.clearSelecting();
 
                 addDialog.setVisible(true);
 
             });
 
-            // add action to leave button
             leaveButton.addActionListener(e -> {
-            	// Fix 4: use frame as parent instead of null
-            	int result = JOptionPane.showConfirmDialog(frame, "Are you sure to leave this conversation?", "Confirm to Leave", JOptionPane.YES_NO_OPTION);
-            	if(result == JOptionPane.YES_OPTION) {
-            		controller.leaveConversation(controller.getCurrentConversationId());
-            	}
+                int result = JOptionPane.showConfirmDialog(frame, "Are you sure to leave this conversation?", "Confirm to Leave", JOptionPane.YES_NO_OPTION);
+                if(result == JOptionPane.YES_OPTION) {
+                    controller.leaveConversation(controller.getCurrentConversationId());
+                }
             });
 
             // 500-char hard cap
@@ -1233,7 +1278,6 @@ public class ClientUI {
                         }
                     });
 
-            // add action to text field (detecting if there is a text)
             text.getDocument().addDocumentListener(new DocumentListener() {
 
                 private void update() {
@@ -1259,7 +1303,6 @@ public class ClientUI {
                 }
             });
 
-            // add action to send button
             sendButton.addActionListener(e -> doSend());
 
             text.addActionListener(e -> doSend());
@@ -1296,7 +1339,7 @@ public class ClientUI {
         }
 
         private void setListModel(Conversation currConv, long lastReadAtOpen, ArrayList<Message> msgs) {
-            // Fix 3: exclude self, show up to 3 names, append "+N more" if needed
+            // Exclude self; show up to 3 names, then append "+N more".
             UserInfo me = controller.getCurrentUserInfo();
             String myId = (me != null) ? me.getUserId() : null;
             ArrayList<UserInfo> others = new ArrayList<>();
@@ -1316,16 +1359,16 @@ public class ClientUI {
             }
             final String finalMember = memberSb.toString();
             final long finalLastReadAtOpen = lastReadAtOpen;
-        	SwingUtilities.invokeLater(() -> {
+            SwingUtilities.invokeLater(() -> {
                 displayedLastReadSeq = finalLastReadAtOpen;
-                // Fix E1: opening a conversation auto-scrolls to bottom (see scrollToBottom
+                // Opening a conversation auto-scrolls to bottom (see scrollToBottom
                 // below), so the user is parked at the bottom by definition. Reset the
                 // tracker so a stale "scrolled up" state from a previous conversation
                 // doesn't suppress the read-advance for the freshly-opened one.
                 userIsAtBottom = true;
-        		participantsLabel.setText(finalMember);
+                participantsLabel.setText(finalMember);
                 conversationMessageListModel.clear();
-                // Fix C: insert the "New messages" divider between read and unread.
+                // Insert the "New messages" divider between read and unread.
                 // Suppress when finalLastReadAtOpen == 0 (nothing has ever been read; a
                 // divider above message 1 is meaningless).
                 boolean dividerInserted = false;
@@ -1342,38 +1385,33 @@ public class ClientUI {
                 modelHasDivider = dividerInserted;
                 refreshWrapLayout();
                 text.setEnabled(true);
-                // Fix 10: enable buttons when a conversation is selected
                 addButton.setEnabled(true);
                 leaveButton.setEnabled(true);
                 sendButton.setEnabled(!text.getText().trim().isEmpty());
-                // Fix 8: hide placeholder once a conversation is loaded
                 placeholderLabel.setVisible(false);
-                // Fix 9: auto-scroll to newest message after loading
                 SwingUtilities.invokeLater(() -> {
                     int last = list.getModel().getSize() - 1;
                     if (last >= 0) list.ensureIndexIsVisible(last);
                     scrollToBottom();
                     refreshWrapLayout();
                 });
-        	});
+            });
         }
 
         /** Clears the view and disables action buttons (no conversation active). */
         public void clearConversation() {
             SwingUtilities.invokeLater(() -> {
                 displayedLastReadSeq = 0L;
-                // Fix E1: model is cleared so no divider remains; reset bottom tracker.
+                // Model is cleared so no divider remains; reset bottom tracker.
                 modelHasDivider = false;
                 userIsAtBottom = true;
                 participantsLabel.setText("");
                 conversationMessageListModel.clear();
                 refreshWrapLayout();
                 text.setEnabled(false);
-                // Fix 10: disable buttons when no conversation is active
                 addButton.setEnabled(false);
                 leaveButton.setEnabled(false);
                 sendButton.setEnabled(false);
-                // Fix 8: show placeholder again
                 placeholderLabel.setVisible(true);
             });
         }
@@ -1387,11 +1425,16 @@ public class ClientUI {
         }
 
         public DefaultListModel<Object> getListModel() {
-        	return this.conversationMessageListModel;
+            return this.conversationMessageListModel;
+        }
+
+        /** Hands keyboard focus to the message input. */
+        void focusInput() {
+            text.requestFocusInWindow();
         }
 
         public boolean isAddingUser() {
-        	return addDialog != null && addDialog.isVisible();
+            return isDialogShowing(addDialog);
         }
 
         public void markDisplayedReadUpTo(long sequenceNumber) {
@@ -1451,11 +1494,10 @@ public class ClientUI {
     class DirectoryView extends JPanel {
         JLabel profileUserIdLabel;
         JLabel profileNameLabel;
-        // Fix 5: banner shown when directory is in picker mode
         JLabel pickerBannerLabel;
         JTextField searchField;
         DefaultListModel<UserInfo> listModel = new DefaultListModel<>();
-        JList<UserInfo> list = new JList<>(listModel);
+        final JList<UserInfo> list = new JList<>(listModel);
         JButton logoutButton;
         JButton createConversationButton;
         JButton adminButton;
@@ -1466,23 +1508,29 @@ public class ClientUI {
         AdminConversationSearchWindow adminConversationSearchWindow;
 
         DirectoryView() {
-        	profileUserIdLabel = new JLabel();
-        	profileNameLabel = new JLabel();
+            buildLayout();
+            wireSearchField();
+            wireLogoutButton();
+            wireCreateConversationButton();
+            wireAdminButton();
+            wireListSelectionListener();
+        }
 
-            // Fix 5: picker mode banner — hidden by default
+        private void buildLayout() {
+            profileUserIdLabel = new JLabel();
+            profileNameLabel = new JLabel();
+
             pickerBannerLabel = new JLabel("Selecting participants — click to add", SwingConstants.CENTER);
-            pickerBannerLabel.setForeground(new Color(0, 100, 180));
+            pickerBannerLabel.setForeground(Theme.BANNER_FG);
             pickerBannerLabel.setFont(pickerBannerLabel.getFont().deriveFont(Font.BOLD));
             pickerBannerLabel.setVisible(false);
 
             searchField = makePlaceholderField("Search users...", 15);
             logoutButton = new JButton("Log Out");
             createConversationButton = new JButton("Create Conversation");
-            // gray-out until select the user
             createConversationButton.setEnabled(false);
 
-            // construct admin button unconditionally and enable later if the user is admin
-            // #127: tooltip explains the prerequisite (a user must be selected). Label kept
+            // Tooltip explains the prerequisite (a user must be selected). Label kept
             // as "Admin" per the silent-viewer feature; the dialog itself shows what the
             // admin is doing.
             adminButton = new JButton("Admin");
@@ -1493,48 +1541,35 @@ public class ClientUI {
             setLayout(new BorderLayout());
             setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-            // userPanel is located upper side of the window
             JPanel userPane = new JPanel(new GridBagLayout());
             GridBagConstraints gridConst = new GridBagConstraints();
             gridConst.insets = new Insets(5, 5, 5, 5);
             gridConst.fill = GridBagConstraints.HORIZONTAL;
 
-
-            gridConst.gridx = 0;
-            gridConst.gridy = 0;
+            gridConst.gridx = 0; gridConst.gridy = 0;
             userPane.add(profileUserIdLabel, gridConst);
-
             gridConst.gridy = 1;
             userPane.add(profileNameLabel, gridConst);
-
             gridConst.gridy = 2;
             userPane.add(searchField, gridConst);
-
-            gridConst.gridx = 1;
-            gridConst.gridy = 0;
-            gridConst.gridheight = 2;
+            gridConst.gridx = 1; gridConst.gridy = 0; gridConst.gridheight = 2;
             userPane.add(logoutButton, gridConst);
 
-            // Fix 5: wrap userPane and pickerBannerLabel in a combined north panel
             JPanel northPanel = new JPanel(new BorderLayout());
             northPanel.add(userPane, BorderLayout.NORTH);
             northPanel.add(pickerBannerLabel, BorderLayout.SOUTH);
             add(northPanel, BorderLayout.NORTH);
 
-
-            // list is located center of the window with JScrollPane
             list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
             add(new JScrollPane(list), BorderLayout.CENTER);
 
-
-            // buttonPane is located at the bottom side of the window
             JPanel buttonPane = new JPanel(new FlowLayout());
             buttonPane.add(createConversationButton);
             buttonPane.add(adminButton);
-
             add(buttonPane, BorderLayout.SOUTH);
+        }
 
-            // add action for searchField
+        private void wireSearchField() {
             searchField.getDocument().addDocumentListener(new DocumentListener() {
                 @Override public void insertUpdate(DocumentEvent e) { filter(); }
                 @Override public void removeUpdate(DocumentEvent e) { filter(); }
@@ -1543,7 +1578,7 @@ public class ClientUI {
                 private void filter() {
                     String text = searchField.getText().toUpperCase();
                     listModel.clear();
-                    // Fix 6: exclude the logged-in user from the directory list
+                    // Exclude the logged-in user from the directory list.
                     UserInfo me = controller.getCurrentUserInfo();
                     String myId = (me != null) ? me.getUserId() : null;
                     for(UserInfo item: controller.getFilteredDirectory(text)) {
@@ -1553,30 +1588,25 @@ public class ClientUI {
                     }
                 }
             });
+        }
 
-            // add action to the log in button
-            logoutButton.addActionListener(e -> {
-            	controller.logout();
-            });
+        private void wireLogoutButton() {
+            logoutButton.addActionListener(e -> controller.logout());
+        }
 
-            // add action to the create conversation button
+        private void wireCreateConversationButton() {
             createConversationButton.addActionListener(e -> {
-            	// if createDialog is open
-            	if (createDialog != null && createDialog.isVisible()) {
-                    createDialog.toFront();
-                    createDialog.requestFocus();
-                    return;
-                }
+                if (focusExistingDialog(createDialog)) return;
 
-            	createConversationUserWindow = new SelectUserWindow(users -> controller.createConversation(users));
-                // Issue #192: seed the picker with the current directory selection
-                // so the first selection is honored without requiring reselection.
+                createConversationUserWindow = new SelectUserWindow(users -> controller.createConversation(users));
+                // Seed the picker with the current directory selection so the
+                // first selection is honored without requiring reselection.
                 if (selecting != null) {
                     createConversationUserWindow.addUser(selecting);
                 }
                 createDialog = new JDialog(frame, "Select User", false);
                 createDialog.add(createConversationUserWindow);
-                createDialog.setSize(300, 400);
+                createDialog.setSize(SELECT_USER_DIALOG_SIZE);
                 createDialog.setLocationRelativeTo(frame);
                 createDialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
                 bindEscapeToDispose(createDialog);
@@ -1586,7 +1616,7 @@ public class ClientUI {
                     public void windowClosed(WindowEvent e) {
                         createDialog = null;
                     }
-                    // #149: focus the list on open so Tab order is correct and Delete works.
+                    // Focus the list on open so Tab order is correct and Delete works.
                     @Override
                     public void windowOpened(WindowEvent e) {
                         createConversationUserWindow.list.requestFocusInWindow();
@@ -1601,25 +1631,21 @@ public class ClientUI {
                 selecting = null;
 
                 createDialog.setVisible(true);
-
             });
+        }
 
-            // add action to admin button
+        private void wireAdminButton() {
             adminButton.addActionListener(e -> {
-            	if (adminDialog != null && adminDialog.isVisible()) {
-            		adminDialog.toFront();
-            		adminDialog.requestFocus();
-                    return;
-                }
+                if (focusExistingDialog(adminDialog)) return;
 
-                if(selecting == null) {
+                if (selecting == null) {
                     return;
                 }
-            	controller.adminGetUserConversations(selecting.getUserId());
-            	adminConversationSearchWindow= new AdminConversationSearchWindow();
+                controller.adminGetUserConversations(selecting.getUserId());
+                adminConversationSearchWindow = new AdminConversationSearchWindow();
                 adminDialog = new JDialog(frame, "Searching Conversations", false);
                 adminDialog.add(adminConversationSearchWindow);
-                adminDialog.setSize(900, 600);
+                adminDialog.setSize(ADMIN_SEARCH_DIALOG_SIZE);
                 adminDialog.setLocationRelativeTo(frame);
                 adminDialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
                 bindEscapeToDispose(adminDialog);
@@ -1627,22 +1653,22 @@ public class ClientUI {
                 adminDialog.addWindowListener(new WindowAdapter() {
                     @Override
                     public void windowClosed(WindowEvent e) {
-                    	// #128: clear all admin-dialog state so reopening shows a fresh empty list.
-                    	// Do NOT disable adminButton here — the directory selection listener
-                    	// owns its enable/disable state, and disabling on close traps the
-                    	// button in a dead state when the same user is still selected (the
-                    	// listener only fires on selection-change events).
-                    	adminDialog = null;
-                    	adminConversationSearchWindow = null;
-                    	controller.clearAdminConversationSearch();
+                        // Clear all admin-dialog state so reopening shows a fresh empty list.
+                        // Do NOT disable adminButton here — the directory selection listener
+                        // owns its enable/disable state, and disabling on close traps the
+                        // button in a dead state when the same user is still selected (the
+                        // listener only fires on selection-change events).
+                        adminDialog = null;
+                        adminConversationSearchWindow = null;
+                        controller.clearAdminConversationSearch();
                     }
                 });
 
                 adminDialog.setVisible(true);
-
             });
+        }
 
-            // add action for selecting an item from the list
+        private void wireListSelectionListener() {
             list.getSelectionModel().addListSelectionListener(e -> {
                 UserInfo selectedValue = list.getSelectedValue();
                 if (e.getValueIsAdjusting()) {
@@ -1650,49 +1676,49 @@ public class ClientUI {
                 }
                 selecting = selectedValue;
 
-                // Fix 5: show picker banner when a dialog is open (picker mode active)
-                boolean inPickerMode = (createDialog != null && createDialog.isVisible())
-                        || (cards.main.conversationView.addDialog != null && cards.main.conversationView.addDialog.isVisible());
+                JDialog addDialog = cards.main.conversationView.addDialog;
+                boolean inPickerMode = isDialogShowing(createDialog) || isDialogShowing(addDialog);
                 pickerBannerLabel.setVisible(inPickerMode);
 
-                // if the another window is not visible, shows the button
-                if(selecting != null && (createDialog == null || !createDialog.isVisible()) && (adminDialog == null || !adminDialog.isVisible())
-                        && (cards.main.conversationView.addDialog == null || !cards.main.conversationView.addDialog.isVisible())) {
+                if (selecting != null && !isDialogShowing(createDialog) && !isDialogShowing(adminDialog) && !isDialogShowing(addDialog)) {
                     createConversationButton.setEnabled(true);
-                    // adminButton is always constructed; visibility is toggled at login time
                     adminButton.setEnabled(true);
-                } else if(createDialog != null && createDialog.isVisible()) { // if selectUser window is open
+                } else if (isDialogShowing(createDialog)) {
                     createConversationUserWindow.addUser(selecting);
-                } else if(cards.main.conversationView.addDialog != null && cards.main.conversationView.addDialog.isVisible()) {
-                    if(selecting != null) cards.main.conversationView.addUserWindow.addUser(selecting);
+                } else if (isDialogShowing(addDialog)) {
+                    if (selecting != null) cards.main.conversationView.addUserWindow.addUser(selecting);
                 }
             });
-
         }
 
-        // Fix 1: setListModel now also calls list.setModel() so the JList reflects the new model
         public void setListModel(DefaultListModel<UserInfo> model) {
-        	this.listModel = model;
-        	list.setModel(model);
+            this.listModel = model;
+            list.setModel(model);
         }
 
         public DefaultListModel<UserInfo> getListModel() {
-        	return this.listModel;
+            return this.listModel;
         }
 
         public boolean isCreatingConversation() {
-            return createDialog != null && createDialog.isVisible();
+            return isDialogShowing(createDialog);
         }
 
         public boolean isAdminSearching() {
-            return adminDialog != null && adminDialog.isVisible();
+            return isDialogShowing(adminDialog);
         }
 
         public DefaultListModel<ConversationMetadata> getAdminConversationModel() {
             if(adminConversationSearchWindow == null) {
                 return new DefaultListModel<>();
             }
-        	return adminConversationSearchWindow.getAdminConversationSearch();
+            return adminConversationSearchWindow.getAdminConversationSearch();
+        }
+
+        /** Drops the selected directory user without firing the selection listener side effects. */
+        void clearSelecting() {
+            list.clearSelection();
+            selecting = null;
         }
 
 
@@ -1702,11 +1728,21 @@ public class ClientUI {
     class ConversationListView extends JPanel {
         JTextField searchField;
         DefaultListModel<Conversation> listModel = new DefaultListModel<>();
-        JList<Conversation>	list = new JList<>(listModel);
-        boolean suppressSelectionEvents = false;
+        final JList<Conversation> list = new JList<>(listModel);
+        // Suppresses the selection listener while an external rebuild restores selection.
+        // Don't toggle this directly — go through withSuppressedSelection(...).
+        private boolean suppressSelectionEvents = false;
 
-        // Fix 2 / Fix D: custom renderer that shows the conversation display name plus a
-        // numeric unread badge on the right when there are unread messages.
+        /** Runs {@code body} with the selection listener silenced; restores the flag in
+         *  a finally so an exception in {@code body} can't leave the listener wedged. */
+        void withSuppressedSelection(Runnable body) {
+            suppressSelectionEvents = true;
+            try { body.run(); }
+            finally { suppressSelectionEvents = false; }
+        }
+
+        // Renders a conversation row as the display name plus a numeric
+        // unread badge on the right when there are unread messages.
         private final class ConversationCellRenderer extends JPanel implements ListCellRenderer<Conversation> {
             private final JLabel nameLabel = new JLabel();
             private final JLabel badgeLabel = new JLabel();
@@ -1717,7 +1753,7 @@ public class ClientUI {
                 setOpaque(true);
 
                 Color badgeBg = UIManager.getColor("nimbusRed");
-                if (badgeBg == null) badgeBg = new Color(169, 46, 34);
+                if (badgeBg == null) badgeBg = Theme.NIMBUS_RED;
                 badgeLabel.setOpaque(true);
                 badgeLabel.setBackground(badgeBg);
                 badgeLabel.setForeground(Color.WHITE);
@@ -1784,21 +1820,24 @@ public class ClientUI {
         }
 
         ConversationListView() {
-        	searchField = makePlaceholderField("Search conversations...", 15);
+            buildLayout();
+            wireSearchField();
+            wireListSelectionListener();
+        }
 
+        private void buildLayout() {
+            searchField = makePlaceholderField("Search conversations...", 15);
 
-            // searchField is located on the upper of the window.
             setLayout(new BorderLayout());
             setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
             add(searchField, BorderLayout.NORTH);
 
-            // Fix 2: install the custom cell renderer
             list.setCellRenderer(new ConversationCellRenderer());
 
-            // list is located on the middle of the window.
             add(new JScrollPane(list), BorderLayout.CENTER);
+        }
 
-            // add action for searchField
+        private void wireSearchField() {
             searchField.getDocument().addDocumentListener(new DocumentListener() {
                 @Override public void insertUpdate(DocumentEvent e) { filter(); }
                 @Override public void removeUpdate(DocumentEvent e) { filter(); }
@@ -1807,57 +1846,53 @@ public class ClientUI {
                 private void filter() {
                     String text = searchField.getText().toUpperCase();
                     listModel.clear();
-
-                    for(Conversation item: controller.getFilteredConversationList(text)) {
-                    	listModel.addElement(item);
+                    for (Conversation item : controller.getFilteredConversationList(text)) {
+                        listModel.addElement(item);
                     }
                 }
             });
+        }
 
-            // TODO: label the conversation
-            // add action for selecting an item from the list
-            list.addListSelectionListener(e-> {
+        private void wireListSelectionListener() {
+            list.addListSelectionListener(e -> {
                 if (suppressSelectionEvents) {
                     return;
                 }
-            	if (!e.getValueIsAdjusting()) {
-    				if(list.getSelectedValue() != null) {
-    					Conversation selected = list.getSelectedValue();
-    					// Atomic open: capture (lastRead, messages) and publish currentConversationId
-    					// under one lock so a concurrent inbound can't advance lastRead past the
-    					// new message between snapshot and divider check.
-    					ClientController.ConversationOpenSnapshot snap =
-    					        controller.openConversationAtomically(selected.getConversationId());
-    					if (snap == null) return; // logged out / unknown conv (shouldn't happen here)
-    					// delegates to ConversationView.setListModel so both the
-    					// participant label and the message list are updated together
-    					if (!snap.messages.isEmpty()) {
-    					    Message last = snap.messages.get(snap.messages.size() - 1);
-    					    controller.getCurrentUserInfo().setLastRead(
-    					            selected.getConversationId(), last.getSequenceNumber());
-    					    controller.updateReadMessages(selected.getConversationId(), last.getSequenceNumber());
-    					}
-    					cards.main.conversationView.setListModel(snap);
-    				}
-            	}
+                if (!e.getValueIsAdjusting()) {
+                    if (list.getSelectedValue() != null) {
+                        Conversation selected = list.getSelectedValue();
+                        // Atomic open: capture (lastRead, messages) and publish currentConversationId
+                        // under one lock so a concurrent inbound can't advance lastRead past the
+                        // new message between snapshot and divider check.
+                        ClientController.ConversationOpenSnapshot snap =
+                                controller.openConversationAtomically(selected.getConversationId());
+                        if (snap == null) return;
+                        if (!snap.messages.isEmpty()) {
+                            Message last = snap.messages.get(snap.messages.size() - 1);
+                            controller.getCurrentUserInfo().setLastRead(
+                                    selected.getConversationId(), last.getSequenceNumber());
+                            controller.updateReadMessages(selected.getConversationId(), last.getSequenceNumber());
+                        }
+                        cards.main.conversationView.setListModel(snap);
+                    }
+                }
             });
         }
 
-        // Fix 1: setListModel now also calls list.setModel() so the JList reflects the new model
         public void setListModel(DefaultListModel<Conversation> model) {
-        	this.listModel = model;
-        	list.setModel(model);
+            this.listModel = model;
+            list.setModel(model);
         }
 
         public DefaultListModel<Conversation> getListModel() {
-        	return this.listModel;
+            return this.listModel;
         }
     }
 
     // =========================================================================
     class SelectUserWindow extends JPanel {
-        DefaultListModel<UserInfo> model = new DefaultListModel<>();
-        JList<UserInfo> list = new JList<>(model);
+        final DefaultListModel<UserInfo> model = new DefaultListModel<>();
+        final JList<UserInfo> list = new JList<>(model);
         JButton removeButton;
         JButton okButton;
         JButton cancelButton;
@@ -1865,37 +1900,43 @@ public class ClientUI {
 
         SelectUserWindow(java.util.function.Consumer<ArrayList<UserInfo>> onConfirm) {
             this.onConfirm = onConfirm;
+            buildLayout();
+            wireRemoveButton();
+            wireConfirmButton();
+            wireCancelButton();
+            wireListSelectionListener();
+            installDeleteKeyShortcut();
+        }
+
+        private void buildLayout() {
             removeButton = new JButton("Remove");
             removeButton.setEnabled(false);
             okButton = new JButton("OK");
             cancelButton = new JButton("Cancel");
 
-            // List located on the middle of the window
             setLayout(new BorderLayout());
             setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
             add(new JScrollPane(list), BorderLayout.CENTER);
 
-            // buttons are located on the bottom of the window
-        	JPanel buttonPane = new JPanel(new FlowLayout());
-        	buttonPane.add(removeButton);
-        	buttonPane.add(okButton);
-        	buttonPane.add(cancelButton);
+            JPanel buttonPane = new JPanel(new FlowLayout());
+            buttonPane.add(removeButton);
+            buttonPane.add(okButton);
+            buttonPane.add(cancelButton);
+            add(buttonPane, BorderLayout.SOUTH);
+        }
 
-        	add(buttonPane, BorderLayout.SOUTH);
+        private void wireRemoveButton() {
+            removeButton.addActionListener(e -> {
+                UserInfo selected = list.getSelectedValue();
+                if (selected != null) {
+                    model.removeElement(selected);
+                }
+            });
+        }
 
-        	// add action to Remove button
-        	removeButton.addActionListener(e -> {
-
-        	    UserInfo selected = list.getSelectedValue();
-
-        	    if (selected != null) {
-        	        model.removeElement(selected);
-        	    }
-        	});
-
-        	// add action to OK button
+        private void wireConfirmButton() {
             okButton.addActionListener(e -> {
-                // Fix 7: warn and do not proceed if no participants are selected
+                // Warn and do not proceed if no participants are selected.
                 if (model.isEmpty()) {
                     JOptionPane.showMessageDialog(frame, "Please select at least one participant.",
                             "No participants selected", JOptionPane.WARNING_MESSAGE);
@@ -1907,25 +1948,27 @@ public class ClientUI {
                 Window window = SwingUtilities.getWindowAncestor(this);
                 window.dispose();
             });
+        }
 
-            // add action to cancel button
+        private void wireCancelButton() {
             cancelButton.addActionListener(e -> {
-            	model.clear();
+                model.clear();
                 Window window = SwingUtilities.getWindowAncestor(this);
                 window.dispose();
             });
+        }
 
-
-            // add action for selecting an item from the list
-            list.addListSelectionListener(e-> {
-            	if (!e.getValueIsAdjusting()) {
-						 UserInfo selecting = list.getSelectedValue();
-						 // if the another window is not visible, shows the button
-						 removeButton.setEnabled(selecting != null);
-			    }
+        private void wireListSelectionListener() {
+            list.addListSelectionListener(e -> {
+                if (!e.getValueIsAdjusting()) {
+                    UserInfo selecting = list.getSelectedValue();
+                    removeButton.setEnabled(selecting != null);
+                }
             });
+        }
 
-            // #149: Delete key on the list invokes Remove (so the button is reachable by keyboard).
+        private void installDeleteKeyShortcut() {
+            // Delete key on the list invokes Remove (so the button is reachable by keyboard).
             list.getInputMap(JComponent.WHEN_FOCUSED)
                     .put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), "removeSelected");
             list.getInputMap(JComponent.WHEN_FOCUSED)
@@ -1937,14 +1980,13 @@ public class ClientUI {
             });
         }
 
-        // add user to selecting list
         public void addUser(UserInfo user) {
-        	for(int i = 0; i < model.size(); i++) {
-        		if(user.getUserId().equals(model.get(i).getUserId())){
-        			return;
-        		}
-        	}
-        	model.addElement(user);
+            for(int i = 0; i < model.size(); i++) {
+                if(user.getUserId().equals(model.get(i).getUserId())){
+                    return;
+                }
+            }
+            model.addElement(user);
         }
 
 
@@ -1953,12 +1995,12 @@ public class ClientUI {
     // =========================================================================
     class AdminConversationSearchWindow extends JPanel {
         JTextField searchField;
-        DefaultListModel<ConversationMetadata> model = new DefaultListModel<>();
-        JList<ConversationMetadata> list = new JList<>(model);
+        final DefaultListModel<ConversationMetadata> model = new DefaultListModel<>();
+        final JList<ConversationMetadata> list = new JList<>(model);
         JButton closeButton;
         ViewerPanel viewerPanel;
 
-        // #126: render each search result as "[ID: N] TYPE • K participant(s) • last active <ts>"
+        // Renders each search result as "[ID: N] TYPE • K participant(s) • last active <ts>"
         // (or "no messages yet"). Modeled on ConversationCellRenderer above.
         private final class AdminConversationCellRenderer extends DefaultListCellRenderer {
             @Override
@@ -1992,12 +2034,7 @@ public class ClientUI {
                     if (ts <= 0L) {
                         activity = "no messages yet";
                     } else {
-                        ZonedDateTime zdt = java.time.Instant.ofEpochMilli(ts)
-                                .atZone(ZoneId.systemDefault());
-                        DateTimeFormatter dtf = zdt.getYear() == ZonedDateTime.now().getYear()
-                                ? DateTimeFormatter.ofPattern("LLL dd, HH:mm", java.util.Locale.ENGLISH)
-                                : DateTimeFormatter.ofPattern("LLL dd yyyy, HH:mm", java.util.Locale.ENGLISH);
-                        activity = "last active " + zdt.format(dtf);
+                        activity = "last active " + formatMessageTimestamp(new java.util.Date(ts));
                     }
                     setText("[ID: " + m.getConversationId() + "]  "
                             + m.getType() + "  •  "
@@ -2022,7 +2059,7 @@ public class ClientUI {
                 setOpaque(true);
                 label.setOpaque(true);
                 label.setBorder(BorderFactory.createCompoundBorder(
-                        new LineBorder(new Color(180, 180, 180), 1, true),
+                        new LineBorder(Theme.BUBBLE_BORDER, 1, true),
                         BorderFactory.createEmptyBorder(4, 10, 4, 10)));
             }
 
@@ -2032,27 +2069,11 @@ public class ClientUI {
             public Component getListCellRendererComponent(
                     JList<? extends Message> list, Message msg, int index,
                     boolean isSelected, boolean cellHasFocus) {
-                String senderName = null;
-                if (viewedConv != null) {
-                    for (UserInfo p : viewedConv.getHistoricalParticipants()) {
-                        if (p.getUserId().equals(msg.getSenderId())) {
-                            senderName = p.getName();
-                            break;
-                        }
-                    }
-                }
-                if (senderName == null) senderName = "(former participant)";
-
-                ZonedDateTime zdt = msg.getTimestamp().toInstant().atZone(ZoneId.systemDefault());
-                DateTimeFormatter dtf = zdt.getYear() == ZonedDateTime.now().getYear()
-                        ? DateTimeFormatter.ofPattern("LLL dd, HH:mm", java.util.Locale.ENGLISH)
-                        : DateTimeFormatter.ofPattern("LLL dd yyyy, HH:mm", java.util.Locale.ENGLISH);
-                String ts = zdt.format(dtf);
-                String rawText = msg.getText() == null ? "" : msg.getText();
-                String displayText = ts + " " + senderName + ": " + rawText;
+                MessageRow row = MessageRow.forAdmin(msg, viewedConv);
+                String displayText = row.headerText + " " + row.body;
 
                 int listW = list.getWidth();
-                int wrapPx = listW > 0 ? (int) (listW * 0.70) : 360;
+                int wrapPx = listW > 0 ? (int) (listW * BUBBLE_WRAP_FRACTION) : 360;
 
                 removeAll();
                 setBackground(list.getBackground());
@@ -2140,43 +2161,49 @@ public class ClientUI {
         }
 
         AdminConversationSearchWindow() {
+            buildLayout();
+            seedFromCache();
+            wireSearchField();
+            wireListSelectionListener();
+            wireCloseButton();
+        }
+
+        private void buildLayout() {
             searchField = makePlaceholderField("Search conversations...", 15);
             closeButton = new JButton("Close");
 
             setLayout(new BorderLayout());
             setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-            // LEFT pane — search field + conversation list
             JPanel leftPanel = new JPanel(new BorderLayout());
             leftPanel.add(searchField, BorderLayout.NORTH);
-            // #126: install the custom cell renderer so each row shows ID, type, count, recency.
             list.setCellRenderer(new AdminConversationCellRenderer());
             leftPanel.add(new JScrollPane(list), BorderLayout.CENTER);
 
-            // RIGHT pane — read-only message viewer
             viewerPanel = new ViewerPanel();
 
-            // Split-pane combines list + viewer
             JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftPanel, viewerPanel);
             split.setDividerLocation(320);
             split.setResizeWeight(0.0);
             add(split, BorderLayout.CENTER);
 
-            // Close at the bottom right
             JPanel buttonPane = new JPanel(new FlowLayout(FlowLayout.RIGHT));
             buttonPane.add(closeButton);
             add(buttonPane, BorderLayout.SOUTH);
+        }
 
-            // #55/#124: seed from the controller's cache. If the ADMIN_CONVERSATION_RESULT
+        private void seedFromCache() {
+            // Seed from the controller's cache. If the ADMIN_CONVERSATION_RESULT
             // response arrived before this window was constructed (race on fast loopback),
             // the data is already in the cache and we render it immediately. The async
             // updateAdminConversationSearchModel callback path stays for late responses.
             for (ConversationMetadata m : controller.getCurrentAdminConversationSearch()) {
                 model.addElement(m);
             }
+        }
 
-        	// add action to searchField
-        	searchField.getDocument().addDocumentListener(new DocumentListener() {
+        private void wireSearchField() {
+            searchField.getDocument().addDocumentListener(new DocumentListener() {
                 @Override public void insertUpdate(DocumentEvent e) { filter(); }
                 @Override public void removeUpdate(DocumentEvent e) { filter(); }
                 @Override public void changedUpdate(DocumentEvent e) { filter(); }
@@ -2184,13 +2211,14 @@ public class ClientUI {
                 private void filter() {
                     String text = searchField.getText().toUpperCase();
                     model.clear();
-
-                    for(ConversationMetadata item: controller.getFilteredAdminConversationSearch(text)) {
-                    	model.addElement(item);
+                    for (ConversationMetadata item : controller.getFilteredAdminConversationSearch(text)) {
+                        model.addElement(item);
                     }
                 }
             });
+        }
 
+        private void wireListSelectionListener() {
             // Selecting a row pulls the full conversation silently — no Join button.
             list.addListSelectionListener(e -> {
                 if (e.getValueIsAdjusting()) return;
@@ -2199,7 +2227,9 @@ public class ClientUI {
                     controller.adminViewConversation(sel.getConversationId());
                 }
             });
+        }
 
+        private void wireCloseButton() {
             // Close button just disposes the dialog; existing windowClosed handler does cleanup.
             closeButton.addActionListener(e -> {
                 Window window = SwingUtilities.getWindowAncestor(this);
@@ -2208,7 +2238,7 @@ public class ClientUI {
         }
 
         public DefaultListModel<ConversationMetadata> getAdminConversationSearch() {
-        	return model;
+            return model;
         }
 
         /** #193 entry point — called from ClientUI.showAdminConversationView. */
