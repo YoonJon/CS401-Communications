@@ -458,14 +458,16 @@ The architecture follows standard object-oriented design principles, ensuring cl
 # 5. System Architecture
 ## 5.1. Classes Diagram
 
-### System Diagram
-![System diagram](Class%20Diagram/System%20diagram.png)
+Source files are under [`Class Diagram/`](Class%20Diagram/) (relative to this SRS): `Whole system.png`, `Client.png`, `Networking.png`.
 
-### GUI Diagram
-![GUI diagram](Class%20Diagram/GUI%20diagram.png)
+### System diagram (whole system)
+[![System diagram — whole system](Class%20Diagram/Whole%20system.png)](Class%20Diagram/Whole%20system.png)
 
-### Networking Diagram
-![Networking diagram](Class%20Diagram/Networking%20diagram.png)
+### Client (GUI)
+[![Client / GUI class diagram](Class%20Diagram/Client.png)](Class%20Diagram/Client.png)
+
+### Networking
+[![Networking class diagram](Class%20Diagram/Networking.png)](Class%20Diagram/Networking.png)
 
 ## 5.2. Classes
 
@@ -1654,39 +1656,41 @@ User directory data not found
 
 ## 5.4. Use Case Diagrams
 
-![Use Case Diagram](Use%20Case%20Diagram/Use%20Case%20Diagram.png)
+[![Use Case Diagram](Use%20Case%20Diagram/Use%20Case%20Diagram.png)](Use%20Case%20Diagram/Use%20Case%20Diagram.png)
 
 ## 5.5. Sequence Diagrams
 
+Source files are under [`Sequence diagrams/`](Sequence%20diagrams/) (paths are relative to this SRS).
+
 ### UC-01 Create Account
-![UC-01 Create Account](Sequence%20diagrams/UC-01%20Create%20Account.png)
+[![UC-01 Create Account](Sequence%20diagrams/UC-01.png)](Sequence%20diagrams/UC-01.png)
 
 ### UC-02 Log in to the System
-![UC-02 Log in to the system](Sequence%20diagrams/UC-02%20Log%20in%20to%20the%20system.png)
+[![UC-02 Log in to the system](Sequence%20diagrams/UC-02.png)](Sequence%20diagrams/UC-02.png)
 
 ### UC-03 Send a Message
-![UC-03 Send a message](Sequence%20diagrams/UC-03%20Send%20a%20message.png)
+[![UC-03 Send a message](Sequence%20diagrams/UC-03.png)](Sequence%20diagrams/UC-03.png)
 
 ### UC-04 Browse User Directory
-![UC-04 Browse User Directory](Sequence%20diagrams/UC-04%20Browse%20User%20Directory.png)
+[![UC-04 Browse User Directory](Sequence%20diagrams/UC-04.png)](Sequence%20diagrams/UC-04.png)
 
 ### UC-05 Browse Conversation History
-![UC-05 Browse conversation history](Sequence%20diagrams/UC-05%20Browse%20conversation%20history.png)
+[![UC-05 Browse conversation history](Sequence%20diagrams/UC-05.png)](Sequence%20diagrams/UC-05.png)
 
 ### UC-06 View a Conversation
-![UC-06 View a Conversation](Sequence%20diagrams/UC-06%20View%20a%20Conversation.png)
+[![UC-06 View a Conversation](Sequence%20diagrams/UC-06.png)](Sequence%20diagrams/UC-06.png)
 
 ### UC-07 Create a New Conversation
-![UC-07 Create a new conversation](Sequence%20diagrams/UC-07%20Create%20a%20new%20conversation.png)
+[![UC-07 Create a new conversation](Sequence%20diagrams/UC-07.png)](Sequence%20diagrams/UC-07.png)
 
 ### UC-08 Add Users to Existing Group Conversation
-![UC-08 Add users to existing group conversation](Sequence%20diagrams/UC-08%20Add%20users%20to%20existing%20group%20conversation.png)
+[![UC-08 Add users to existing group conversation](Sequence%20diagrams/UC-08.png)](Sequence%20diagrams/UC-08.png)
 
 ### UC-09 Leave a Conversation
-![UC-09 Leave a conversation](Sequence%20diagrams/UC-09%20Leave%20a%20conversation.png)
+[![UC-09 Leave a conversation](Sequence%20diagrams/UC-09.png)](Sequence%20diagrams/UC-09.png)
 
 ### UC-10 Log Out from Client Application
-![UC-10 Log out from client application](Sequence%20diagrams/UC-10%20Log%20out%20from%20client%20application.png)
+[![UC-10 Log out from client application](Sequence%20diagrams/UC-10.png)](Sequence%20diagrams/UC-10.png)
 
 ### UC-11 Join a Conversation
-![UC-11 Join a Conversation](Sequence%20diagrams/UC-11%20Join%20a%20Conversation.png)
+[![UC-11 Join a Conversation](Sequence%20diagrams/UC-11.png)](Sequence%20diagrams/UC-11.png)
