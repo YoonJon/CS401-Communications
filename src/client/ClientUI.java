@@ -1400,6 +1400,9 @@ public class ClientUI {
                     @Override
                     public void windowClosed(WindowEvent e) {
                         createDialog = null;
+                        boolean inPickerMode = (createDialog != null && createDialog.isVisible())
+                                || (cards.main.conversationView.addDialog != null && cards.main.conversationView.addDialog.isVisible());
+                        pickerBannerLabel.setVisible(inPickerMode);
                         // Issue #221: restore directory after create-conversation finishes.
                         // Focus has shifted to the message input by this point, so the user
                         // cannot reset the filter manually. setText("") fires the
@@ -1421,6 +1424,9 @@ public class ClientUI {
                 selecting = null;
 
                 createDialog.setVisible(true);
+                boolean inPickerMode = (createDialog != null && createDialog.isVisible())
+                        || (cards.main.conversationView.addDialog != null && cards.main.conversationView.addDialog.isVisible());
+                pickerBannerLabel.setVisible(inPickerMode);
 
             });
 
@@ -1514,7 +1520,6 @@ public class ClientUI {
             }
         	return adminConversationSearchWindow.getAdminConversationSearch();
         }
-
 
     }
 
