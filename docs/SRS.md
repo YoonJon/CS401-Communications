@@ -1,4 +1,4 @@
-# Software Requirements Specification
+﻿# Software Requirements Specification
 
 # Revision History
 ## Date | Version | Description | Author
@@ -9,11 +9,14 @@
 - 03/03/2026 | 4.0 | Added Class Candidate Diagram                                                         | Jon Yoon
 - 03/05/2026 | 4.1 | Modified UC-03                                                                        | Harumi Ueda
 - 04/04/2026 | 5.1 | Added 3.1.3.18 and modified UC-01, 02, 07, and 08                                     | Jon Yoon
-- 04/09/2026 | 5.2 | Modified 2.5, removed 4.1.8, fixed minor spelling mistakes                            | Jon Yoon
+- 04/09/2026 | 5.2 | Modified 2.5; revised 4.1.8; fixed minor spelling mistakes                              | Jon Yoon
 - 04/09/2026 | 5.3 | Modified clientUI class, View components, UC-07, 08, and 11                           | Harumi Ueda
 - 04/28/2026 | 5.4 | Aligned requirements and class/protocol specs with current imple Team
 - 04/29/2026 | 5.5 | Modified Section 5.2: synced class/member listings with Java sources (controllers, DataManager, payloads) | Team
 - 04/29/2026 | 5.6 | Modified Modified Section 5.2: documented private/package helper methods (client, server, DataManager, ConnectionHandler) | Team
+
+- 05/01/2026 | 5.4 | Added 3.1.2.21; fixed requirement refs, revision note, payloads, UC names, and typos   | Team
+- 05/01/2026 | 5.5 | Client UI/controller model cleanup; admin search behavior note; naming consistency        | Team
 
 # Table of Contents
 
@@ -150,7 +153,7 @@ The client application functions solely as a user interaction interface, providi
 
 The system does not integrate with external databases, third-party services, web technologies, or external frameworks, and instead relies exclusively on core Java libraries for networking, concurrency management, data structures, and file-based persistence. 
 
-All data storage is performed through structured text-based files managed by the server. Administrators are granted elevated privileges that allow oversight access to all communications, aligning with the requirement to minimize privacy within the organizational environment. 
+All data storage is performed through structured text-based files managed by the server. Administrators are granted elevated privileges that allow oversight access to all communications, consistent with organizational policies that limit end-user privacy expectations. 
 
 Overall, the product is designed as a self-contained enterprise messaging solution that emphasizes centralized control, persistent logging, structured communication, and strict adherence to implementation constraints defined in the project scope.
 
@@ -302,7 +305,7 @@ The architecture follows standard object-oriented design principles, ensuring cl
 
 3.1.2.11 The Client shall display conversations ordered by most recent activity.
 
-3.1.2.12 The Client shall display conversations ordered by most recent activity (most recent first).
+3.1.2.12 The Client shall display conversations ordered by most recent activity (most recent first), up to a fixed maximum count defined in client configuration.
 
 3.1.2.13 The Client shall display message history within a selected conversation.
 
@@ -319,6 +322,9 @@ The architecture follows standard object-oriented design principles, ensuring cl
 3.1.2.19 The Client shall allow users to leave a conversation.
 
 3.1.2.20 The Client shall provide a distinct interface for administrative users.
+
+
+3.1.2.21 The Client shall allow administrative users to search conversations by participant and to join a selected conversation through the administrative interface.
 
 ### 3.1.3. Server Module Requirements:
 3.1.3.1 The Server shall accept and manage concurrent TCP/IP connections from multiple Clients.
@@ -452,14 +458,16 @@ The architecture follows standard object-oriented design principles, ensuring cl
 # 5. System Architecture
 ## 5.1. Classes Diagram
 
-### System Diagram
-![System diagram](Class%20Diagram/System%20diagram.png)
+Source files are under [`Class Diagram/`](Class%20Diagram/) (relative to this SRS): `Whole system.png`, `Client.png`, `Networking.png`.
 
-### GUI Diagram
-![GUI diagram](Class%20Diagram/GUI%20diagram.png)
+### System diagram (whole system)
+[![System diagram — whole system](Class%20Diagram/Whole%20system.png)](Class%20Diagram/Whole%20system.png)
 
-### Networking Diagram
-![Networking diagram](Class%20Diagram/Networking%20diagram.png)
+### Client (GUI)
+[![Client / GUI class diagram](Class%20Diagram/Client.png)](Class%20Diagram/Client.png)
+
+### Networking
+[![Networking class diagram](Class%20Diagram/Networking.png)](Class%20Diagram/Networking.png)
 
 ## 5.2. Classes
 
@@ -519,6 +527,8 @@ enum ConnectionStatus
 
 ### Client-side Classes
 
+The active directory, conversation list, and conversation panes are owned by **`MainView`** (`directoryView`, `conversationListView`, `conversationView` under `ScreenCards`). `ClientUI` coordinates card layout, login/register screens, and modal windows (`SelectUserWindow`, `AdminConversationSearchWindow`).
+
 ```
 class ClientUI
 
@@ -562,7 +572,7 @@ class ClientUI
   + RegisterView()
 
   <<nested>> class LoginView extends JPanel
-  - login_idField: JTextField
+  - loginName: JTextField
   - passwordField: JPasswordField
   - loginButton: JButton
   - createButton: JButton
@@ -595,9 +605,8 @@ class ClientUI
   - logoutButton: JButton
   - createConversationButton: JButton
   - adminButton: JButton
-  - searchBar: JTextField
 
-  + DirectoryView(): void
+  + DirectoryView()
 
   <<nested>> class ConversationListView extends JPanel
   - participantsLabel: JLabel
@@ -699,6 +708,8 @@ class ClientController
 ```
 
 `User.UserInfo` (nested class, see **shared.networking.User** below) is the wire snapshot type; it is not declared inside `ClientController`. Request draining, inbound responses, and idle/ping keepalive run on **daemon threads** named `request-drain`, `client-resp`, and `client-inact` (not separate top-level inner classes named `ResponseListener` / `InactivityDetector`).
+
+**Admin conversation search:** `adminGetUserConversations` issues a server request (`ADMIN_CONVERSATION_QUERY`) and refreshes the cached admin result set (`currentAdminConversationSearch`). `adminConversationSearch` filters that cache locally for the admin UI without an additional server round-trip.
 
 ### Server-side Classes
 
@@ -1371,6 +1382,8 @@ Conversation history data not found
 
 3.1.3.11.2
 
+3.1.3.18
+
 3.1.3.15
 
 3.1.1.6
@@ -1466,10 +1479,10 @@ Conversation remains a part of the new user's conversation history.
 #### Basic Flow or Main Scenario:
 1. User selects a group conversation.
 2. User selects the “add” on ConversationView.
-3. The system shows SelectUserView.
+3. The system shows SelectUserWindow.
 4. User searches the name of the desired participant in the DirectoryView.
-5. The user selects the user, and the system shows the addition of participants on SelectUserView.
-6. User confirms selection by clicking OK button on SelectUserView.
+5. The user selects the user, and the system shows the addition of participants on SelectUserWindow.
+6. User confirms selection by clicking OK button on SelectUserWindow.
 7. The system adds the user to the conversation.
 8. GUI displays the conversation for the added user.
 
@@ -1643,39 +1656,41 @@ User directory data not found
 
 ## 5.4. Use Case Diagrams
 
-![Use Case Diagram](Use%20Case%20Diagram/Use%20Case%20Diagram.png)
+[![Use Case Diagram](Use%20Case%20Diagram/Use%20Case%20Diagram.png)](Use%20Case%20Diagram/Use%20Case%20Diagram.png)
 
 ## 5.5. Sequence Diagrams
 
+Source files are under [`Sequence diagrams/`](Sequence%20diagrams/) (paths are relative to this SRS).
+
 ### UC-01 Create Account
-![UC-01 Create Account](Sequence%20diagrams/UC-01%20Create%20Account.png)
+[![UC-01 Create Account](Sequence%20diagrams/UC-01.png)](Sequence%20diagrams/UC-01.png)
 
 ### UC-02 Log in to the System
-![UC-02 Log in to the system](Sequence%20diagrams/UC-02%20Log%20in%20to%20the%20system.png)
+[![UC-02 Log in to the system](Sequence%20diagrams/UC-02.png)](Sequence%20diagrams/UC-02.png)
 
 ### UC-03 Send a Message
-![UC-03 Send a message](Sequence%20diagrams/UC-03%20Send%20a%20message.png)
+[![UC-03 Send a message](Sequence%20diagrams/UC-03.png)](Sequence%20diagrams/UC-03.png)
 
 ### UC-04 Browse User Directory
-![UC-04 Browse User Directory](Sequence%20diagrams/UC-04%20Browse%20User%20Directory.png)
+[![UC-04 Browse User Directory](Sequence%20diagrams/UC-04.png)](Sequence%20diagrams/UC-04.png)
 
 ### UC-05 Browse Conversation History
-![UC-05 Browse conversation history](Sequence%20diagrams/UC-05%20Browse%20conversation%20history.png)
+[![UC-05 Browse conversation history](Sequence%20diagrams/UC-05.png)](Sequence%20diagrams/UC-05.png)
 
 ### UC-06 View a Conversation
-![UC-06 View a Conversation](Sequence%20diagrams/UC-06%20View%20a%20Conversation.png)
+[![UC-06 View a Conversation](Sequence%20diagrams/UC-06.png)](Sequence%20diagrams/UC-06.png)
 
 ### UC-07 Create a New Conversation
-![UC-07 Create a new conversation](Sequence%20diagrams/UC-07%20Create%20a%20new%20conversation.png)
+[![UC-07 Create a new conversation](Sequence%20diagrams/UC-07.png)](Sequence%20diagrams/UC-07.png)
 
 ### UC-08 Add Users to Existing Group Conversation
-![UC-08 Add users to existing group conversation](Sequence%20diagrams/UC-08%20Add%20users%20to%20existing%20group%20conversation.png)
+[![UC-08 Add users to existing group conversation](Sequence%20diagrams/UC-08.png)](Sequence%20diagrams/UC-08.png)
 
 ### UC-09 Leave a Conversation
-![UC-09 Leave a conversation](Sequence%20diagrams/UC-09%20Leave%20a%20conversation.png)
+[![UC-09 Leave a conversation](Sequence%20diagrams/UC-09.png)](Sequence%20diagrams/UC-09.png)
 
 ### UC-10 Log Out from Client Application
-![UC-10 Log out from client application](Sequence%20diagrams/UC-10%20Log%20out%20from%20client%20application.png)
+[![UC-10 Log out from client application](Sequence%20diagrams/UC-10.png)](Sequence%20diagrams/UC-10.png)
 
 ### UC-11 Join a Conversation
-![UC-11 Join a Conversation](Sequence%20diagrams/UC-11%20Join%20a%20Conversation.png)
+[![UC-11 Join a Conversation](Sequence%20diagrams/UC-11.png)](Sequence%20diagrams/UC-11.png)
