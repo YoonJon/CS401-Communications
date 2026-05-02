@@ -1400,6 +1400,11 @@ public class ClientUI {
                     @Override
                     public void windowClosed(WindowEvent e) {
                         createDialog = null;
+                        // Issue #221: restore directory after create-conversation finishes.
+                        // Focus has shifted to the message input by this point, so the user
+                        // cannot reset the filter manually. setText("") fires the
+                        // DocumentListener and refills the list with the full directory.
+                        searchField.setText("");
                     }
                     // Focus the list on open so Tab order is correct and Delete works.
                     @Override
@@ -1477,7 +1482,7 @@ public class ClientUI {
                     // adminButton is always constructed; visibility is toggled at login time
                     adminButton.setEnabled(true);
                 } else if(createDialog != null && createDialog.isVisible()) { // if selectUser window is open
-                    createConversationUserWindow.addUser(selecting);
+                    if (selecting != null) createConversationUserWindow.addUser(selecting);
                 } else if(cards.main.conversationView.addDialog != null && cards.main.conversationView.addDialog.isVisible()) {
                     if(selecting != null) cards.main.conversationView.addUserWindow.addUser(selecting);
                 }
@@ -1711,6 +1716,7 @@ public class ClientUI {
 
         // add user to selecting list
         public void addUser(UserInfo user) {
+        	if (user == null) return;
         	for(int i = 0; i < model.size(); i++) {
         		if(user.getUserId().equals(model.get(i).getUserId())){
         			return;
