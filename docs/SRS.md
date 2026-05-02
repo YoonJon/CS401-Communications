@@ -1,4 +1,4 @@
-# Software Requirements Specification
+﻿# Software Requirements Specification
 
 # Revision History
 ## Date | Version | Description | Author
@@ -9,8 +9,11 @@
 - 03/03/2026 | 4.0 | Added Class Candidate Diagram                                                         | Jon Yoon
 - 03/05/2026 | 4.1 | Modified UC-03                                                                        | Harumi Ueda
 - 04/04/2026 | 5.1 | Added 3.1.3.18 and modified UC-01, 02, 07, and 08                                     | Jon Yoon
-- 04/09/2026 | 5.2 | Modified 2.5, removed 4.1.8, fixed minor spelling mistakes                            | Jon Yoon
+- 04/09/2026 | 5.2 | Modified 2.5; revised 4.1.8; fixed minor spelling mistakes                              | Jon Yoon
 - 04/09/2026 | 5.3 | Modified clientUI class, View components, UC-07, 08, and 11                           | Harumi Ueda
+
+- 05/01/2026 | 5.4 | Added 3.1.2.21; fixed requirement refs, revision note, payloads, UC names, and typos   | Team
+- 05/01/2026 | 5.5 | Client UI/controller model cleanup; admin search behavior note; naming consistency        | Team
 
 # Table of Contents
 
@@ -147,7 +150,7 @@ The client application functions solely as a user interaction interface, providi
 
 The system does not integrate with external databases, third-party services, web technologies, or external frameworks, and instead relies exclusively on core Java libraries for networking, concurrency management, data structures, and file-based persistence. 
 
-All data storage is performed through structured text-based files managed by the server. Administrators are granted elevated privileges that allow oversight access to all communications, aligning with the requirement to minimize privacy within the organizational environment. 
+All data storage is performed through structured text-based files managed by the server. Administrators are granted elevated privileges that allow oversight access to all communications, consistent with organizational policies that limit end-user privacy expectations. 
 
 Overall, the product is designed as a self-contained enterprise messaging solution that emphasizes centralized control, persistent logging, structured communication, and strict adherence to implementation constraints defined in the project scope.
 
@@ -299,7 +302,7 @@ The architecture follows standard object-oriented design principles, ensuring cl
 
 3.1.2.11 The Client shall display conversations ordered by most recent activity.
 
-3.1.2.12 The Client shall display the X most recent conversations.
+3.1.2.12 The Client shall display the most recent conversations up to a fixed maximum count defined in client configuration.
 
 3.1.2.13 The Client shall display message history within a selected conversation.
 
@@ -316,6 +319,9 @@ The architecture follows standard object-oriented design principles, ensuring cl
 3.1.2.19 The Client shall allow users to leave a conversation.
 
 3.1.2.20 The Client shall provide a distinct interface for administrative users.
+
+
+3.1.2.21 The Client shall allow administrative users to search conversations by participant and to join a selected conversation through the administrative interface.
 
 ### 3.1.3. Server Module Requirements:
 3.1.3.1 The Server shall accept and manage concurrent TCP/IP connections from multiple Clients.
@@ -356,7 +362,7 @@ The architecture follows standard object-oriented design principles, ensuring cl
 
 3.1.3.17 The Server shall not include a runtime GUI and shall be configured and launched using predefined configuration files or startup parameters.
 
-3.1.3.18 The Server shall enforce the uniqueness of private conversations
+3.1.3.18 The Server shall enforce the uniqueness of private conversations.
 
 ## 3.2. External Interface Requirements
 3.2.1 The system shall provide a network interface using TCP/IP socket communication between the Client and Server modules.
@@ -519,6 +525,8 @@ enum ConnectionStatus
 
 ### Client-side Classes
 
+The active directory, conversation list, and conversation panes are owned by **`MainView`** (`directoryView`, `conversationListView`, `conversationView` under `ScreenCards`). `ClientUI` coordinates card layout, login/register screens, and modal windows (`SelectUserWindow`, `AdminConversationSearchWindow`).
+
 ```
 class ClientUI
 
@@ -527,10 +535,7 @@ class ClientUI
 - cards: ScreenCards
 - registerView: RegisterView
 - loginView: LoginView
-- chatView: ConversationView
-- userDirectory: DirectoryView
-- conversationList: ConversationListView
-- selectUserWindow: selectUserWindow
+- selectUserWindow: SelectUserWindow
 - adminConversationSearchWindow: AdminConversationSearchWindow
 - selectingUser: bool
 - adminSearchingConversation: bool
@@ -578,7 +583,7 @@ class ClientUI
   + RegisterView()
 
   <<nested>> class LoginView extends JPanel
-  - login_idField: JTextField
+  - loginName: JTextField
   - passwordField: JPasswordField
   - loginButton: JButton
   - createButton: JButton
@@ -593,7 +598,7 @@ class ClientUI
   + MainView()
 
   <<nested>> class ConversationView extends JPanel
-  - participantsLabel: JLable
+  - participantsLabel: JLabel
   - listModel: DefaultListModel
   - list: JList<>(listModel)
   - addButton: JButton
@@ -611,13 +616,12 @@ class ClientUI
   - logoutButton: JButton
   - createConversationButton: JButton
   - adminButton: JButton
-  - searchBar: JTextField
 
-  + DirectoryView(): void
+  + DirectoryView()
 
   <<nested>> class ConversationListView extends JPanel
-  - participantsLabel: JLable
-  - messageModel: DefaulListModel<>
+  - participantsLabel: JLabel
+  - messageModel: DefaultListModel<>
   - list: JList<>(messageModel)
   - addButton: JButton
   - leaveButton: JButton
@@ -673,20 +677,20 @@ class ClientController
 + register(userId: String, realName: String, loginName: String, password: String): void
 + login(loginName: String, password: String): void
 + logout(): void
-+ sendMessage(cId: String, m: String): void
++ sendMessage(conversationId: String, m: String): void
 + searchDirectory(query: String): void
 + searchConversationList(query: String): void
 + adminConversationSearch(query: String): void
 + createConversation(p: ArrayList<UserInfo>): void
-+ addToConversation(p: ArrayList<UserInfo>, c_id: String): void
-+ leaveConversation(cId: String): void
-+ adminGetUserConversations(userID: String): void
-+ joinConversation(c_Id: String): void
++ addToConversation(p: ArrayList<UserInfo>, conversationId: String): void
++ leaveConversation(conversationId: String): void
++ adminGetUserConversations(userId: String): void
++ joinConversation(conversationId: String): void
 + getCurrentUserInfo(): UserInfo
 + getFilteredDirectory(query: String): ArrayList<UserInfo>
 + getFilteredConversationList(query: String): ArrayList<Conversation>
-+ getFilteredAdminConversationSearch(q: String): ArrayList<Conversation>
-+ setCurrentConversationID(c_id: String): void
++ getFilteredAdminConversationSearch(query: String): ArrayList<Conversation>
++ setCurrentConversationID(conversationId: String): void
 + getCurrentConversationID(): String
 + getCurrentConversation(): Conversation
 - sendRequest(r: Request): void
@@ -712,6 +716,8 @@ class ClientController
   + getLastRead(c_id: String): long
   + setLastRead(c_id: String, sequenceNumber: long): void
 ```
+
+**Admin conversation search:** `adminGetUserConversations` issues a server request (`ADMIN_CONVERSATION_QUERY`) and refreshes the cached admin result set (`currentAdminConversationSearch`). `adminConversationSearch` filters that cache locally for the admin UI without an additional server round-trip.
 
 ### Server-side Classes
 
@@ -776,7 +782,7 @@ class User
 + getPassword(): String
 + getUserType(): UserType
 + getUserInfo(): UserInfo
-+ getLastRead(): long
++ getLastRead(c_id: String): long
 + setLastRead(c_id: String, sequenceNumber: long): void
 + fromFile(f: File): User
 ```
@@ -909,7 +915,7 @@ class JoinConversationPayload implements Payload
 
 class AdminConversationQuery implements Payload
 - conversationQuery: String
-+ AdminConversationQuery(c_id: String)
++ AdminConversationQuery(q: String)
 + getQuery(): String
 ```
 
@@ -977,7 +983,7 @@ class LoginResult implements Payload
 - result: LoginStatus
 - userInfo: UserInfo
 - conversationList: ArrayList<Conversation>
-+ LoginResult(r: LoginStatus, cl: ArrayList<Conversation>)
++ LoginResult(r: LoginStatus, ui: UserInfo, cl: ArrayList<Conversation>)
 + getLoginStatus(): LoginStatus
 + getUserInfo(): UserInfo
 + getConversationList(): ArrayList<Conversation>
@@ -1322,7 +1328,9 @@ Conversation history data not found
 
 3.1.3.6
 
-3.1.3.11.3
+3.1.3.11.2
+
+3.1.3.18
 
 3.1.3.15
 
@@ -1419,10 +1427,10 @@ Conversation remains a part of the new user's conversation history.
 #### Basic Flow or Main Scenario:
 1. User selects a group conversation.
 2. User selects the “add” on ConversationView.
-3. The system shows SelectUserView.
+3. The system shows SelectUserWindow.
 4. User searches the name of the desired participant in the DirectoryView.
-5. The user selects the user, and the system shows the addition of participants on SelectUserView.
-6. User confirms selection by clicking OK button on SelectUserView.
+5. The user selects the user, and the system shows the addition of participants on SelectUserWindow.
+6. User confirms selection by clicking OK button on SelectUserWindow.
 7. The system adds the user to the conversation.
 8. GUI displays the conversation for the added user.
 
