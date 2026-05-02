@@ -1700,9 +1700,9 @@ public class ClientUI {
                     createConversationButton.setEnabled(true);
                     adminButton.setEnabled(true);
                 } else if(createDialog != null && createDialog.isVisible()) { // if selectUser window is open
-                    if (selecting != null) createConversationUserWindow.addUser(selecting);
+                    if (selectedValue != null) createConversationUserWindow.addUser(selectedValue);
                 } else if(cards.main.conversationView.addDialog != null && cards.main.conversationView.addDialog.isVisible()) {
-                    if(selecting != null) cards.main.conversationView.addUserWindow.addUser(selecting);
+                    if(selectedValue != null) cards.main.conversationView.addUserWindow.addUser(selectedValue);
                 }
             });
         }
