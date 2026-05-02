@@ -1293,7 +1293,6 @@ public class ClientUI {
                 }
             });
 
-            // 500-char hard cap
             ((javax.swing.text.AbstractDocument) messageInputField.getDocument()).setDocumentFilter(
                     new javax.swing.text.DocumentFilter() {
                         private static final int MAX = 500;
@@ -1733,8 +1732,6 @@ public class ClientUI {
             finally { suppressSelectionEvents = false; }
         }
 
-        // Renders a conversation row as the display name plus a numeric
-        // unread badge on the right when there are unread messages.
         private final class ConversationCellRenderer extends JPanel implements ListCellRenderer<Conversation> {
             private final JLabel nameLabel = new JLabel();
             private final JLabel badgeLabel = new JLabel();
@@ -1906,7 +1903,6 @@ public class ClientUI {
 
         private void wireConfirmButton() {
             okButton.addActionListener(e -> {
-                // Warn and do not proceed if no participants are selected.
                 if (model.isEmpty()) {
                     JOptionPane.showMessageDialog(frame, "Please select at least one participant.",
                             "No participants selected", JOptionPane.WARNING_MESSAGE);

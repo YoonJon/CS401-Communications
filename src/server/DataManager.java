@@ -25,8 +25,6 @@ public class DataManager {
 
     private static final long WRITER_SLEEP_MS = 100L;
 
-    // --- Static counters (persisted in server_config.txt) ---
-
     /**
      * Authoritative monotonic message sequence counter; persisted under
      * {@code messageSequenceCounter} in {@code server_data/server_config.txt}.
@@ -38,8 +36,6 @@ public class DataManager {
      * {@code conversationIdCounter} in {@code server_data/server_config.txt}.
      */
     private static final AtomicLong conversationIdCounter = new AtomicLong(0);
-
-    // --- In-memory authoritative state ---
 
     private ConcurrentMap<String, User> usersByUserID;
     private ConcurrentMap<String, User> usersByLoginName;
@@ -55,8 +51,6 @@ public class DataManager {
     private ArrayList<String> authorizedAdminIds;
     private CopyOnWriteArrayList<UserInfo> directoryUserInfos;
 
-    // --- Paths & persistence bookkeeping (resolved at construction) ---
-
     /** Root for {@code server_data/}, {@code conversation_data/}, {@code user_data/}. */
     private final File dataRoot;
     private final File serverDataDir;
@@ -67,20 +61,12 @@ public class DataManager {
     private final File conversationDataDir;
     private final File userDataDir;
 
-    /**
-     * User ids whose {@link User} should be written on the next {@link #writeDirty()}.
-     * Backed by {@link ConcurrentHashMap#newKeySet()} (Java has no {@code ConcurrentHashSet}).
-     */
+    /** Backed by {@link ConcurrentHashMap#newKeySet()} (Java has no {@code ConcurrentHashSet}). */
     private final Set<String> dirtyUsers;
-    /**
-     * Conversation ids whose {@link Conversation} should be written on the next {@link #writeDirty()}.
-     */
     private final Set<Long> dirtyConversations;
 
     /** Background flush of dirty users/conversations every {@value #WRITER_SLEEP_MS} ms. */
     private final Thread writerThread;
-
-    // --- Constructor ---
 
     /**
      * @param dataRootPath path to the root directory for persisted state (absolute or relative).
@@ -91,22 +77,15 @@ public class DataManager {
      */
     public DataManager(String dataRootPath) {
         File root = new File(dataRootPath);
-        // root directory
         this.dataRoot = root;
-        // server data directory
         this.serverDataDir = new File(root, "server_data");
-        // authorized users and admins file
         this.authorizedIdsDir = new File(serverDataDir, "authorized_ids");
         this.authorizedUsersFile = new File(authorizedIdsDir, "authorized_users.txt");
         this.authorizedAdminsFile = new File(authorizedIdsDir, "authorized_admins.txt");
-        // sequential ID counter persistence file in server_data
         this.serverConfigFile = new File(serverDataDir, "server_config.txt");
-        // conversation data directory
         this.conversationDataDir = new File(root, "conversation_data");
-        // user data directory
         this.userDataDir = new File(root, "user_data");
 
-        // in-memory state
         this.usersByUserID = new ConcurrentHashMap<>();
         this.usersByLoginName = new ConcurrentHashMap<>();
         this.conversationIDsByUserID = new ConcurrentHashMap<>();
@@ -125,8 +104,6 @@ public class DataManager {
         t.start();
         this.writerThread = t;
     }
-
-    // --- Lifecycle (shutdown & background writer) ---
 
     public void close() {
         writerThread.interrupt();
@@ -169,30 +146,20 @@ public class DataManager {
         }
     }
 
-    // --- Monotonic ids / sequence (used by handlers) ---
-
-    /**
-     * Returns the next message sequence number. Thread-safe.
-     */
     static long nextMessageSequenceNumber() {
         return messageSequenceCounter.incrementAndGet();
     }
 
-    /** Returns the next conversation id (monotonic long). Thread-safe. */
     static long nextConversationId() {
         return conversationIdCounter.incrementAndGet();
     }
 
-    // --- Mark dirty & flush user/conversation blobs to disk ---
-
-    /** Marks the user's id dirty; {@link #writeDirty()} performs the actual file write. */
     private void persistUser(User user) {
         if (user != null && user.getUserId() != null) {
             dirtyUsers.add(user.getUserId());
         }
     }
 
-    /** Marks the conversation id dirty; {@link #writeDirty()} performs the actual file write. */
     private void persistConversation(Conversation conversation) {
         if (conversation != null) {
             dirtyConversations.add(conversation.getConversationId());
@@ -232,8 +199,6 @@ public class DataManager {
         }
     }
 
-    // --- Persistence file helpers (per-entity blobs under fixed dirs) ---
-
     private File userPersistenceFile(String userId) {
         return new File(userDataDir, userId + ".user");
     }
@@ -242,9 +207,6 @@ public class DataManager {
         return new File(conversationDataDir, Long.toString(conversationId) + ".conversation");
     }
 
-    // --- Server counter persistence (message sequence & conversation id) ---
-
-    // load the server counters from the server config file
     private void loadServerCounters() throws IOException {
         if (!serverConfigFile.isFile() || serverConfigFile.length() == 0) {
             return;
@@ -271,7 +233,6 @@ public class DataManager {
         }
     }
 
-    // persist the server counters to the server config file
     private void persistServerCounters() throws IOException {
         Properties props = new Properties();
         props.setProperty("messageSequenceCounter", Long.toString(messageSequenceCounter.get()));
@@ -280,8 +241,6 @@ public class DataManager {
             props.store(out, "Server counters (message sequence and conversation id)");
         }
     }
-
-    // --- Concurrent set factories & registration validation ---
 
     private Set<String> newConcurrentStringSet() {
         return ConcurrentHashMap.newKeySet();
@@ -295,8 +254,6 @@ public class DataManager {
         return Objects.equals(authorizedUsers.get(userID), userName);
     }
 
-    // --- Startup: load on-disk state into memory ---
-
     /*
      * On-disk layout (root may be e.g. "data" or "test_data"; children are identical):
      *   <dataRoot>/
@@ -309,14 +266,12 @@ public class DataManager {
      *     user_data/*.user
      */
     private void loadData() {
-        // these are assumed to exist, warn if not
         if (!dataRoot.exists()) System.err.println("WARNING: data directory not found");
         if (!serverDataDir.exists()) System.err.println("WARNING: server_data directory not found");
         if (!authorizedIdsDir.exists()) System.err.println("WARNING: authorized_ids directory not found");
         if (!authorizedAdminsFile.exists()) System.err.println("WARNING: authorized_admins.txt not found");
         if (!authorizedUsersFile.exists()) System.err.println("WARNING: authorized_users.txt not found");
 
-        // these are not assumed to exist, create if missing
         try {
             if (!serverConfigFile.exists()) serverConfigFile.createNewFile();
             if (!conversationDataDir.exists()) conversationDataDir.mkdirs();
@@ -325,7 +280,6 @@ public class DataManager {
             e.printStackTrace();
         }
 
-        // rehydrate authorized users and admins
         try {
             if (authorizedUsersFile.isFile()) {
                 loadAuthorizedUsersCsv(authorizedUsersFile);
@@ -336,8 +290,7 @@ public class DataManager {
         } catch (IOException e) {
             e.printStackTrace();
         }
-        
-        // rehydrate Conversations (*.conversation — serialized Conversation per file)
+
         File[] listOfConversationFiles = conversationDataDir.listFiles(
             f -> f.isFile() && f.getName().endsWith(".conversation"));
         if (listOfConversationFiles == null) {
@@ -357,8 +310,7 @@ public class DataManager {
         }catch(ClassNotFoundException e) {
         	e.printStackTrace();
         }
-        
-        // rehydrate Users (*.user — serialized User per file)
+
         File[] listOfUserFiles = userDataDir.listFiles(
             f -> f.isFile() && f.getName().endsWith(".user"));
         if (listOfUserFiles == null) {
@@ -468,9 +420,6 @@ public class DataManager {
         return new ArrayList<>(directoryUserInfos);
     }
 
-    // --- Internal conversation mutation (messages) ---
-
-    // update a conversation with a new message in memory
     private void updateConversation(Message message) {
         Conversation conversation = conversationsByConversationID.get(message.getConversationId());
         if (conversation == null) {
@@ -481,8 +430,6 @@ public class DataManager {
             persistConversation(conversation);
         }
     }
-
-    // --- User ↔ conversation membership index ---
 
     /**
      * Bidirectional index update: {@code userId} is a member of {@code conversationId} in both
@@ -555,28 +502,22 @@ public class DataManager {
         return false;
     }
 
-    // --- Request handlers ---
-
-    // handle a register request
     public Response handleRegister(Request request) {
         RegisterCredentials registerCredentials = (RegisterCredentials) request.getPayload();
         String userId = registerCredentials.getUserId();
         String loginName = registerCredentials.getLoginName();
         String password = registerCredentials.getPassword();
         String name = registerCredentials.getName();
-        // check if the user is authorized
         if(!isValidUser(userId, name)) {
             return new Response(ResponseType.REGISTER_RESULT, new RegisterResult(shared.enums.RegisterStatus.USER_ID_INVALID));
         }
-        // check if the user ID is already taken
         if(usersByUserID.containsKey(userId)) {
             return new Response(ResponseType.REGISTER_RESULT, new RegisterResult(shared.enums.RegisterStatus.USER_ID_TAKEN));
         }
-        // check if the login name is valid (non-empty, alphanumeric/underscores/hyphens only)
+        // loginName forms a filesystem path; restrict to safe charset
         if(loginName == null || loginName.isBlank() || !loginName.matches("[a-zA-Z0-9_\\-]+")) {
             return new Response(ResponseType.REGISTER_RESULT, new RegisterResult(shared.enums.RegisterStatus.LOGIN_NAME_INVALID));
         }
-        // check if the login name is already taken
         if(usersByLoginName.containsKey(loginName)) {
             return new Response(ResponseType.REGISTER_RESULT, new RegisterResult(shared.enums.RegisterStatus.LOGIN_NAME_TAKEN));
         }
@@ -589,23 +530,19 @@ public class DataManager {
         return new Response(ResponseType.REGISTER_RESULT, new RegisterResult(shared.enums.RegisterStatus.SUCCESS, user.toUserInfo()));
     }
 
-    // handle a login request
     public Response handleLogin(Request request) {
         LoginCredentials loginCredentials = (LoginCredentials) request.getPayload();
         String loginName = loginCredentials.getLoginName();
         String password = loginCredentials.getPassword();
 
-        // check if the user exists
         if(!usersByLoginName.containsKey(loginName)) {
             return new Response(ResponseType.LOGIN_RESULT, new LoginResult(shared.enums.LoginStatus.NO_ACCOUNT_EXISTS));
         }
 
-        // check if the password is correct
         if(!usersByLoginName.get(loginName).getPassword().equals(password)) {
             return new Response(ResponseType.LOGIN_RESULT, new LoginResult(shared.enums.LoginStatus.INVALID_CREDENTIALS));
         }
 
-        // return the user's conversation list if the login is successful
         User user = usersByLoginName.get(loginName);
         String userID = user.getUserId();
         Set<Long> conversationIDs = conversationIDsByUserID.get(userID);
@@ -641,10 +578,6 @@ public class DataManager {
     }
 
     public Response handleSendMessage(Request request) {
-        // this method needs to do 3 things:
-        // 1. assign a sequence number and timestamp to the message
-        // 2. append this message to the appropriate conversation
-        // 3. return the message to the controller for subsequent distribution
         RawMessage rawMessage = (RawMessage) request.getPayload();
         String text = rawMessage.getText();
         long conversationId = rawMessage.getTargetConversationId();
@@ -666,13 +599,9 @@ public class DataManager {
      */
     public Response handleUpdateReadMessages(Request request) {
         UpdateReadMessages updateReadMessages = (UpdateReadMessages) request.getPayload();
-        // the conversation being updated
         long conversationID = updateReadMessages.getConversationID();
-        // last seen sequence number in that conversation
         long lastSeenSequenceNumber = updateReadMessages.getLastSeenSequenceNumber();
-        // the user updating the read messages
         User user = usersByUserID.get(request.getSenderId());
-        // update the user's last read sequence number for the conversation
         user.setLastRead(conversationID, lastSeenSequenceNumber);
         persistUser(user);
         UserInfo updated = user.toUserInfo();
@@ -823,7 +752,6 @@ public class DataManager {
         return conversationsByConversationID.get(conversationId);
     }
 
-    //Used to determine recipients for message and conversation distribution.
     public ArrayList<UserInfo> getParticipantList(long conversationId) {
         Conversation c = conversationsByConversationID.get(conversationId);
         if (c == null) {

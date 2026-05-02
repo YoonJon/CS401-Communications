@@ -71,10 +71,6 @@ public class ConnectionHandler implements Runnable {
         this.serverController = serverController;
     }
 
-    // -------------------------------------------------------------------------
-    // Lifecycle
-    // -------------------------------------------------------------------------
-
     @Override
     public void run() {
         try {
@@ -110,7 +106,7 @@ public class ConnectionHandler implements Runnable {
      */
     public void close() {
         if (!closed.compareAndSet(false, true)) {
-            return; // already closed
+            return;
         }
         // Deregister session immediately so the server never routes to a dead handler.
         if (authenticated && userInfo != null) {
@@ -126,10 +122,6 @@ public class ConnectionHandler implements Runnable {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Public API
-    // -------------------------------------------------------------------------
-
     /**
      * Enqueue a {@link Response} for delivery to this client.
      * Thread-safe; may be called from any thread.
@@ -144,15 +136,10 @@ public class ConnectionHandler implements Runnable {
     public boolean isAuthenticated()     { return authenticated; }
     public long getLastPingReceived()    { return lastPingReceived; }
 
-    // -------------------------------------------------------------------------
-    // RequestListener — one thread per handler
-    // -------------------------------------------------------------------------
-
     class RequestListener implements Runnable {
         @Override
         public void run() {
             while (!closed.get() && !Thread.currentThread().isInterrupted()) {
-                // --- read ---
                 Object obj;
                 try {
                     obj = input.readObject();
@@ -182,7 +169,6 @@ public class ConnectionHandler implements Runnable {
 
                 Request request = (Request) obj;
 
-                // Update heartbeat timestamp for PING
                 if (request.getType() == RequestType.PING) {
                     lastPingReceived = System.currentTimeMillis();
                     // Heartbeat stays in transport layer: reply directly, skip app dispatch.
@@ -190,7 +176,6 @@ public class ConnectionHandler implements Runnable {
                     continue;
                 }
 
-                // --- dispatch ---
                 try {
                     Response response = serverController.processRequest(request);
                     handleSessionTransition(request, response);
@@ -235,16 +220,12 @@ public class ConnectionHandler implements Runnable {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // ResponseSender — one thread per handler
-    // -------------------------------------------------------------------------
-
     class ResponseSender implements Runnable {
         @Override
         public void run() {
             while (!closed.get() && !Thread.currentThread().isInterrupted()) {
                 try {
-                    Response response = responseQueue.take(); // blocks until available
+                    Response response = responseQueue.take();
                     output.writeObject(response);
                     output.flush();
                     output.reset(); // prevent object-reference cache memory leak
