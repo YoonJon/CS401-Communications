@@ -1623,6 +1623,14 @@ public class ClientUI {
                     @Override
                     public void windowClosed(WindowEvent e) {
                         createDialog = null;
+                        boolean inPickerMode = (createDialog != null && createDialog.isVisible())
+                                || (cards.main.conversationView.addDialog != null && cards.main.conversationView.addDialog.isVisible());
+                        pickerBannerLabel.setVisible(inPickerMode);
+                        // Issue #221: restore directory after create-conversation finishes.
+                        // Focus has shifted to the message input by this point, so the user
+                        // cannot reset the filter manually. setText("") fires the
+                        // DocumentListener and refills the list with the full directory.
+                        searchField.setText("");
                     }
                     // Focus the list on open so Tab order is correct and Delete works.
                     @Override
@@ -1639,6 +1647,10 @@ public class ClientUI {
                 selectedDirectoryUser = null;
 
                 createDialog.setVisible(true);
+                boolean inPickerMode = (createDialog != null && createDialog.isVisible())
+                        || (cards.main.conversationView.addDialog != null && cards.main.conversationView.addDialog.isVisible());
+                pickerBannerLabel.setVisible(inPickerMode);
+
             });
         }
 
@@ -1687,10 +1699,10 @@ public class ClientUI {
                 if (selectedDirectoryUser != null && !isDialogShowing(createDialog) && !isDialogShowing(adminDialog) && !addingUser) {
                     createConversationButton.setEnabled(true);
                     adminButton.setEnabled(true);
-                } else if (isDialogShowing(createDialog)) {
-                    createConversationUserWindow.addUser(selectedDirectoryUser);
-                } else if (addingUser) {
-                    convView.propagateAddUserSelection(selectedDirectoryUser);
+                } else if(createDialog != null && createDialog.isVisible()) { // if selectUser window is open
+                    if (selecting != null) createConversationUserWindow.addUser(selecting);
+                } else if(cards.main.conversationView.addDialog != null && cards.main.conversationView.addDialog.isVisible()) {
+                    if(selecting != null) cards.main.conversationView.addUserWindow.addUser(selecting);
                 }
             });
         }
@@ -1712,7 +1724,6 @@ public class ClientUI {
             list.clearSelection();
             selectedDirectoryUser = null;
         }
-
 
     }
 
@@ -1947,12 +1958,13 @@ public class ClientUI {
         }
 
         public void addUser(UserInfo user) {
-            for(int i = 0; i < model.size(); i++) {
-                if(user.getUserId().equals(model.get(i).getUserId())){
-                    return;
-                }
-            }
-            model.addElement(user);
+        	if (user == null) return;
+        	for(int i = 0; i < model.size(); i++) {
+        		if(user.getUserId().equals(model.get(i).getUserId())){
+        			return;
+        		}
+        	}
+        	model.addElement(user);
         }
 
 
