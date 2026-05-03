@@ -249,7 +249,8 @@ public class ClientController {
                     loggedIn = true;
                     currentUser = lr.getUserInfo();
                     List<Conversation> initial = lr.getConversationList() != null
-                            ? lr.getConversationList() : new ArrayList<>();
+                            ? new ArrayList<>(lr.getConversationList()) : new ArrayList<>();
+                    initial.sort(RECENCY_COMPARATOR);
                     conversations = Collections.synchronizedList(initial);
                     currentDirectory = lr.getDirectoryUserInfoList() != null
                             ? lr.getDirectoryUserInfoList() : new ArrayList<>();
@@ -604,13 +605,13 @@ public class ClientController {
         return filtered;
     }
 
-    /** Returns conversations where any participant's id or name matches {@code query}. */
+    /** Returns conversations where any participant's id or name matches {@code query}.
+     *  Order matches the backing list, which is maintained "newest activity at front"
+     *  via insertion-at-zero in handleConversationResponse / handleMessageResponse. */
     public ArrayList<Conversation> getFilteredConversationList(String query) {
         synchronized (conversations) {
             if (query == null || query.isBlank()) {
-                ArrayList<Conversation> all = new ArrayList<>(conversations);
-                all.sort(RECENCY_COMPARATOR);
-                return all;
+                return new ArrayList<>(conversations);
             }
             ArrayList<Conversation> filtered = new ArrayList<>();
             String q = query.toLowerCase();
@@ -622,7 +623,6 @@ public class ClientController {
                     }
                 }
             }
-            filtered.sort(RECENCY_COMPARATOR);
             return filtered;
         }
     }

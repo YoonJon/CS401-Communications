@@ -241,14 +241,18 @@ class ClientControllerTest {
     }
 
     @Test
-    void emptyConvsOrderedByIdDescending_preservesLoginOrdering() {
-        // Guards #226: among empty conversations, newer (higher id) ranks first.
-        // Seeds via loginSuccessAliceWithConv (conv 100, no messages) to avoid the
-        // pre-existing LoginResult.getConversationList() immutable-empty-list bug.
+    void emptyConvsOrderedByIdDescending_atLogin() {
+        // Guards #226: among empty conversations delivered in the LoginResult payload,
+        // newer (higher id) ranks first regardless of server payload ordering. The sort
+        // happens once at login; live arrivals after that follow insertion order.
+        ArrayList<Conversation> seed = new ArrayList<>();
+        seed.add(conv(10L, alice(), bob()));
+        seed.add(conv(100L, alice(), bob()));
+        seed.add(conv(20L, alice(), carol()));
+        Response loginWithThree = new Response(ResponseType.LOGIN_RESULT,
+                new LoginResult(LoginStatus.SUCCESS, alice(), seed, new ArrayList<>()));
         ClientController c = headless();
-        c.processResponse(loginSuccessAliceWithConv());                  // conv 100, empty
-        c.processResponse(conversationResponse(10L, alice(), bob()));    // conv 10, empty
-        c.processResponse(conversationResponse(20L, alice(), carol()));  // conv 20, empty
+        c.processResponse(loginWithThree);
         List<Conversation> ordered = c.getFilteredConversationList(null);
         assertEquals(3, ordered.size());
         assertEquals(100L, ordered.get(0).getConversationId(), "highest id ranks first among empties");

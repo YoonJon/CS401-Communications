@@ -373,10 +373,6 @@ public class ClientUI {
             Conversation selected = convList.getSelectedValue();
             Long selectedId = (selected != null) ? selected.getConversationId() : null;
 
-            // Sort by recency: a conversation with any message ranks above empty ones,
-            // newest message first, ties broken by conversationId descending.
-            conversations.sort(ClientController.RECENCY_COMPARATOR);
-
             conversationListModel.clear();
             for (Conversation conversation : conversations) {
                 conversationListModel.addElement(conversation);
