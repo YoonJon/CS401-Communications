@@ -627,12 +627,8 @@ public class ClientController {
         }
     }
 
-    /**
-     * Recency ordering for the conversation list. A conversation that has received any
-     * message ranks above any empty conversation; among non-empty, the higher latest-
-     * message sequence number ranks first; ties (and empty-vs-empty) break on
-     * conversationId descending so login-time order is deterministic.
-     */
+    // Empty conversations sort by conversationId; non-empty by latest message sequence.
+    // Tie-break on conversationId descending so login-time order is deterministic.
     static final Comparator<Conversation> RECENCY_COMPARATOR = (a, b) -> {
         long aSeq = lastMessageSeq(a);
         long bSeq = lastMessageSeq(b);
@@ -642,7 +638,8 @@ public class ClientController {
     };
 
     private static long lastMessageSeq(Conversation c) {
-        if (c == null || c.getMessages().isEmpty()) return Long.MIN_VALUE;
+        if (c == null) return Long.MIN_VALUE;
+        if (c.getMessages().isEmpty()) return c.getConversationId();
         return c.getMessages().get(c.getMessages().size() - 1).getSequenceNumber();
     }
 

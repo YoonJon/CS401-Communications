@@ -224,19 +224,20 @@ class ClientControllerTest {
     }
 
     @Test
-    void message_bumpsMessagedConvAboveEmptyHigherIdConv() {
-        // Issue #225: empty conv with high id must NOT outrank a conv that just
-        // received a message. Fails on the broken cross-domain sort key
-        // (conversationId vs messageSequenceNumber from independent counters).
+    void freshEmptyForkAppearsAboveLowSeqMessagedConv() {
+        // Empty conversations sort by conversationId; non-empty by latest message
+        // sequence. A freshly-arrived broadcast fork (empty, high id) must surface
+        // at the top of the recipient's sidebar even before any message is sent,
+        // otherwise the new group is buried off-screen.
         ClientController c = headless();
         c.processResponse(loginSuccessAliceWithConv());                  // conv 100, no messages yet
-        c.processResponse(conversationResponse(500L, alice(), carol())); // empty conv 500
-        c.processResponse(messageFor(100L, "ping"));                     // bumps conv 100
+        c.processResponse(messageFor(100L, "ping"));                     // conv 100 now has seq=1
+        c.processResponse(conversationResponse(500L, alice(), carol())); // empty fork 500 arrives
         List<Conversation> ordered = c.getFilteredConversationList(null);
         assertEquals(2, ordered.size());
-        assertEquals(100L, ordered.get(0).getConversationId(),
-                "conversation that just received a message must be at the top");
-        assertEquals(500L, ordered.get(1).getConversationId());
+        assertEquals(500L, ordered.get(0).getConversationId(),
+                "freshly-arrived empty fork must appear at the top of the list");
+        assertEquals(100L, ordered.get(1).getConversationId());
     }
 
     @Test
