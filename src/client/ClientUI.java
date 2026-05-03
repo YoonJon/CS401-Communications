@@ -1374,6 +1374,9 @@ public class ClientUI {
             messageInputField.setText("");
             // Sending a reply is an unambiguous read-acknowledgement.
             removeDividerNow();
+            // Flush any deferred advance from earlier incoming messages — sending is a
+            // strong "I am here" signal, equivalent to a focus regain for read-ack purposes.
+            controller.replayReadAdvanceIfNeeded();
         }
 
         public void setListModel(Conversation currConv) {

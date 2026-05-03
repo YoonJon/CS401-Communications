@@ -227,8 +227,14 @@ public class ClientController {
             snapshot = new ArrayList<>(conversations);
             isCurrentConv = msg.getConversationId() == currentConversationId;
             if (isCurrentConv && currentUser != null) {
+                // Sending is itself a read-ack. Echoes of the user's own outbound message
+                // must advance lastRead unconditionally — focus may be on the Send button
+                // (not the input) by the time the echo arrives, which would otherwise defer
+                // the advance and let the user's own message inflate their own unread badge.
+                boolean fromSelf = msg.getSenderId() != null
+                        && msg.getSenderId().equals(currentUser.getUserId());
                 boolean userViewingBottom = (gui == null) || gui.userIsViewingBottom();
-                if (inputFocused.get() && userViewingBottom) {
+                if (fromSelf || (inputFocused.get() && userViewingBottom)) {
                     shouldAdvanceLastRead = true;
                 } else {
                     deferredReadAdvance.merge(msg.getConversationId(), msg.getSequenceNumber(), Math::max);
