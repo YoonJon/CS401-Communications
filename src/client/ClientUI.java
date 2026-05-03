@@ -373,19 +373,9 @@ public class ClientUI {
             Conversation selected = convList.getSelectedValue();
             Long selectedId = (selected != null) ? selected.getConversationId() : null;
 
-            // Sort by highest latest sequence number descending (most recent first),
-            // which also keeps offline-received updates ordered correctly on initial paint.
-            conversations.sort((a, b) -> {
-                ArrayList<Message> aMsgs = a.getMessages();
-                ArrayList<Message> bMsgs = b.getMessages();
-                long aSeq = aMsgs.isEmpty()
-                        ? a.getConversationId()
-                        : aMsgs.get(aMsgs.size() - 1).getSequenceNumber();
-                long bSeq = bMsgs.isEmpty()
-                        ? b.getConversationId()
-                        : bMsgs.get(bMsgs.size() - 1).getSequenceNumber();
-                return Long.compare(bSeq, aSeq);
-            });
+            // Sort by recency: a conversation with any message ranks above empty ones,
+            // newest message first, ties broken by conversationId descending.
+            conversations.sort(ClientController.RECENCY_COMPARATOR);
 
             conversationListModel.clear();
             for (Conversation conversation : conversations) {

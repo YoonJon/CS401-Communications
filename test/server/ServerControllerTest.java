@@ -254,6 +254,50 @@ class ServerControllerTest {
     }
 
     @Test
+    void addParticipantForkSendsFullConversationToOriginalPair() throws Exception {
+        // Repro for issue #227: when adding a participant to a PRIVATE conversation,
+        // DataManager forks — the response carries a brand-new conversationId. The
+        // original DM partner (here u2) has never seen that id, so a CONVERSATION_METADATA
+        // broadcast is silently dropped on the client. Existing participants on a fork
+        // must receive the full CONVERSATION payload, like newly-added participants do.
+        StubDataManager stub = new StubDataManager(testDataRoot().toString());
+        long originalPrivateId = 7L;
+        long forkId = 99L;
+        Response forkResp = new Response(ResponseType.CONVERSATION,
+                new Conversation(forkId, participants("u1", "u2", "u3")));
+        stub.responses.put(RequestType.ADD_PARTICIPANT, forkResp);
+        stub.participantsByConversationId.put(forkId, participants("u1", "u2", "u3"));
+
+        server = buildServerWithStub(stub);
+        LinkedBlockingQueue<Map.Entry<String, Response>> queue = getResponseQueue(server);
+        server.addSession("u1", noOpHandler());
+        server.addSession("u2", noOpHandler());
+        server.addSession("u3", noOpHandler());
+
+        Response direct = server.processRequest(new Request(RequestType.ADD_PARTICIPANT,
+                new AddToConversationPayload(participants("u3"), originalPrivateId),
+                "u1"));
+        assertEquals(ResponseType.CONVERSATION, direct.getType());
+
+        Map<String, Response> deliveries = new HashMap<>();
+        for (int i = 0; i < 3; i++) {
+            Map.Entry<String, Response> d = queue.poll();
+            assertNotNull(d);
+            deliveries.put(d.getKey(), d.getValue());
+        }
+        assertEquals(Set.of("u1", "u2", "u3"), deliveries.keySet());
+        // Fix: original DM partner u2 must get the full Conversation (with the new fork id),
+        // not metadata for an id their client has never seen.
+        assertTrue(deliveries.get("u2").getPayload() instanceof Conversation,
+                "u2 (original DM partner) must receive full Conversation on fork");
+        assertTrue(deliveries.get("u3").getPayload() instanceof Conversation,
+                "u3 (newly added) must receive full Conversation");
+        assertTrue(deliveries.get("u1").getPayload() instanceof Conversation,
+                "u1 (requester) must receive full Conversation on fork");
+        assertNull(queue.poll());
+    }
+
+    @Test
     void logoutRemovesSession() throws Exception {
         server = buildServerWithStub();
         server.addSession("u1", noOpHandler());

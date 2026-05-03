@@ -223,6 +223,38 @@ class ClientControllerTest {
         assertEquals(1, c.getFilteredConversationList(null).size());
     }
 
+    @Test
+    void message_bumpsMessagedConvAboveEmptyHigherIdConv() {
+        // Issue #225: empty conv with high id must NOT outrank a conv that just
+        // received a message. Fails on the broken cross-domain sort key
+        // (conversationId vs messageSequenceNumber from independent counters).
+        ClientController c = headless();
+        c.processResponse(loginSuccessAliceWithConv());                  // conv 100, no messages yet
+        c.processResponse(conversationResponse(500L, alice(), carol())); // empty conv 500
+        c.processResponse(messageFor(100L, "ping"));                     // bumps conv 100
+        List<Conversation> ordered = c.getFilteredConversationList(null);
+        assertEquals(2, ordered.size());
+        assertEquals(100L, ordered.get(0).getConversationId(),
+                "conversation that just received a message must be at the top");
+        assertEquals(500L, ordered.get(1).getConversationId());
+    }
+
+    @Test
+    void emptyConvsOrderedByIdDescending_preservesLoginOrdering() {
+        // Guards #226: among empty conversations, newer (higher id) ranks first.
+        // Seeds via loginSuccessAliceWithConv (conv 100, no messages) to avoid the
+        // pre-existing LoginResult.getConversationList() immutable-empty-list bug.
+        ClientController c = headless();
+        c.processResponse(loginSuccessAliceWithConv());                  // conv 100, empty
+        c.processResponse(conversationResponse(10L, alice(), bob()));    // conv 10, empty
+        c.processResponse(conversationResponse(20L, alice(), carol()));  // conv 20, empty
+        List<Conversation> ordered = c.getFilteredConversationList(null);
+        assertEquals(3, ordered.size());
+        assertEquals(100L, ordered.get(0).getConversationId(), "highest id ranks first among empties");
+        assertEquals(20L, ordered.get(1).getConversationId());
+        assertEquals(10L, ordered.get(2).getConversationId());
+    }
+
     // =========================================================================
     // 5. CONVERSATION response (2 tests)
     // =========================================================================
@@ -244,6 +276,48 @@ class ClientControllerTest {
         List<Conversation> convs = c.getFilteredConversationList(null);
         assertEquals(1, convs.size());                           // still 1 conversation
         assertEquals(3, convs.get(0).getParticipants().size()); // updated to 3 participants
+    }
+
+    @Test
+    void conversation_actorAutoOpensWhenInitiatingAdd() {
+        ClientController c = headless();
+        c.processResponse(loginSuccessAliceWithConv()); // conv 100: alice+bob
+        c.setCurrentConversationId(100L);
+        ArrayList<UserInfo> add = new ArrayList<>();
+        add.add(carol());
+        c.addToConversation(add, 100L);                              // sets actor flag
+        c.processResponse(conversationResponse(200L, alice(), bob(), carol())); // server forks
+        assertEquals(200L, c.getCurrentConversationId(),
+                "actor should auto-open the new fork");
+    }
+
+    @Test
+    void conversation_recipientDoesNotAutoOpenOnBroadcast() {
+        ClientController c = headless();
+        c.processResponse(loginSuccessAliceWithConv()); // conv 100: alice+bob
+        c.setCurrentConversationId(100L);
+        // Recipient never called createConversation/addToConversation — flag stays false.
+        c.processResponse(conversationResponse(200L, alice(), bob(), carol())); // broadcast arrives
+        assertEquals(100L, c.getCurrentConversationId(),
+                "recipient should keep their current view; broadcast must not hijack");
+        assertEquals(2, c.getFilteredConversationList(null).size(),
+                "new conversation should still appear in the list");
+    }
+
+    @Test
+    void conversation_actorAutoOpenIsOneShot() {
+        ClientController c = headless();
+        c.processResponse(loginSuccessAliceWithConv());
+        c.setCurrentConversationId(100L);
+        ArrayList<UserInfo> add = new ArrayList<>();
+        add.add(carol());
+        c.addToConversation(add, 100L);                              // arms flag
+        c.processResponse(conversationResponse(200L, alice(), bob(), carol())); // consumes flag
+        c.setCurrentConversationId(100L);
+        // A second unrelated CONVERSATION arriving without a fresh actor call must not auto-open.
+        c.processResponse(conversationResponse(300L, alice(), bob(), carol()));
+        assertEquals(100L, c.getCurrentConversationId(),
+                "flag is one-shot; unrelated subsequent broadcast must not hijack");
     }
 
     // =========================================================================

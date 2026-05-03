@@ -66,6 +66,12 @@ public class ClientController {
     private List<Conversation> conversations;
     /** -1 means no conversation selected. */
     private long currentConversationId = -1;
+    /**
+     * One-shot flag set when this client initiates a CREATE_CONVERSATION or ADD_PARTICIPANT,
+     * consumed by handleConversationResponse to gate the auto-open jump. Without this guard,
+     * a broadcast recipient would have their center-panel view yanked to the new conversation.
+     */
+    private boolean expectingNewConversationAutoOpen = false;
     private ArrayList<UserInfo> currentDirectory;
     private ArrayList<ConversationMetadata> currentAdminConversationSearch;
 
@@ -244,7 +250,6 @@ public class ClientController {
                     currentUser = lr.getUserInfo();
                     List<Conversation> initial = lr.getConversationList() != null
                             ? lr.getConversationList() : new ArrayList<>();
-                    initial.sort((a, b) -> Long.compare(latestSequenceNumber(b), latestSequenceNumber(a)));
                     conversations = Collections.synchronizedList(initial);
                     currentDirectory = lr.getDirectoryUserInfoList() != null
                             ? lr.getDirectoryUserInfoList() : new ArrayList<>();
@@ -321,11 +326,15 @@ public class ClientController {
         }
         if (gui != null) {
             gui.updateConversationListModel(snapshot);
-            if (isNew) {
-                // Auto-open the newly created conversation in the center panel.
-                setCurrentConversationId(conv.getConversationId());
+        }
+        // Auto-open only fires for the actor who initiated the request — a broadcast
+        // recipient should keep their current view rather than be yanked into the new
+        // conversation. Flag is one-shot.
+        if (isNew && expectingNewConversationAutoOpen) {
+            expectingNewConversationAutoOpen = false;
+            setCurrentConversationId(conv.getConversationId());
+            if (gui != null) {
                 SwingUtilities.invokeLater(() -> gui.updateMessageListModel(conv));
-                // Follow-up enhancement: call gui.selectConversationInList(conv) when UI support is added.
             }
         }
     }
@@ -472,6 +481,7 @@ public class ClientController {
         currentUser = null;
         conversations.clear();
         currentConversationId = -1;
+        expectingNewConversationAutoOpen = false;
         currentAdminConversationSearch.clear();
         currentDirectory.clear();
         requestQueue.clear();
@@ -505,6 +515,7 @@ public class ClientController {
             if (currentUser.getUserId().equals(u.getUserId())) { creatorPresent = true; break; }
         }
         if (!creatorPresent) participants.add(0, currentUser);
+        expectingNewConversationAutoOpen = true;
         enqueueRequest(new Request(RequestType.CREATE_CONVERSATION,
                 new CreateConversationPayload(participants), currentUser.getUserId()));
     }
@@ -512,6 +523,7 @@ public class ClientController {
     /** Matches DataManager.handleAddToConversation — payload: AddToConversationPayload(participants, conversationId). */
     public void addToConversation(ArrayList<UserInfo> p, long conversationId) {
         if (!loggedIn || currentUser == null) return;
+        expectingNewConversationAutoOpen = true;
         enqueueRequest(new Request(RequestType.ADD_PARTICIPANT,
                 new AddToConversationPayload(p, conversationId), currentUser.getUserId()));
     }
@@ -597,7 +609,7 @@ public class ClientController {
         synchronized (conversations) {
             if (query == null || query.isBlank()) {
                 ArrayList<Conversation> all = new ArrayList<>(conversations);
-                all.sort((a, b) -> Long.compare(latestSequenceNumber(b), latestSequenceNumber(a)));
+                all.sort(RECENCY_COMPARATOR);
                 return all;
             }
             ArrayList<Conversation> filtered = new ArrayList<>();
@@ -610,18 +622,27 @@ public class ClientController {
                     }
                 }
             }
-            filtered.sort((a, b) -> Long.compare(latestSequenceNumber(b), latestSequenceNumber(a)));
+            filtered.sort(RECENCY_COMPARATOR);
             return filtered;
         }
     }
 
-    private long latestSequenceNumber(Conversation c) {
-        if (c == null) return 0L;
-        if (c.getMessages().isEmpty()) {
-            // Empty conversations have no message sequence yet; use conversationId as a
-            // creation-recency fallback.
-            return c.getConversationId();
-        }
+    /**
+     * Recency ordering for the conversation list. A conversation that has received any
+     * message ranks above any empty conversation; among non-empty, the higher latest-
+     * message sequence number ranks first; ties (and empty-vs-empty) break on
+     * conversationId descending so login-time order is deterministic.
+     */
+    static final Comparator<Conversation> RECENCY_COMPARATOR = (a, b) -> {
+        long aSeq = lastMessageSeq(a);
+        long bSeq = lastMessageSeq(b);
+        int cmp = Long.compare(bSeq, aSeq);
+        if (cmp != 0) return cmp;
+        return Long.compare(b.getConversationId(), a.getConversationId());
+    };
+
+    private static long lastMessageSeq(Conversation c) {
+        if (c == null || c.getMessages().isEmpty()) return Long.MIN_VALUE;
         return c.getMessages().get(c.getMessages().size() - 1).getSequenceNumber();
     }
 

@@ -278,7 +278,9 @@ public class ServerController {
                 existingParticipants.add(participant);
             }
         }
-        enqueueToActiveParticipants(existingParticipants, metadataResponse);
+        boolean isFork = payload.getTargetConversationId() != conversation.getConversationId();
+        Response existingParticipantResponse = isFork ? response : metadataResponse;
+        enqueueToActiveParticipants(existingParticipants, existingParticipantResponse);
         if (participantsToAdd != null) {
             enqueueToActiveParticipants(participantsToAdd, response);
         }
