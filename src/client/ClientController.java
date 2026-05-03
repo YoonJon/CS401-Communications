@@ -57,7 +57,15 @@ public class ClientController {
     /** Defaults true so headless tests and pre-window-event states do not suppress reads. */
     private final AtomicBoolean windowActive = new AtomicBoolean(true);
     /**
-     * Conversation id → highest seq of an inbound message that arrived while windowActive=false.
+     * Mirrors whether {@code messageInputField} owns the focus. Drives the read-ack predicate
+     * (replaces {@code windowActive} for that purpose). Defaults true for headless tests and
+     * pre-attach states. Written from the EDT inside {@link ClientUI}'s FocusListener; read
+     * off-EDT in {@link #handleMessageResponse}.
+     */
+    private final AtomicBoolean inputFocused = new AtomicBoolean(true);
+    /**
+     * Conversation id → highest seq of an inbound message that arrived while the input was
+     * unfocused (or the user was scrolled up).
      * <p>Concurrency: writes and the drain-and-clear all serialize via the {@code conversations}
      * monitor. Reads outside that monitor are unsafe.
      */
@@ -220,7 +228,7 @@ public class ClientController {
             isCurrentConv = msg.getConversationId() == currentConversationId;
             if (isCurrentConv && currentUser != null) {
                 boolean userViewingBottom = (gui == null) || gui.userIsViewingBottom();
-                if (windowActive.get() && userViewingBottom) {
+                if (inputFocused.get() && userViewingBottom) {
                     shouldAdvanceLastRead = true;
                 } else {
                     deferredReadAdvance.merge(msg.getConversationId(), msg.getSequenceNumber(), Math::max);
@@ -252,6 +260,14 @@ public class ClientController {
 
     public boolean isWindowActive() {
         return windowActive.get();
+    }
+
+    public void setInputFocused(boolean focused) {
+        inputFocused.set(focused);
+    }
+
+    public boolean isInputFocused() {
+        return inputFocused.get();
     }
 
     /** Drain-and-clear runs under {@code synchronized(conversations)} so it cannot race a
@@ -471,6 +487,7 @@ public class ClientController {
         currentConversationId = -1;
         currentAdminConversationSearch.clear();
         currentDirectory.clear();
+        inputFocused.set(true);
         if (gui != null) gui.showLoginView();
         Thread t = new Thread(() -> closeWithLogout(userId, wasConnected, out, in, sock),
                               "client-logout");

@@ -542,11 +542,11 @@ class ClientControllerTest {
     // =========================================================================
 
     @Test
-    void inboundMessage_openConv_windowActive_advancesLastReadAndEnqueuesUpdate() {
+    void inboundMessage_openConv_inputFocused_advancesLastReadAndEnqueuesUpdate() {
         ClientController c = headless();
         c.processResponse(loginSuccessAliceWithConv());
         c.setCurrentConversationId(100L);
-        assertTrue(c.isWindowActive(), "default windowActive=true");
+        assertTrue(c.isInputFocused(), "default inputFocused=true");
 
         int baseline = c.requestQueueDepthForTesting();
         c.processResponse(messageFor(100L, "hi"));
@@ -560,20 +560,20 @@ class ClientControllerTest {
     }
 
     @Test
-    void inboundMessage_openConv_windowInactive_doesNotEnqueueAndBuffersDeferred() {
+    void inboundMessage_openConv_inputUnfocused_doesNotEnqueueAndBuffersDeferred() {
         ClientController c = headless();
         c.processResponse(loginSuccessAliceWithConv());
         c.setCurrentConversationId(100L);
-        c.setWindowActive(false);
+        c.setInputFocused(false);
 
         long lastReadBefore = c.getCurrentUserInfo().getLastRead(100L);
         int baseline = c.requestQueueDepthForTesting();
         c.processResponse(messageFor(100L, "hi"));
 
         assertEquals(baseline, c.requestQueueDepthForTesting(),
-                "no UPDATE_READ_MESSAGES while window inactive");
+                "no UPDATE_READ_MESSAGES while input unfocused");
         assertEquals(lastReadBefore, c.getCurrentUserInfo().getLastRead(100L),
-                "lastRead must not advance while window inactive");
+                "lastRead must not advance while input unfocused");
     }
 
     @Test
@@ -581,7 +581,7 @@ class ClientControllerTest {
         ClientController c = headless();
         c.processResponse(loginSuccessAliceWithConv());
         c.setCurrentConversationId(100L);
-        c.setWindowActive(false);
+        c.setInputFocused(false);
 
         // 5 messages at seqs 1..5 buffer to a single max-seq=5 deferred entry.
         Message m1 = new Message("a", 1L, new Date(), NetworkingSeedData.BOB_ID, 100L);
@@ -596,7 +596,7 @@ class ClientControllerTest {
         c.processResponse(new Response(ResponseType.MESSAGE, m5));
 
         int baseline = c.requestQueueDepthForTesting();
-        c.setWindowActive(true);
+        c.setInputFocused(true);
         c.replayReadAdvanceIfNeeded();
 
         assertEquals(baseline + 1, c.requestQueueDepthForTesting(),
@@ -623,7 +623,7 @@ class ClientControllerTest {
         ClientController c = headless();
         c.processResponse(loginSuccessAliceWithConv());
         c.setCurrentConversationId(100L);
-        c.setWindowActive(false);
+        c.setInputFocused(false);
 
         // Buffer one inbound seq=2.
         Message m = new Message("x", 2L, new Date(), NetworkingSeedData.BOB_ID, 100L);
@@ -633,13 +633,78 @@ class ClientControllerTest {
         c.getCurrentUserInfo().setLastRead(100L, 99L);
 
         int baseline = c.requestQueueDepthForTesting();
-        c.setWindowActive(true);
+        c.setInputFocused(true);
         c.replayReadAdvanceIfNeeded();
 
         assertEquals(baseline, c.requestQueueDepthForTesting(),
                 "no request when lastRead already exceeds the deferred max");
         assertEquals(99L, c.getCurrentUserInfo().getLastRead(100L),
                 "lastRead must not regress");
+    }
+
+    @Test
+    void inputUnfocusedButWindowActive_doesNotAdvance() {
+        ClientController c = headless();
+        c.processResponse(loginSuccessAliceWithConv());
+        c.setCurrentConversationId(100L);
+        // Window active but input not focused — the regression guard for the
+        // original bug (sidebar/button has focus while conversation is open).
+        c.setWindowActive(true);
+        c.setInputFocused(false);
+
+        long lastReadBefore = c.getCurrentUserInfo().getLastRead(100L);
+        int baseline = c.requestQueueDepthForTesting();
+        c.processResponse(messageFor(100L, "hi"));
+
+        assertEquals(baseline, c.requestQueueDepthForTesting(),
+                "windowActive alone must not advance read-ack");
+        assertEquals(lastReadBefore, c.getCurrentUserInfo().getLastRead(100L),
+                "lastRead must not advance without input focus");
+    }
+
+    @Test
+    void activationRestoredFocus_keepsDeferred_afterUserClickedAway() {
+        // Regression for the focus-restoration bug: after the user clicks the
+        // input then clicks away, subsequent inbound peer messages call
+        // frame.toFront() which reactivates the window. Swing then auto-restores
+        // focus to messageInputField. The UI-level FocusListener filters this
+        // (Cause.ACTIVATION) so setInputFocused(true) is NOT called. This test
+        // is the controller-level contract: while inputFocused stays false,
+        // inbound messages must defer and the local lastRead must not advance.
+        ClientController c = headless();
+        c.processResponse(loginSuccessAliceWithConv());
+        c.setCurrentConversationId(100L);
+
+        // User clicks input then clicks away.
+        c.setInputFocused(true);
+        c.setInputFocused(false);
+        assertFalse(c.isInputFocused());
+
+        long lastReadBefore = c.getCurrentUserInfo().getLastRead(100L);
+        int baseline = c.requestQueueDepthForTesting();
+
+        // Inbound peer message arrives while input is unfocused.
+        c.processResponse(messageFor(100L, "1"));
+
+        assertEquals(baseline, c.requestQueueDepthForTesting(),
+                "no UPDATE_READ_MESSAGES while input unfocused");
+        assertEquals(lastReadBefore, c.getCurrentUserInfo().getLastRead(100L),
+                "lastRead must not advance while input unfocused");
+        assertFalse(c.isInputFocused(),
+                "controller-level flag stays false; UI filters ACTIVATION-cause focus events");
+    }
+
+    @Test
+    void logoutResetsInputFocused() {
+        ClientController c = headless();
+        c.processResponse(loginSuccessAliceWithConv());
+        c.setInputFocused(false);
+        assertFalse(c.isInputFocused());
+
+        c.logout();
+
+        assertTrue(c.isInputFocused(),
+                "logout must reset inputFocused to constructor default");
     }
 
     // =========================================================================

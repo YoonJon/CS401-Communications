@@ -152,9 +152,10 @@ public class ClientUI {
     private void installWindowListener() {
         frame.addWindowListener(new WindowAdapter() {
             @Override public void windowActivated(WindowEvent e) {
-                // drain reads deferred while window inactive
                 controller.setWindowActive(true);
-                controller.replayReadAdvanceIfNeeded();
+                // Read-ack drain is now keyed on input focus, not window focus. If focus
+                // restoration lands on the input, the FocusListener fires focusGained
+                // and drives the drain.
                 if (suppressActivationReset) {
                     suppressActivationReset = false;
                     return;
@@ -489,34 +490,21 @@ public class ClientUI {
             // leave-to-next conversation, etc.) also enable input and action buttons.
             cards.main.conversationView.setListModel(conversation);
             // Auto-switch should hand focus to message input, not leave it on a stale
-            // directory selection.
+            // directory selection. The FocusListener on the input drives the read-ack.
             cards.main.directoryView.clearSelecting();
             cards.main.conversationView.focusInput();
-
-            ArrayList<Message> msgs = conversation.getMessages();
-            if (!msgs.isEmpty()) {
-                markConversationRead(conversation, msgs.get(msgs.size() - 1).getSequenceNumber());
-            }
         });
-    }
-
-    /** Marks {@code conversation} read up to {@code sequenceNumber} both locally and on the server. */
-    private void markConversationRead(Conversation conversation, long sequenceNumber) {
-        UserInfo me = controller.getCurrentUserInfo();
-        if (me != null) {
-            me.setLastRead(conversation.getConversationId(), sequenceNumber);
-        }
-        controller.updateReadMessages(conversation.getConversationId(), sequenceNumber);
     }
 
     public void appendMessageToConversationView(Message message) {
         SwingUtilities.invokeLater(() -> {
             ConversationView cv = cards.main.conversationView;
-            // "Actively viewing" requires BOTH window focused AND parked at bottom; userIsAtBottom
-            // defaults to true, so checking it alone would suppress the divider in the alt-tab case.
+            // "Actively viewing" requires input focus AND parked at bottom; either alone
+            // is insufficient (typing without scroll-to-bottom = reading history; scroll-to-
+            // bottom without focus = clicked elsewhere e.g. sidebar or modal).
             UserInfo me = controller.getCurrentUserInfo();
             boolean fromOther = me != null && !message.getSenderId().equals(me.getUserId());
-            boolean userActivelyViewing = frame.isActive() && cv.userIsAtBottom;
+            boolean userActivelyViewing = controller.isInputFocused() && cv.userIsAtBottom;
             if (fromOther && !userActivelyViewing && !cv.modelHasDivider) {
                 cards.main.conversationView.conversationMessageListModel.addElement(ConversationView.NewMessagesDivider.INSTANCE);
                 cv.modelHasDivider = true;
@@ -532,8 +520,8 @@ public class ClientUI {
                     if (last >= 0) cv.list.ensureIndexIsVisible(last);
                 });
             }
-            // deferred replay: window was inactive when message arrived
-            if (frame.isActive() && cv.userIsAtBottom) {
+            // deferred replay: input was unfocused when message arrived
+            if (controller.isInputFocused() && cv.userIsAtBottom) {
                 cv.markDisplayedReadUpTo(message.getSequenceNumber());
             }
             if (fromOther && !frame.isActive()) {
@@ -1345,6 +1333,37 @@ public class ClientUI {
 
             messageInputField.addActionListener(e -> doSend());
 
+            messageInputField.addFocusListener(new java.awt.event.FocusAdapter() {
+                @Override public void focusGained(java.awt.event.FocusEvent e) {
+                    // Activation-restored focus is not a "user is reading" signal: when
+                    // frame.toFront() reactivates the window after an inbound peer message
+                    // (or the user alt-tabs back), Swing auto-restores focus to the last-
+                    // focused component. Treating that as a user-driven focus would silently
+                    // ack the message and defeat the divider/badge rule.
+                    if (e.getCause() == java.awt.event.FocusEvent.Cause.ACTIVATION) {
+                        return;
+                    }
+                    controller.setInputFocused(true);
+                    controller.replayReadAdvanceIfNeeded();
+                    Conversation c = controller.getCurrentConversation();
+                    if (c != null && userIsAtBottom) {
+                        ArrayList<Message> msgs = c.getMessages();
+                        if (!msgs.isEmpty()) {
+                            long latest = msgs.get(msgs.size() - 1).getSequenceNumber();
+                            UserInfo me = controller.getCurrentUserInfo();
+                            if (me != null && me.getLastRead(c.getConversationId()) < latest) {
+                                me.setLastRead(c.getConversationId(), latest);
+                                controller.updateReadMessages(c.getConversationId(), latest);
+                                markDisplayedReadUpTo(latest);
+                            }
+                        }
+                    }
+                }
+                @Override public void focusLost(java.awt.event.FocusEvent e) {
+                    controller.setInputFocused(false);
+                }
+            });
+
         }
 
         private void doSend() {
@@ -1384,6 +1403,7 @@ public class ClientUI {
                 // doesn't suppress the read-advance for the freshly-opened one.
                 userIsAtBottom = true;
                 participantsLabel.setText(finalMember);
+                messageInputField.setText("");
                 conversationMessageListModel.clear();
                 // Insert the "New messages" divider between read and unread.
                 // Suppress when finalLastReadAtOpen == 0 (nothing has ever been read; a
@@ -1420,6 +1440,7 @@ public class ClientUI {
                 modelHasDivider = false;
                 userIsAtBottom = true;
                 participantsLabel.setText("");
+                messageInputField.setText("");
                 conversationMessageListModel.clear();
                 refreshWrapLayout();
                 messageInputField.setEnabled(false);
@@ -1455,7 +1476,14 @@ public class ClientUI {
         }
 
         private void onScrollReachedBottom() {
-            controller.replayReadAdvanceIfNeeded();
+            // Match the unified rule: scroll-to-bottom alone is not "actively viewing".
+            // Without this gate, the auto-scroll on inbound message arrival fires this
+            // transition and silently drains the deferred buffer that handleMessageResponse
+            // just wrote, removing the divider and clearing the badge before the user
+            // can see them.
+            if (controller.isInputFocused()) {
+                controller.replayReadAdvanceIfNeeded();
+            }
         }
 
         public void markDisplayedReadUpTo(long sequenceNumber) {
@@ -1851,13 +1879,10 @@ public class ClientUI {
                         ClientController.ConversationOpenSnapshot snap =
                                 controller.openConversationAtomically(selected.getConversationId());
                         if (snap == null) return;
-                        if (!snap.messages.isEmpty()) {
-                            Message last = snap.messages.get(snap.messages.size() - 1);
-                            controller.getCurrentUserInfo().setLastRead(
-                                    selected.getConversationId(), last.getSequenceNumber());
-                            controller.updateReadMessages(selected.getConversationId(), last.getSequenceNumber());
-                        }
                         cards.main.conversationView.setListModel(snap);
+                        // Single source of truth: FocusListener on the input acks the open
+                        // only if focus successfully lands on the input field.
+                        cards.main.conversationView.focusInput();
                     }
                 }
             });
