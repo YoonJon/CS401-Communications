@@ -1074,6 +1074,7 @@ public class ClientUI {
                     @Override
                     public void windowClosed(WindowEvent e) {
                         addDialog = null;
+                        cards.main.directoryView.refreshPickerBanner();
                     }
                     // Focus the list on open so Tab order is correct and Delete works.
                     @Override
@@ -1088,6 +1089,7 @@ public class ClientUI {
                 cards.main.directoryView.selecting = null;
 
                 addDialog.setVisible(true);
+                cards.main.directoryView.refreshPickerBanner();
 
             });
 
@@ -1400,9 +1402,7 @@ public class ClientUI {
                     @Override
                     public void windowClosed(WindowEvent e) {
                         createDialog = null;
-                        boolean inPickerMode = (createDialog != null && createDialog.isVisible())
-                                || (cards.main.conversationView.addDialog != null && cards.main.conversationView.addDialog.isVisible());
-                        pickerBannerLabel.setVisible(inPickerMode);
+                        refreshPickerBanner();
                         // Issue #221: restore directory after create-conversation finishes.
                         // Focus has shifted to the message input by this point, so the user
                         // cannot reset the filter manually. setText("") fires the
@@ -1424,9 +1424,7 @@ public class ClientUI {
                 selecting = null;
 
                 createDialog.setVisible(true);
-                boolean inPickerMode = (createDialog != null && createDialog.isVisible())
-                        || (cards.main.conversationView.addDialog != null && cards.main.conversationView.addDialog.isVisible());
-                pickerBannerLabel.setVisible(inPickerMode);
+                refreshPickerBanner();
 
             });
 
@@ -1477,9 +1475,7 @@ public class ClientUI {
                 selecting = selectedValue;
 
                 // Fix 5: show picker banner when a dialog is open (picker mode active)
-                boolean inPickerMode = (createDialog != null && createDialog.isVisible())
-                        || (cards.main.conversationView.addDialog != null && cards.main.conversationView.addDialog.isVisible());
-                pickerBannerLabel.setVisible(inPickerMode);
+                refreshPickerBanner();
 
                 // if the another window is not visible, shows the button
                 if(selecting != null && (createDialog == null || !createDialog.isVisible()) && (adminDialog == null || !adminDialog.isVisible())
@@ -1494,6 +1490,18 @@ public class ClientUI {
                 }
             });
 
+        }
+
+        // Show the "Selecting participants" banner whenever a picker dialog is open.
+        void refreshPickerBanner() {
+            if (createDialog != null && createDialog.isVisible()) {
+                pickerBannerLabel.setVisible(true);
+            } else if (cards.main.conversationView.addDialog != null
+                    && cards.main.conversationView.addDialog.isVisible()) {
+                pickerBannerLabel.setVisible(true);
+            } else {
+                pickerBannerLabel.setVisible(false);
+            }
         }
 
         // Fix 1: setListModel now also calls list.setModel() so the JList reflects the new model
