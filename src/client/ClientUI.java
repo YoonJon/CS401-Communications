@@ -1074,6 +1074,10 @@ public class ClientUI {
                     @Override
                     public void windowClosed(WindowEvent e) {
                         addDialog = null;
+                        boolean inPickerMode = (cards.main.directoryView.createDialog != null
+                                && cards.main.directoryView.createDialog.isVisible())
+                                || (addDialog != null && addDialog.isVisible());
+                        cards.main.directoryView.pickerBannerLabel.setVisible(inPickerMode);
                     }
                     // Focus the list on open so Tab order is correct and Delete works.
                     @Override
@@ -1088,6 +1092,10 @@ public class ClientUI {
                 cards.main.directoryView.selecting = null;
 
                 addDialog.setVisible(true);
+                boolean inPickerMode = (cards.main.directoryView.createDialog != null
+                        && cards.main.directoryView.createDialog.isVisible())
+                        || (addDialog != null && addDialog.isVisible());
+                cards.main.directoryView.pickerBannerLabel.setVisible(inPickerMode);
 
             });
 
