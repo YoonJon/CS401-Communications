@@ -242,8 +242,10 @@ public class ClientController {
                 case SUCCESS:
                     loggedIn = true;
                     currentUser = lr.getUserInfo();
-                    conversations = Collections.synchronizedList(
-                            lr.getConversationList() != null ? lr.getConversationList() : new ArrayList<>());
+                    List<Conversation> initial = lr.getConversationList() != null
+                            ? lr.getConversationList() : new ArrayList<>();
+                    initial.sort((a, b) -> Long.compare(latestSequenceNumber(b), latestSequenceNumber(a)));
+                    conversations = Collections.synchronizedList(initial);
                     currentDirectory = lr.getDirectoryUserInfoList() != null
                             ? lr.getDirectoryUserInfoList() : new ArrayList<>();
                     if (gui != null) {
