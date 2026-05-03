@@ -51,11 +51,11 @@ public class Conversation implements ResponsePayload {
             if (u == null || u.getUserId() == null) {
                 continue;
             }
-            if (indexOfParticipant(u.getUserId()) >= 0) {
-                continue;
+            if (indexOfParticipant(u.getUserId()) < 0) {
+                participants.add(u);
             }
-            participants.add(u);
-            if (historicalParticipants != null) {
+            if (historicalParticipants != null
+                    && indexOfHistoricalParticipant(u.getUserId()) < 0) {
                 historicalParticipants.add(u);
             }
         }
@@ -63,6 +63,19 @@ public class Conversation implements ResponsePayload {
         if (historicalParticipants != null) {
             historicalParticipants.sort(BY_NAME_THEN_ID);
         }
+    }
+
+    private int indexOfHistoricalParticipant(String userId) {
+        if (historicalParticipants == null) {
+            return -1;
+        }
+        for (int i = 0; i < historicalParticipants.size(); i++) {
+            UserInfo u = historicalParticipants.get(i);
+            if (u != null && userId.equals(u.getUserId())) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private int indexOfParticipant(String userId) {

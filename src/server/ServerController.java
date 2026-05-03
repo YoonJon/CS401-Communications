@@ -140,8 +140,33 @@ public class ServerController {
                 return dataManager.handleLogin(request);
             }
             case MESSAGE: {
+                // Discord-style "close DM" reactivation: if the sender is the lone active
+                // participant of a PRIVATE conversation whose peer previously left, re-add
+                // the peer BEFORE handleSendMessage so the appended message is delivered to
+                // the post-reactivation roster.
+                long messageConvId = ((shared.payload.RawMessage) request.getPayload()).getTargetConversationId();
+                String reactivatedPeerId = dataManager.maybeReactivatePrivatePeerOnSend(
+                        messageConvId, request.getSenderId());
                 Response response = dataManager.handleSendMessage(request);
-                broadcastResponse(request, response);
+                if (reactivatedPeerId != null
+                        && response != null
+                        && response.getPayload() instanceof Message) {
+                    // Push the full conversation (history + just-appended message) to the peer
+                    // so their client re-adds it to the list with full context.
+                    if (hasActiveSession(reactivatedPeerId)) {
+                        Conversation full = dataManager.getConversation(messageConvId);
+                        if (full != null) {
+                            responseQueue.offer(new AbstractMap.SimpleImmutableEntry<>(
+                                    reactivatedPeerId,
+                                    new Response(ResponseType.CONVERSATION, full)));
+                        }
+                    }
+                    // Skip the peer in the MESSAGE broadcast — the CONVERSATION push above
+                    // already contains this message; broadcasting MESSAGE too would duplicate.
+                    enqueueMessageBroadcastExcluding(request, response, reactivatedPeerId);
+                } else {
+                    broadcastResponse(request, response);
+                }
                 return response;
             }
             case UPDATE_READ_MESSAGES:
@@ -221,6 +246,27 @@ public class ServerController {
             if (participant == null || participant.getUserId() == null) continue;
             String id = participant.getUserId();
             if (id.equals(senderId)) continue; // sender already gets the response via direct return
+            if (hasActiveSession(id)) {
+                responseQueue.offer(new AbstractMap.SimpleImmutableEntry<>(id, response));
+            }
+        }
+    }
+
+    /**
+     * Variant of {@link #enqueueMessageBroadcast(Request, Response)} that also skips
+     * {@code excludeUserId}. Used when a reactivated peer is already receiving the message
+     * inside a {@link ResponseType#CONVERSATION} push and must not be sent the same message
+     * again as a {@link ResponseType#MESSAGE} broadcast.
+     */
+    private void enqueueMessageBroadcastExcluding(Request request, Response response, String excludeUserId) {
+        if (!(response.getPayload() instanceof Message)) return;
+        Message message = (Message) response.getPayload();
+        String senderId = request.getSenderId();
+        for (UserInfo participant : dataManager.getParticipantList(message.getConversationId())) {
+            if (participant == null || participant.getUserId() == null) continue;
+            String id = participant.getUserId();
+            if (id.equals(senderId)) continue;
+            if (id.equals(excludeUserId)) continue;
             if (hasActiveSession(id)) {
                 responseQueue.offer(new AbstractMap.SimpleImmutableEntry<>(id, response));
             }

@@ -493,6 +493,54 @@ public class DataManager {
         }
     }
 
+    /**
+     * Discord-style "close DM" reactivation. If {@code convId} is a {@link ConversationType#PRIVATE}
+     * conversation whose only active participant is {@code senderId} and whose
+     * {@linkplain Conversation#getHistoricalParticipants() historical participants} contain a user
+     * not in the active roster, re-add that user to the active roster and re-link them in the
+     * server indices. Returns the reactivated user's id, or {@code null} if there is nothing to do.
+     * <p>
+     * Synchronizes on the {@link Conversation} so this is atomic against concurrent leave/send.
+     */
+    public String maybeReactivatePrivatePeerOnSend(long convId, String senderId) {
+        if (senderId == null) {
+            return null;
+        }
+        Conversation conversation = conversationsByConversationID.get(convId);
+        if (conversation == null || conversation.getType() != ConversationType.PRIVATE) {
+            return null;
+        }
+        synchronized (conversation) {
+            ArrayList<UserInfo> active = conversation.getParticipants();
+            if (active.size() != 1) {
+                return null;
+            }
+            if (!senderId.equals(active.get(0).getUserId())) {
+                return null;
+            }
+            UserInfo peer = null;
+            for (UserInfo u : conversation.getHistoricalParticipants()) {
+                if (u == null || u.getUserId() == null) {
+                    continue;
+                }
+                if (senderId.equals(u.getUserId())) {
+                    continue;
+                }
+                peer = u;
+                break;
+            }
+            if (peer == null) {
+                return null;
+            }
+            ArrayList<UserInfo> toAdd = new ArrayList<>();
+            toAdd.add(peer);
+            conversation.addParticipants(toAdd);
+            linkUserToConversation(peer.getUserId(), convId);
+            persistConversation(conversation);
+            return peer.getUserId();
+        }
+    }
+
     private static boolean containsParticipant(ArrayList<UserInfo> participants, String userId) {
         for (UserInfo p : participants) {
             if (p != null && p.getUserId() != null && userId.equals(p.getUserId())) {

@@ -146,6 +146,7 @@ public class ClientController {
             case REGISTER_RESULT:                handleRegisterResultResponse(response); break;
             case MESSAGE:                        handleMessageResponse(response); break;
             case CONVERSATION:                   handleConversationResponse(response); break;
+            case CONVERSATION_METADATA:          handleConversationMetadataResponse(response); break;
             case LEAVE_RESULT:                   handleLeaveResultResponse(response); break;
             case READ_MESSAGES_UPDATED:          handleReadMessagesUpdatedResponse(response); break;
             case ADMIN_CONVERSATION_RESULT:      handleAdminConversationResultResponse(response); break;
@@ -320,6 +321,55 @@ public class ClientController {
                 setCurrentConversationId(conv.getConversationId());
                 SwingUtilities.invokeLater(() -> gui.updateMessageListModel(conv));
             }
+        }
+    }
+
+    /** Roster-only update for a conversation already in the local cache. First delivery of a
+     *  conversation is owned by the LOGIN response and the full CONVERSATION broadcast — if the
+     *  metadata arrives for an unknown id, drop it rather than synthesize a history-less stub. */
+    private void handleConversationMetadataResponse(Response response) {
+        ConversationMetadata meta = (ConversationMetadata) response.getPayload();
+        if (meta == null) return;
+        ArrayList<Conversation> snapshot;
+        boolean changed = false;
+        synchronized (conversations) {
+            Conversation local = null;
+            for (Conversation c : conversations) {
+                if (c.getConversationId() == meta.getConversationId()) { local = c; break; }
+            }
+            if (local == null) return;
+            ArrayList<UserInfo> incoming = meta.getParticipants();
+            ArrayList<UserInfo> current = local.getParticipants();
+            ArrayList<UserInfo> toAdd = new ArrayList<>();
+            for (UserInfo u : incoming) {
+                if (u == null || u.getUserId() == null) continue;
+                boolean present = false;
+                for (UserInfo existing : current) {
+                    if (u.getUserId().equals(existing.getUserId())) { present = true; break; }
+                }
+                if (!present) toAdd.add(u);
+            }
+            if (!toAdd.isEmpty()) {
+                local.addParticipants(toAdd);
+                changed = true;
+            }
+            for (UserInfo existing : current) {
+                if (existing == null || existing.getUserId() == null) continue;
+                boolean stillThere = false;
+                for (UserInfo u : incoming) {
+                    if (u != null && existing.getUserId().equals(u.getUserId())) {
+                        stillThere = true; break;
+                    }
+                }
+                if (!stillThere) {
+                    local.removeParticipant(existing.getUserId());
+                    changed = true;
+                }
+            }
+            snapshot = new ArrayList<>(conversations);
+        }
+        if (changed && gui != null) {
+            gui.updateConversationListModel(snapshot);
         }
     }
 
@@ -626,27 +676,15 @@ public class ClientController {
     public ArrayList<Conversation> getFilteredConversationList(String query) {
         synchronized (conversations) {
             if (query == null || query.isBlank()) {
-                ArrayList<Conversation> all = new ArrayList<>(conversations);
-                all.sort((a, b) -> Long.compare(latestSequenceNumber(b), latestSequenceNumber(a)));
-                return all;
+                return new ArrayList<>(conversations);
             }
             ArrayList<Conversation> filtered = new ArrayList<>();
             String q = query.toLowerCase();
             for (Conversation c : conversations) {
                 if (anyUserMatches(c.getParticipants(), q)) filtered.add(c);
             }
-            filtered.sort((a, b) -> Long.compare(latestSequenceNumber(b), latestSequenceNumber(a)));
             return filtered;
         }
-    }
-
-    private static long latestSequenceNumber(Conversation c) {
-        if (c == null) return 0L;
-        if (c.getMessages().isEmpty()) {
-            // Fall back to conversationId for creation-recency ordering.
-            return c.getConversationId();
-        }
-        return c.getMessages().get(c.getMessages().size() - 1).getSequenceNumber();
     }
 
     /** Matches both active and historical participants so orphaned conversations

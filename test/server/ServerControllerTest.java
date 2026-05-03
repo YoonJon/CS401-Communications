@@ -371,6 +371,7 @@ class ServerControllerTest {
         @Override public Response handleLeaveConversation(Request request) { return hit(RequestType.LEAVE_CONVERSATION); }
         @Override public Response handleAdminConversationQuery(Request request) { return hit(RequestType.ADMIN_CONVERSATION_QUERY); }
         @Override public Response handleJoinConversation(Request request) { return hit(RequestType.JOIN_CONVERSATION); }
+        @Override public String maybeReactivatePrivatePeerOnSend(long conversationId, String senderId) { return null; }
         @Override public ArrayList<User.UserInfo> getParticipantList(long conversationId) {
             ArrayList<User.UserInfo> participants = participantsByConversationId.get(conversationId);
             if (participants == null) {

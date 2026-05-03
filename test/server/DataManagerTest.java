@@ -382,6 +382,129 @@ public class DataManagerTest {
         assertNotEquals(id1, id2, "GROUP creation should remain non-deduped");
     }
 
+    // -------------------------------------------------------------------------
+    // Issue #228 — Discord-style "close DM" reactivation on next message
+    // -------------------------------------------------------------------------
+
+    private void registerPair() {
+        dm.handleRegister(new Request(RequestType.REGISTER,
+                new RegisterCredentials("u1", "alice", "p1", "Alice"), null));
+        dm.handleRegister(new Request(RequestType.REGISTER,
+                new RegisterCredentials("u2", "bob", "p2", "Bob"), null));
+    }
+
+    private static boolean rosterContainsId(ArrayList<User.UserInfo> roster, String userId) {
+        for (User.UserInfo u : roster) {
+            if (u != null && userId.equals(u.getUserId())) return true;
+        }
+        return false;
+    }
+
+    @Test
+    void maybeReactivatePrivatePeerOnSend_afterLeave_reactivatesPeerAndRelinksIndex() {
+        registerPair();
+        long convId = createPrivate("u1", "Alice", "u2", "Bob", "u1");
+
+        dm.handleLeaveConversation(new Request(RequestType.LEAVE_CONVERSATION,
+                new LeaveConversationPayload(convId), "u2"));
+        // Sanity: u2 is removed from active roster but remains historical.
+        Conversation afterLeave = dm.getConversation(convId);
+        assertEquals(Integer.valueOf(1), Integer.valueOf(afterLeave.getParticipants().size()),
+                "leave drops u2 from active roster");
+        assertTrue(rosterContainsId(afterLeave.getHistoricalParticipants(), "u2"),
+                "historical roster preserves u2");
+
+        String reactivated = dm.maybeReactivatePrivatePeerOnSend(convId, "u1");
+        assertEquals("u2", reactivated, "u1 sending must reactivate hidden peer u2");
+
+        Conversation afterReactivate = dm.getConversation(convId);
+        assertEquals(Integer.valueOf(2), Integer.valueOf(afterReactivate.getParticipants().size()),
+                "active roster restored to size 2");
+        assertTrue(rosterContainsId(afterReactivate.getParticipants(), "u2"),
+                "u2 back in active roster");
+
+        // Index restoration: u2's login list must once again include this conversation.
+        Response u2Login = dm.handleLogin(new Request(RequestType.LOGIN,
+                new LoginCredentials("bob", "p2"), null));
+        LoginResult lr = (LoginResult) u2Login.getPayload();
+        assertEquals(LoginStatus.SUCCESS, lr.getLoginStatus());
+        boolean foundConv = false;
+        for (Conversation c : lr.getConversationList()) {
+            if (c.getConversationId() == convId) { foundConv = true; break; }
+        }
+        assertTrue(foundConv, "u2's login list must include the reactivated conversation");
+    }
+
+    @Test
+    void maybeReactivatePrivatePeerOnSend_groupConversation_returnsNull() {
+        // Group conversations are out of scope — even if one member leaves, no reactivation.
+        Response group = dm.handleCreateConversation(new Request(RequestType.CREATE_CONVERSATION,
+                new CreateConversationPayload(roster(ui("u1", "Alice"), ui("u2", "Bob"), ui("u3", "Carol"))),
+                "u1"));
+        long convId = ((Conversation) group.getPayload()).getConversationId();
+        dm.handleLeaveConversation(new Request(RequestType.LEAVE_CONVERSATION,
+                new LeaveConversationPayload(convId), "u2"));
+        dm.handleLeaveConversation(new Request(RequestType.LEAVE_CONVERSATION,
+                new LeaveConversationPayload(convId), "u3"));
+
+        assertNull(dm.maybeReactivatePrivatePeerOnSend(convId, "u1"),
+                "GROUP type must never trigger DM reactivation");
+    }
+
+    @Test
+    void maybeReactivatePrivatePeerOnSend_bothActive_returnsNull() {
+        long convId = createPrivate("u1", "Alice", "u2", "Bob", "u1");
+        assertNull(dm.maybeReactivatePrivatePeerOnSend(convId, "u1"),
+                "both still active → nothing to reactivate");
+    }
+
+    @Test
+    void maybeReactivatePrivatePeerOnSend_unknownConversation_returnsNull() {
+        assertNull(dm.maybeReactivatePrivatePeerOnSend(9_999_999L, "u1"));
+    }
+
+    @Test
+    void maybeReactivatePrivatePeerOnSend_nullSender_returnsNull() {
+        long convId = createPrivate("u1", "Alice", "u2", "Bob", "u1");
+        dm.handleLeaveConversation(new Request(RequestType.LEAVE_CONVERSATION,
+                new LeaveConversationPayload(convId), "u2"));
+        assertNull(dm.maybeReactivatePrivatePeerOnSend(convId, null));
+    }
+
+    @Test
+    void maybeReactivatePrivatePeerOnSend_senderIsTheOneWhoLeft_returnsNull() {
+        long convId = createPrivate("u1", "Alice", "u2", "Bob", "u1");
+        dm.handleLeaveConversation(new Request(RequestType.LEAVE_CONVERSATION,
+                new LeaveConversationPayload(convId), "u2"));
+        // u2 (the leaver) is not the lone active participant — u1 is.
+        assertNull(dm.maybeReactivatePrivatePeerOnSend(convId, "u2"),
+                "leaver sending into the conv does not trigger reactivation of themselves");
+    }
+
+    @Test
+    void maybeReactivatePrivatePeerOnSend_repeatedLeaveAndReactivate_idempotent() {
+        registerPair();
+        long convId = createPrivate("u1", "Alice", "u2", "Bob", "u1");
+
+        // First cycle.
+        dm.handleLeaveConversation(new Request(RequestType.LEAVE_CONVERSATION,
+                new LeaveConversationPayload(convId), "u2"));
+        assertEquals("u2", dm.maybeReactivatePrivatePeerOnSend(convId, "u1"));
+        assertEquals(Integer.valueOf(2),
+                Integer.valueOf(dm.getConversation(convId).getParticipants().size()));
+
+        // Second cycle: u2 leaves again, u1 sends again, peer should re-add cleanly without dup.
+        dm.handleLeaveConversation(new Request(RequestType.LEAVE_CONVERSATION,
+                new LeaveConversationPayload(convId), "u2"));
+        assertEquals("u2", dm.maybeReactivatePrivatePeerOnSend(convId, "u1"));
+        Conversation c = dm.getConversation(convId);
+        assertEquals(Integer.valueOf(2), Integer.valueOf(c.getParticipants().size()),
+                "second reactivation cycle must not create duplicate participant entries");
+        // Historical roster also must not have grown — addParticipants dedupes.
+        assertEquals(Integer.valueOf(2), Integer.valueOf(c.getHistoricalParticipants().size()),
+                "historical roster stays at 2 across multiple reactivations");
+    }
+
     @Test
     void handleCreateConversation_concurrentDuplicatePrivate_yieldsSingleConversation() throws Exception {
         // Race two simultaneous CREATE_CONVERSATION calls for the same PRIVATE pair through a
