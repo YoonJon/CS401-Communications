@@ -301,7 +301,9 @@ public class ClientController {
             gui.updateConversationListModel(snapshot);
             if (isCurrentConv) {
                 gui.appendMessageToConversationView(msg);
-                updateReadMessages(currentConversationId, msg.getSequenceNumber());
+                if (currentUser != null && msg.getSenderId().equals(currentUser.getUserId())) {
+                    updateReadMessages(currentConversationId, msg.getSequenceNumber());
+                }
             }
         }
     }
@@ -394,7 +396,10 @@ public class ClientController {
         ReadMessagesUpdated updated = (ReadMessagesUpdated) response.getPayload();
         if (updated != null && updated.getUpdatedUserInfo() != null) {
             currentUser = updated.getUpdatedUserInfo();
-            if (gui != null) gui.repaintMessageList();
+            if (gui != null) {
+                long seq = currentUser.getLastRead(currentConversationId);
+                gui.markDisplayedReadUpTo(currentConversationId, seq);
+            }
         }
     }
 

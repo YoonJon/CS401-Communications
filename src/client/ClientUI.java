@@ -33,8 +33,6 @@ public class ClientUI {
     /** Optional: end session after this much in-app UI idle time (0 disables). Default 30 minutes. */
     private static final long USER_IDLE_LOGOUT_AFTER_MS = 30L * 60L * 1000L;
 
-    private int unreadWhileAway = 0;
-    private volatile boolean suppressActivationReset = false;
     private static final String BASE_TITLE = "Communication Application";
 
     public ClientUI(ClientController controller) {
@@ -94,17 +92,6 @@ public class ClientUI {
             frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
             frame.setLocationRelativeTo(null);
             frame.setVisible(true);
-
-            frame.addWindowListener(new WindowAdapter() {
-                @Override public void windowActivated(WindowEvent e) {
-                    if (suppressActivationReset) {
-                        suppressActivationReset = false;
-                        return;
-                    }
-                    unreadWhileAway = 0;
-                    frame.setTitle(BASE_TITLE);
-                }
-            });
 
             JRootPane rp = frame.getRootPane();
             InputMap im = rp.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
@@ -420,16 +407,6 @@ public class ClientUI {
             cards.main.directoryView.list.clearSelection();
             cards.main.directoryView.selecting = null;
             SwingUtilities.invokeLater(() -> cards.main.conversationView.text.requestFocusInWindow());
-
-            ArrayList<Message> msgs = conversation.getMessages();
-            if (!msgs.isEmpty()) {
-                Message last = msgs.get(msgs.size() - 1);
-                UserInfo me = controller.getCurrentUserInfo();
-                if (me != null) {
-                    me.setLastRead(conversation.getConversationId(), last.getSequenceNumber());
-                }
-                controller.updateReadMessages(conversation.getConversationId(), last.getSequenceNumber());
-            }
         });
     }
 
@@ -445,10 +422,7 @@ public class ClientUI {
             UserInfo me = controller.getCurrentUserInfo();
             boolean fromOther = me != null && !message.getSenderId().equals(me.getUserId());
             if (fromOther && !frame.isActive()) {
-                unreadWhileAway++;
-                frame.setTitle(BASE_TITLE + " (" + unreadWhileAway + " new)");
                 Toolkit.getDefaultToolkit().beep();
-                suppressActivationReset = true;
                 frame.toFront();
             }
         });
@@ -456,6 +430,15 @@ public class ClientUI {
 
     public void repaintMessageList() {
         SwingUtilities.invokeLater(() -> cards.main.conversationView.list.repaint());
+    }
+
+    public void markDisplayedReadUpTo(long conversationId, long sequenceNumber) {
+        SwingUtilities.invokeLater(() -> {
+            if (controller.getCurrentConversationId() == conversationId) {
+                cards.main.conversationView.markDisplayedReadUpTo(sequenceNumber);
+                cards.main.conversationView.list.repaint();
+            }
+        });
     }
 
     public void updateAdminConversationSearchModel(ArrayList<ConversationMetadata> conversations) {
@@ -1621,12 +1604,6 @@ public class ClientUI {
                         long lastReadBeforeOpen = controller.getCurrentUserInfo().getLastRead(selected.getConversationId());
     					// delegates to ConversationView.setListModel so both the
     					// participant label and the message list are updated together
-    					if (!selected.getMessages().isEmpty()) {
-    					    Message last = selected.getMessages().get(selected.getMessages().size() - 1);
-    					    controller.getCurrentUserInfo().setLastRead(
-    					            selected.getConversationId(), last.getSequenceNumber());
-    					    controller.updateReadMessages(selected.getConversationId(), last.getSequenceNumber());
-    					}
     					cards.main.conversationView.setListModel(selected, lastReadBeforeOpen);
     				}
             	}
