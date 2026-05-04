@@ -254,6 +254,99 @@ class ServerControllerTest {
     }
 
     @Test
+    void enqueueAddParticipantBroadcastForkSendsFullConversationToAll() throws Exception {
+        // PRIVATE-fork case: server returns a NEW conversation id (202L) that differs from
+        // the request's targetConversationId (101L). The broadcast layer must detect this
+        // and send the full Conversation to every roster member except the requester,
+        // because existing participants of the original PRIVATE thread have never seen
+        // the new id and would silently drop a CONVERSATION_METADATA frame.
+        StubDataManager stub = new StubDataManager(testDataRoot().toString());
+        Conversation forked = new Conversation(202L, participants("u1", "u2", "u3"));
+        stub.responses.put(RequestType.ADD_PARTICIPANT, new Response(ResponseType.CONVERSATION, forked));
+        stub.participantsByConversationId.put(101L, participants("u1", "u2"));
+        stub.participantsByConversationId.put(202L, participants("u1", "u2", "u3"));
+
+        server = buildServerWithStub(stub);
+        LinkedBlockingQueue<Map.Entry<String, Response>> queue = getResponseQueue(server);
+        server.addSession("u1", noOpHandler());
+        server.addSession("u2", noOpHandler());
+        server.addSession("u3", noOpHandler());
+
+        assertEquals(ResponseType.CONVERSATION, server.processRequest(
+                new Request(RequestType.ADD_PARTICIPANT,
+                        new AddToConversationPayload(participants("u3"), 101L),
+                        "u1")).getType());
+
+        Map.Entry<String, Response> a = queue.poll();
+        Map.Entry<String, Response> b = queue.poll();
+        assertNotNull(a);
+        assertNotNull(b);
+        assertNull(queue.poll());
+        Map<String, Response> deliveries = Map.of(a.getKey(), a.getValue(), b.getKey(), b.getValue());
+        assertEquals(Set.of("u2", "u3"), deliveries.keySet());
+        assertTrue(deliveries.get("u2").getPayload() instanceof Conversation);
+        assertTrue(deliveries.get("u3").getPayload() instanceof Conversation);
+        assertEquals(202L, ((Conversation) deliveries.get("u2").getPayload()).getConversationId());
+        assertEquals(202L, ((Conversation) deliveries.get("u3").getPayload()).getConversationId());
+    }
+
+    @Test
+    void enqueueAddParticipantBroadcastGroupAddSendsMetadataPlusSystemMessage() throws Exception {
+        // GROUP path: existing GROUP gets a new member. Existing members (not the requester,
+        // not the added) must receive BOTH a CONVERSATION_METADATA frame AND a MESSAGE frame
+        // for the SYSTEM "added" message, so their lastMessageSequenceNumber bumps and the
+        // conversation reorders to 1st place.
+        StubDataManager stub = new StubDataManager(testDataRoot().toString());
+        Conversation grown = new Conversation(55L, participants("u1", "u2", "u3", "u4"));
+        grown.append(new Message("u1 added u4", 999L, new java.util.Date(), "SYSTEM", 55L));
+        stub.responses.put(RequestType.ADD_PARTICIPANT, new Response(ResponseType.CONVERSATION, grown));
+        stub.participantsByConversationId.put(55L, participants("u1", "u2", "u3", "u4"));
+
+        server = buildServerWithStub(stub);
+        LinkedBlockingQueue<Map.Entry<String, Response>> queue = getResponseQueue(server);
+        server.addSession("u1", noOpHandler()); // requester
+        server.addSession("u2", noOpHandler()); // existing
+        server.addSession("u3", noOpHandler()); // existing
+        server.addSession("u4", noOpHandler()); // added
+
+        assertEquals(ResponseType.CONVERSATION, server.processRequest(
+                new Request(RequestType.ADD_PARTICIPANT,
+                        new AddToConversationPayload(participants("u4"), 55L),
+                        "u1")).getType());
+
+        Map<String, ArrayList<Response>> byRecipient = new HashMap<>();
+        Map.Entry<String, Response> entry;
+        while ((entry = queue.poll()) != null) {
+            byRecipient.computeIfAbsent(entry.getKey(), k -> new ArrayList<>()).add(entry.getValue());
+        }
+
+        // u1 (requester) receives a CONVERSATION_METADATA via the existing (unfiltered) bucket.
+        // This is the pre-existing benign quirk noted in the plan's "Out of scope" section.
+        // u4 (added) gets exactly one full CONVERSATION.
+        assertEquals(1, byRecipient.get("u4").size());
+        assertEquals(ResponseType.CONVERSATION, byRecipient.get("u4").get(0).getType());
+
+        // u2 and u3 each get exactly: one CONVERSATION_METADATA AND one MESSAGE (the SYSTEM msg).
+        for (String existing : new String[]{"u2", "u3"}) {
+            ArrayList<Response> got = byRecipient.get(existing);
+            assertNotNull(got, existing + " should receive broadcasts");
+            assertEquals(2, got.size(), existing + " should receive 2 frames");
+            boolean sawMetadata = false;
+            boolean sawSystemMessage = false;
+            for (Response r : got) {
+                if (r.getType() == ResponseType.CONVERSATION_METADATA) {
+                    sawMetadata = true;
+                } else if (r.getType() == ResponseType.MESSAGE) {
+                    sawSystemMessage = true;
+                    assertEquals("SYSTEM", ((Message) r.getPayload()).getSenderId());
+                }
+            }
+            assertTrue(sawMetadata, existing + " should see CONVERSATION_METADATA");
+            assertTrue(sawSystemMessage, existing + " should see SYSTEM MESSAGE");
+        }
+    }
+
+    @Test
     void logoutRemovesSession() throws Exception {
         server = buildServerWithStub();
         server.addSession("u1", noOpHandler());
