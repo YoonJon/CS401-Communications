@@ -10,6 +10,7 @@ import java.net.SocketException;
 import java.util.*;
 import java.util.concurrent.LinkedBlockingDeque;
 import javax.swing.SwingUtilities;
+import shared.BuildInfo;
 import shared.enums.*;
 import shared.networking.*;
 import shared.networking.User.UserInfo;
@@ -99,6 +100,7 @@ public class ClientController {
     }
 
     public ClientController(String hostIp, int hostPort) {
+        System.out.println("[ClientController] version " + BuildInfo.formatVersionForLog());
         this.hostIp = hostIp;
         this.hostPort = hostPort;
         this.connectionStatus = ConnectionStatus.NOT_CONNECTED;
@@ -242,8 +244,9 @@ public class ClientController {
                 case SUCCESS:
                     loggedIn = true;
                     currentUser = lr.getUserInfo();
-                    conversations = Collections.synchronizedList(
-                            lr.getConversationList() != null ? lr.getConversationList() : new ArrayList<>());
+                    ArrayList<Conversation> fromLogin = new ArrayList<>(lr.getConversationList());
+                    sortConversationsByLastSequenceNumber(fromLogin);
+                    conversations = Collections.synchronizedList(fromLogin);
                     currentDirectory = lr.getDirectoryUserInfoList() != null
                             ? lr.getDirectoryUserInfoList() : new ArrayList<>();
                     if (gui != null) {
@@ -281,19 +284,17 @@ public class ClientController {
     }
 
     private void handleMessageResponse(Response response) {
-        // Move the matching conversation to front (most recent), then refresh the list view.
         Message msg = (Message) response.getPayload();
         ArrayList<Conversation> snapshot;
         boolean isCurrentConv;
         synchronized (conversations) {
             for (int i = 0; i < conversations.size(); i++) {
                 if (conversations.get(i).getConversationId() == msg.getConversationId()) {
-                    Conversation c = conversations.remove(i);
-                    c.append(msg);
-                    conversations.add(0, c);
+                    conversations.get(i).append(msg);
                     break;
                 }
             }
+            sortConversationsByLastSequenceNumber(conversations);
             snapshot = new ArrayList<>(conversations);
             isCurrentConv = msg.getConversationId() == currentConversationId;
         }
@@ -309,14 +310,13 @@ public class ClientController {
     }
 
     private void handleConversationResponse(Response response) {
-        // Move to front regardless of whether it is new or an update (recency sort).
-        // Track whether this conversation was already known so we can auto-open new ones.
         Conversation conv = (Conversation) response.getPayload();
         boolean isNew;
         ArrayList<Conversation> snapshot;
         synchronized (conversations) {
             isNew = conversations.removeIf(c -> c.getConversationId() == conv.getConversationId()) == false;
-            conversations.add(0, conv);
+            conversations.add(conv);
+            sortConversationsByLastSequenceNumber(conversations);
             snapshot = new ArrayList<>(conversations);
         }
         if (gui != null) {
@@ -595,13 +595,15 @@ public class ClientController {
         return filtered;
     }
 
-    /** Returns conversations where any participant's id or name matches {@code query}. */
+    /**
+     * Returns conversations where any participant's id or name matches {@code query}.
+     * Order matches {@link #conversations}: sorted by last message sequence (see login,
+     * {@link #handleMessageResponse}, {@link #handleConversationResponse}).
+     */
     public ArrayList<Conversation> getFilteredConversationList(String query) {
         synchronized (conversations) {
             if (query == null || query.isBlank()) {
-                ArrayList<Conversation> all = new ArrayList<>(conversations);
-                all.sort((a, b) -> Long.compare(latestSequenceNumber(b), latestSequenceNumber(a)));
-                return all;
+                return new ArrayList<>(conversations);
             }
             ArrayList<Conversation> filtered = new ArrayList<>();
             String q = query.toLowerCase();
@@ -613,19 +615,23 @@ public class ClientController {
                     }
                 }
             }
-            filtered.sort((a, b) -> Long.compare(latestSequenceNumber(b), latestSequenceNumber(a)));
             return filtered;
         }
     }
 
-    private long latestSequenceNumber(Conversation c) {
-        if (c == null) return 0L;
-        if (c.getMessages().isEmpty()) {
-            // Empty conversations have no message sequence yet; use conversationId as a
-            // creation-recency fallback.
-            return c.getConversationId();
+    /**
+     * Sorts in place: conversations with the highest last-message sequence number appear first.
+     * Threads with no messages use {@link Conversation#getSortSequenceSentinel()} (sequence allocated at creation).
+     */
+    private static void sortConversationsByLastSequenceNumber(List<Conversation> list) {
+        if (list == null || list.size() <= 1) {
+            return;
         }
-        return c.getMessages().get(c.getMessages().size() - 1).getSequenceNumber();
+        list.sort(Comparator.comparingLong((Conversation c) -> {
+            var msgs = c.getMessages();
+            return msgs.isEmpty() ? c.getSortSequenceSentinel()
+                    : msgs.get(msgs.size() - 1).getSequenceNumber();
+        }).reversed());
     }
 
     /** Returns admin search results filtered by participant id or name,

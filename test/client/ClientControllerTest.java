@@ -40,7 +40,7 @@ class ClientControllerTest {
     private static Conversation conv(long id, UserInfo... members) {
         ArrayList<UserInfo> p = new ArrayList<>();
         for (UserInfo u : members) p.add(u);
-        return new Conversation(id, p);
+        return new Conversation(id, p, 0L);
     }
 
     /** LOGIN_RESULT/SUCCESS for Alice, containing one conversation (id=100). */

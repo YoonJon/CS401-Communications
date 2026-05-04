@@ -202,8 +202,8 @@ class ServerControllerTest {
     void enqueueBroadcastCandidates() throws Exception {
         StubDataManager stub = new StubDataManager(testDataRoot().toString());
         Response messageResp = new Response(ResponseType.MESSAGE, new Message("hi", 7L, new java.util.Date(), "u1", 11L));
-        Response createResp = new Response(ResponseType.CONVERSATION, new Conversation(22L, participants("u1", "u2", "u3")));
-        Response addResp = new Response(ResponseType.CONVERSATION, new Conversation(33L, participants("u1", "u2", "u3", "u4")));
+        Response createResp = new Response(ResponseType.CONVERSATION, new Conversation(22L, participants("u1", "u2", "u3"), 0L));
+        Response addResp = new Response(ResponseType.CONVERSATION, new Conversation(33L, participants("u1", "u2", "u3", "u4"), 0L));
         stub.responses.put(RequestType.MESSAGE, messageResp);
         stub.responses.put(RequestType.CREATE_CONVERSATION, createResp);
         stub.responses.put(RequestType.ADD_PARTICIPANT, addResp);
@@ -261,7 +261,7 @@ class ServerControllerTest {
         // because existing participants of the original PRIVATE thread have never seen
         // the new id and would silently drop a CONVERSATION_METADATA frame.
         StubDataManager stub = new StubDataManager(testDataRoot().toString());
-        Conversation forked = new Conversation(202L, participants("u1", "u2", "u3"));
+        Conversation forked = new Conversation(202L, participants("u1", "u2", "u3"), 0L);
         stub.responses.put(RequestType.ADD_PARTICIPANT, new Response(ResponseType.CONVERSATION, forked));
         stub.participantsByConversationId.put(101L, participants("u1", "u2"));
         stub.participantsByConversationId.put(202L, participants("u1", "u2", "u3"));
@@ -297,7 +297,7 @@ class ServerControllerTest {
         // for the SYSTEM "added" message, so their lastMessageSequenceNumber bumps and the
         // conversation reorders to 1st place.
         StubDataManager stub = new StubDataManager(testDataRoot().toString());
-        Conversation grown = new Conversation(55L, participants("u1", "u2", "u3", "u4"));
+        Conversation grown = new Conversation(55L, participants("u1", "u2", "u3", "u4"), 0L);
         grown.append(new Message("u1 added u4", 999L, new java.util.Date(), "SYSTEM", 55L));
         stub.responses.put(RequestType.ADD_PARTICIPANT, new Response(ResponseType.CONVERSATION, grown));
         stub.participantsByConversationId.put(55L, participants("u1", "u2", "u3", "u4"));

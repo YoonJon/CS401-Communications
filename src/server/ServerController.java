@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
+import shared.BuildInfo;
 import shared.enums.RequestType;
 import shared.enums.RegisterStatus;
 import shared.enums.ResponseType;
@@ -75,6 +76,7 @@ public class ServerController {
     }
 
     public ServerController(String bindIPv4, int port, String dataRootPath) {
+        System.out.println("[ServerController] version " + BuildInfo.formatVersionForLog());
         this.activeSessions = new ConcurrentHashMap<>();
         this.dataManager = new DataManager(dataRootPath);
         this.connectionListener = new ConnectionListener(bindIPv4, port, this);

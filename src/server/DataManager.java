@@ -333,7 +333,13 @@ public class DataManager {
         } catch (IOException e) {
             e.printStackTrace();
         }
-        
+
+        try {
+            loadServerCounters();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
         // rehydrate Conversations (*.conversation — serialized Conversation per file)
         File[] listOfConversationFiles = conversationDataDir.listFiles(
             f -> f.isFile() && f.getName().endsWith(".conversation"));
@@ -354,7 +360,7 @@ public class DataManager {
         }catch(ClassNotFoundException e) {
         	e.printStackTrace();
         }
-        
+
         // rehydrate Users (*.user — serialized User per file)
         File[] listOfUserFiles = userDataDir.listFiles(
             f -> f.isFile() && f.getName().endsWith(".user"));
@@ -373,12 +379,6 @@ public class DataManager {
             e.printStackTrace();
         }
         buildDirectoryAtStartup();
-
-        try {
-            loadServerCounters();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
     }
 
     /**
@@ -698,7 +698,7 @@ public class DataManager {
         }
         long conversationId = nextConversationId();
         // Derives PRIVATE vs GROUP from participant count; seeds historicalParticipants from this list.
-        Conversation conversation = new Conversation(conversationId, participants);
+        Conversation conversation = new Conversation(conversationId, participants, nextMessageSequenceNumber());
         conversationsByConversationID.put(conversationId, conversation);
         linkParticipantsToConversation(conversationId, conversation.getParticipants());
         persistConversation(conversation);
@@ -742,7 +742,7 @@ public class DataManager {
             ArrayList<UserInfo> merged = new ArrayList<>(existing.getParticipants());
             merged.addAll(netNew);
             long forkId = nextConversationId();
-            Conversation forked = new Conversation(forkId, merged);
+            Conversation forked = new Conversation(forkId, merged, nextMessageSequenceNumber());
             conversationsByConversationID.put(forkId, forked);
             linkParticipantsToConversation(forkId, forked.getParticipants());
             appendAddParticipantSystemMessage(forked, request.getSenderId(), netNew);
