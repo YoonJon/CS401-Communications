@@ -484,13 +484,20 @@ public class DataManager {
     private Message appendAddParticipantSystemMessage(Conversation conversation,
                                                      String requesterId,
                                                      ArrayList<UserInfo> added) {
+        String requesterName = requesterId;
+        for (UserInfo p : conversation.getHistoricalParticipants()) {
+            if (requesterId.equals(p.getUserId())) {
+                requesterName = p.getName();
+                break;
+            }
+        }
         StringBuilder names = new StringBuilder();
         for (int i = 0; i < added.size(); i++) {
             if (i > 0) names.append(i == added.size() - 1 ? " and " : ", ");
-            names.append(added.get(i).getUserId());
+            names.append(added.get(i).getName());
         }
         Message systemMessage = new Message(
-                requesterId + " added " + names,
+                requesterName + " added " + names,
                 nextMessageSequenceNumber(),
                 new Date(),
                 "SYSTEM",

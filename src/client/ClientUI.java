@@ -870,7 +870,8 @@ public class ClientUI {
                 String ts = zdt.format(dtf);
                 String rawText = msg.getText() == null ? "" : msg.getText();
                 boolean isOwnMessage = msg.getSenderId().equals(controller.getCurrentUserInfo().getUserId());
-                String header = isOwnMessage ? ts : (ts + " " + senderName + ":");
+                boolean isSystem = "SYSTEM".equals(msg.getSenderId());
+                String header = (isOwnMessage || isSystem) ? ts : (ts + " " + senderName + ":");
 
                 long lastReadSeq = displayedLastReadSeq;
 
