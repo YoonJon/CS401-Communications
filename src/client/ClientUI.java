@@ -989,6 +989,7 @@ public class ClientUI {
             // Fix 10: gate buttons — disabled until a conversation is selected
             addButton.setEnabled(false);
             leaveButton.setEnabled(false);
+            leaveButton.setVisible(false);
             sendButton.setEnabled(false);
 
             setLayout(new BorderLayout());
@@ -1204,7 +1205,12 @@ public class ClientUI {
                 text.setEnabled(true);
                 // Fix 10: enable buttons when a conversation is selected
                 addButton.setEnabled(true);
-                leaveButton.setEnabled(true);
+                boolean canLeave = currConv.getType() != shared.enums.ConversationType.PRIVATE;
+                leaveButton.setVisible(canLeave);
+                leaveButton.setEnabled(canLeave);
+                if (leaveButton.getParent() != null) {
+                    leaveButton.getParent().revalidate();
+                }
                 sendButton.setEnabled(!text.getText().trim().isEmpty());
                 // Fix 8: hide placeholder once a conversation is loaded
                 placeholderLabel.setVisible(false);
@@ -1229,9 +1235,13 @@ public class ClientUI {
                 // Fix 10: disable buttons when no conversation is active
                 addButton.setEnabled(false);
                 leaveButton.setEnabled(false);
+                leaveButton.setVisible(false);
                 sendButton.setEnabled(false);
                 // Fix 8: show placeholder again
                 placeholderLabel.setVisible(true);
+                if (leaveButton.getParent() != null) {
+                    leaveButton.getParent().revalidate();
+                }
             });
         }
 
