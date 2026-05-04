@@ -172,7 +172,9 @@ public class SeedSerializedData {
             maxConvId = Math.max(maxConvId, cid);
             nextConvId += rnd.nextInt(2, 22);
             ConvSeed s = pending.get(i);
-            Conversation c = new Conversation(cid, s.participants);
+            long sentinelAtCreation = nextMessageSeq[0];
+            nextMessageSeq[0] = sentinelAtCreation + 1;
+            Conversation c = new Conversation(cid, s.participants, sentinelAtCreation);
             lastMessageSeq = appendMessagesOrganic(c, s, nextMessageSeq);
             writeObject(new File(convDataPath.toFile(), cid + ".conversation"), c);
         }

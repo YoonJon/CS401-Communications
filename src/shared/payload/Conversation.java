@@ -16,6 +16,13 @@ public class Conversation implements ResponsePayload {
     private final ConversationType type;
 
     /**
+     * Sequence number allocated from the server's global counter at conversation creation (same allocation path as
+     * messages). Used when ordering threads that still have no messages; avoids ties from unrelated streams sharing
+     * the same peek value.
+     */
+    private final long sortSequenceSentinel;
+
+    /**
      * @param conversationId stable numeric id (from server counter)
      * @param participants initial members; copied defensively. If the size is 2, {@link ConversationType#PRIVATE}
      * is used; otherwise {@link ConversationType#GROUP}. The same initial snapshot is stored in
@@ -23,13 +30,19 @@ public class Conversation implements ResponsePayload {
      * do not remove entries from historical participants; use {@link #addParticipants(ArrayList)} so new
      * members are recorded in both lists. {@link #getType()} is fixed for the lifetime of this object;
      * adding people to a {@link ConversationType#PRIVATE} thread is done by forking (see server) into a new conversation.
+     * @param sortSequenceSentinel next global message sequence issued when this conversation is created (consumes one number from the server counter)
      */
-    public Conversation(long conversationId, ArrayList<UserInfo> participants) {
+    public Conversation(long conversationId, ArrayList<UserInfo> participants, long sortSequenceSentinel) {
         this.conversationId = conversationId;
         this.messages = new ArrayList<>();
         this.participants = new ArrayList<>(participants != null ? participants : new ArrayList<>());
         this.historicalParticipants = new ArrayList<>(this.participants);
         this.type = this.participants.size() == 2 ? ConversationType.PRIVATE : ConversationType.GROUP;
+        this.sortSequenceSentinel = sortSequenceSentinel;
+    }
+
+    public long getSortSequenceSentinel() {
+        return sortSequenceSentinel;
     }
 
     /**
