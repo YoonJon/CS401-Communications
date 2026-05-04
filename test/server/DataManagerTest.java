@@ -196,6 +196,56 @@ public class DataManagerTest {
         assertNull(r);
     }
 
+    @Test
+    void handleAddToConversation_privateForkAppendsSystemMessage() {
+        // Seed a PRIVATE u1+u2 conversation, then add u3. The forked GROUP must contain
+        // exactly one Message whose sender is "SYSTEM" — this bumps lastMessageSequenceNumber
+        // so the GUI sort puts it at 1st place for everyone.
+        Response create = dm.handleCreateConversation(new Request(RequestType.CREATE_CONVERSATION,
+                new CreateConversationPayload(roster(ui("u1", "Alice"), ui("u2", "Bob"))),
+                "u1"));
+        long privateId = ((Conversation) create.getPayload()).getConversationId();
+
+        Response forkResp = dm.handleAddToConversation(new Request(RequestType.ADD_PARTICIPANT,
+                new AddToConversationPayload(roster(ui("u3", "Carol")), privateId),
+                "u1"));
+        Conversation forked = (Conversation) forkResp.getPayload();
+        assertNotEquals(privateId, forked.getConversationId(), "fork minted a new id");
+        ArrayList<Message> messages = forked.getMessages();
+        assertEquals(1, messages.size(), "forked conversation has exactly one message (SYSTEM)");
+        assertEquals("SYSTEM", messages.get(0).getSenderId());
+        assertTrue(messages.get(0).getText().contains("u3"), "system message names the added user");
+    }
+
+    @Test
+    void handleAddToConversation_groupAddAppendsSystemMessage() {
+        // Seed a GROUP u1+u2+u3, send a normal message, then add u4. The grown GROUP
+        // must contain a SYSTEM message AS THE LAST entry whose sequence number is
+        // strictly greater than the previously-sent normal message — this is what
+        // ServerController.enqueueAddParticipantBroadcast extracts and forwards to
+        // existing members so their list reorders to 1st place.
+        Response create = dm.handleCreateConversation(new Request(RequestType.CREATE_CONVERSATION,
+                new CreateConversationPayload(roster(ui("u1", "Alice"), ui("u2", "Bob"), ui("u3", "Carol"))),
+                "u1"));
+        long groupId = ((Conversation) create.getPayload()).getConversationId();
+
+        Response sent = dm.handleSendMessage(new Request(RequestType.MESSAGE,
+                new RawMessage("hi", groupId), "u1"));
+        long priorSeq = ((Message) sent.getPayload()).getSequenceNumber();
+
+        Response addResp = dm.handleAddToConversation(new Request(RequestType.ADD_PARTICIPANT,
+                new AddToConversationPayload(roster(ui("u4", "Dan")), groupId),
+                "u1"));
+        Conversation grown = (Conversation) addResp.getPayload();
+        assertEquals(groupId, grown.getConversationId(), "GROUP add does not fork");
+        ArrayList<Message> messages = grown.getMessages();
+        Message last = messages.get(messages.size() - 1);
+        assertEquals("SYSTEM", last.getSenderId(), "last message is SYSTEM");
+        assertTrue(last.getSequenceNumber() > priorSeq,
+                "SYSTEM seq (" + last.getSequenceNumber() + ") > prior seq (" + priorSeq + ")");
+        assertTrue(last.getText().contains("u4"), "system message names the added user");
+    }
+
     // -------------------------------------------------------------------------
     // End-to-end smoke: walks every handler once in a realistic order
     // -------------------------------------------------------------------------

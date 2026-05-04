@@ -479,6 +479,29 @@ public class DataManager {
         }
     }
 
+    // Builds and appends a SYSTEM "X added Y, Z" event so existing members' GUI sort
+    // (by lastMessageSequenceNumber) reorders the conversation to the top.
+    private Message appendAddParticipantSystemMessage(Conversation conversation,
+                                                     String requesterId,
+                                                     ArrayList<UserInfo> added) {
+        StringBuilder names = new StringBuilder();
+        for (int i = 0; i < added.size(); i++) {
+            if (i > 0) names.append(i == added.size() - 1 ? " and " : ", ");
+            names.append(added.get(i).getUserId());
+        }
+        Message systemMessage = new Message(
+                requesterId + " added " + names,
+                nextMessageSequenceNumber(),
+                new Date(),
+                "SYSTEM",
+                conversation.getConversationId());
+        synchronized (conversation) {
+            conversation.append(systemMessage);
+            persistConversation(conversation);
+        }
+        return systemMessage;
+    }
+
     // --- User ↔ conversation membership index ---
 
     /**
@@ -703,7 +726,7 @@ public class DataManager {
         if (existing.getType() == ConversationType.GROUP) {
             existing.addParticipants(netNew);
             linkParticipantsToConversation(targetConversationId, netNew);
-            persistConversation(existing);
+            appendAddParticipantSystemMessage(existing, request.getSenderId(), netNew);
             return new Response(ResponseType.CONVERSATION, existing);
         }
 
@@ -715,7 +738,7 @@ public class DataManager {
             Conversation forked = new Conversation(forkId, merged);
             conversationsByConversationID.put(forkId, forked);
             linkParticipantsToConversation(forkId, forked.getParticipants());
-            persistConversation(forked);
+            appendAddParticipantSystemMessage(forked, request.getSenderId(), netNew);
             return new Response(ResponseType.CONVERSATION, forked);
         }
 

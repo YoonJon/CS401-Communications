@@ -260,6 +260,23 @@ public class ServerController {
         Conversation conversation = (Conversation) response.getPayload();
         AddToConversationPayload payload = (AddToConversationPayload) request.getPayload();
         ArrayList<UserInfo> participantsToAdd = payload.getParticipants();
+
+        // PRIVATE-fork case: server minted a new conversation id, so existing participants
+        // of the original thread have never seen this id and would silently drop a metadata
+        // frame for it. Send the full Conversation to every roster member except the
+        // requester (the requester gets it via the direct processRequest return path).
+        if (conversation.getConversationId() != payload.getTargetConversationId()) {
+            String requesterId = request.getSenderId();
+            ArrayList<UserInfo> recipients = new ArrayList<>();
+            for (UserInfo p : conversation.getParticipants()) {
+                if (p == null || p.getUserId() == null) continue;
+                if (p.getUserId().equals(requesterId)) continue;
+                recipients.add(p);
+            }
+            enqueueToActiveParticipants(recipients, response);
+            return;
+        }
+
         Response metadataResponse = new Response(ResponseType.CONVERSATION_METADATA, conversation.toMetadata());
         ArrayList<UserInfo> existingParticipants = new ArrayList<>();
         for (UserInfo participant : conversation.getParticipants()) {
@@ -279,6 +296,20 @@ public class ServerController {
             }
         }
         enqueueToActiveParticipants(existingParticipants, metadataResponse);
+
+        // Also broadcast the SYSTEM "X added Y" message so existing members'
+        // handleMessageResponse appends it, bumping lastMessageSequenceNumber and moving
+        // the conversation to 1st place. The added participants and the requester already
+        // see it inside the full Conversation payload they receive.
+        ArrayList<Message> messages = conversation.getMessages();
+        if (!messages.isEmpty()) {
+            Message systemMessage = messages.get(messages.size() - 1);
+            if ("SYSTEM".equals(systemMessage.getSenderId())) {
+                Response systemMessageResponse = new Response(ResponseType.MESSAGE, systemMessage);
+                enqueueToActiveParticipants(existingParticipants, systemMessageResponse);
+            }
+        }
+
         if (participantsToAdd != null) {
             enqueueToActiveParticipants(participantsToAdd, response);
         }
