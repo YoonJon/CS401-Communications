@@ -14,7 +14,7 @@ import java.net.SocketException;
 public class ServerWithIPLauncher {
     public static void main(String[] args) {
         String dataRoot = "data";
-        String seedMode = null; // bottomOnly | withHeroes
+        String seedMode = null; // bottomOnly | withHeroes | empty
         for (int i = 0; i < args.length; i++) {
             String a = args[i];
             if (a == null) continue;
@@ -30,28 +30,34 @@ public class ServerWithIPLauncher {
                 seedMode = "bottomOnly";
             } else if (a.equals("2")) {
                 seedMode = "withHeroes";
+            } else if (a.equals("3")) {
+                seedMode = "empty";
             }
         }
 
         if (seedMode == null) {
-            // Interactive selection for demos; accepts: 1 or 2, or bottomOnly/withHeroes tokens.
+            // Interactive selection for demos; accepts 1/2/3 or bottomOnly/withHeroes/empty tokens.
             System.out.println("Select seeding runmode:");
             System.out.println("  1) bottomOnly   (seed only bottom-N users)");
             System.out.println("  2) withHeroes   (seed bottom-N users + premade Jon/Quan/Harumi accounts)");
-            System.out.print("Enter 1 or 2 (or bottomOnly/withHeroes): ");
+            System.out.println("  3) empty        (clear seeded user/conversation data and reset server counters)");
+            System.out.print("Enter 1, 2, or 3 (or bottomOnly/withHeroes/empty): ");
+            @SuppressWarnings("resource")
             Scanner sc = new Scanner(System.in);
             String line = sc.nextLine();
             seedMode = line == null ? "" : line.trim();
             if (seedMode.equals("1")) seedMode = "bottomOnly";
             if (seedMode.equals("2")) seedMode = "withHeroes";
+            if (seedMode.equals("3")) seedMode = "empty";
         }
 
         seedMode = seedMode.toLowerCase(Locale.ROOT);
         if (seedMode.equals("1")) seedMode = "bottomonly";
         if (seedMode.equals("2")) seedMode = "withheroes";
-        if (!seedMode.equals("bottomonly") && !seedMode.equals("withheroes")) {
+        if (seedMode.equals("3")) seedMode = "empty";
+        if (!seedMode.equals("bottomonly") && !seedMode.equals("withheroes") && !seedMode.equals("empty")) {
             // Defensive: SeedSerializedData validates these, but keep error message readable here too.
-            System.out.println("Unrecognized mode '" + seedMode + "'. Expected bottomOnly or withHeroes.");
+            System.out.println("Unrecognized mode '" + seedMode + "'. Expected bottomOnly, withHeroes, or empty.");
         }
 
         // Reseed before starting server.

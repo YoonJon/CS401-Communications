@@ -34,6 +34,7 @@ import java.util.concurrent.ThreadLocalRandom;
  * seedMode:
  *   bottomOnly  -> seed only the bottom-N users (no premade Jon/Quan/Harumi overrides or hero-thread extras)
  *   withHeroes  -> current behavior (seed bottom-N users + premade Jon/Quan/Harumi accounts + extra hero threads)
+ *   empty       -> clear persisted user/conversation blobs and reset counters to zero (no seeded history)
  *
  * Defaults:
  *   dataRoot = "data"
@@ -50,13 +51,19 @@ public class SeedSerializedData {
         int bottomUserCount = args.length > 1 ? Integer.parseInt(args[1]) : 80;
         String seedMode = args.length > 2 ? args[2] : "withHeroes";
         boolean includeHeroes;
+        boolean emptyMode;
         if (seedMode.equalsIgnoreCase("bottomOnly")) {
             includeHeroes = false;
+            emptyMode = false;
         } else if (seedMode.equalsIgnoreCase("withHeroes")) {
             includeHeroes = true;
+            emptyMode = false;
+        } else if (seedMode.equalsIgnoreCase("empty")) {
+            includeHeroes = false;
+            emptyMode = true;
         } else {
             throw new IllegalArgumentException("Unknown seedMode '" + seedMode
-                    + "'. Expected 'bottomOnly' or 'withHeroes'.");
+                    + "'. Expected 'bottomOnly', 'withHeroes', or 'empty'.");
         }
 
         Path root = Path.of(dataRoot);
@@ -65,6 +72,27 @@ public class SeedSerializedData {
         Path userDataPath = root.resolve("user_data");
         Path convDataPath = root.resolve("conversation_data");
         Path serverConfigPath = root.resolve("server_data/server_config.txt");
+
+        Files.createDirectories(userDataPath);
+        Files.createDirectories(convDataPath);
+        Files.createDirectories(serverConfigPath.getParent());
+
+        clearSerializedFiles(userDataPath, ".user");
+        clearSerializedFiles(convDataPath, ".conversation");
+
+        if (emptyMode) {
+            Properties props = new Properties();
+            props.setProperty("conversationIdCounter", "0");
+            props.setProperty("messageSequenceCounter", "0");
+            try (FileOutputStream out = new FileOutputStream(serverConfigPath.toFile())) {
+                props.store(out, "Server counters (message sequence and conversation id)");
+            }
+            System.out.println("Seed complete.");
+            System.out.println("Users seeded: 0 (empty mode)");
+            System.out.println("Conversations seeded: 0 (empty mode)");
+            System.out.println("Messages seeded: 0 (empty mode)");
+            return;
+        }
 
         List<String> allAuthorizedUsers = Files.readAllLines(authUsersPath, StandardCharsets.UTF_8).stream()
                 .map(String::trim)
@@ -81,13 +109,6 @@ public class SeedSerializedData {
                 .map(String::trim)
                 .filter(line -> !line.isEmpty() && !line.startsWith("#"))
                 .toList());
-
-        Files.createDirectories(userDataPath);
-        Files.createDirectories(convDataPath);
-        Files.createDirectories(serverConfigPath.getParent());
-
-        clearSerializedFiles(userDataPath, ".user");
-        clearSerializedFiles(convDataPath, ".conversation");
 
         ArrayList<User> users = new ArrayList<>();
         ArrayList<UserInfo> userInfos = new ArrayList<>();
