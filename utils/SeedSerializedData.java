@@ -29,7 +29,11 @@ import java.util.concurrent.ThreadLocalRandom;
  * are spread across months with uneven spacing between messages.
  *
  * Usage:
- *   java -cp out SeedSerializedData [dataRoot] [bottomUserCount]
+ *   java -cp out SeedSerializedData [dataRoot] [bottomUserCount] [seedMode]
+ *
+ * seedMode:
+ *   bottomOnly  -> seed only the bottom-N users (no premade Jon/Quan/Harumi overrides or hero-thread extras)
+ *   withHeroes  -> current behavior (seed bottom-N users + premade Jon/Quan/Harumi accounts + extra hero threads)
  *
  * Defaults:
  *   dataRoot = "data"
@@ -44,6 +48,16 @@ public class SeedSerializedData {
     public static void main(String[] args) throws Exception {
         String dataRoot = args.length > 0 ? args[0] : "data";
         int bottomUserCount = args.length > 1 ? Integer.parseInt(args[1]) : 80;
+        String seedMode = args.length > 2 ? args[2] : "withHeroes";
+        boolean includeHeroes;
+        if (seedMode.equalsIgnoreCase("bottomOnly")) {
+            includeHeroes = false;
+        } else if (seedMode.equalsIgnoreCase("withHeroes")) {
+            includeHeroes = true;
+        } else {
+            throw new IllegalArgumentException("Unknown seedMode '" + seedMode
+                    + "'. Expected 'bottomOnly' or 'withHeroes'.");
+        }
 
         Path root = Path.of(dataRoot);
         Path authUsersPath = root.resolve("server_data/authorized_ids/authorized_users.txt");
@@ -100,10 +114,12 @@ public class SeedSerializedData {
             writeObject(new File(userDataPath.toFile(), userId + ".user"), user);
         }
 
-        // Jon / Quan / Harumi — same test presentation logins (overwrites if those ids were in bulk slice)
-        writeHeroUser(userDataPath, findRow(fullRoster, JON_ID), "pretzul", "a", adminIds);
-        writeHeroUser(userDataPath, findRow(fullRoster, QUAN_ID), "user123", "a", adminIds);
-        writeHeroUser(userDataPath, findRow(fullRoster, HARUMI_ID), "user456", "a", adminIds);
+        if (includeHeroes) {
+            // Jon / Quan / Harumi — same test presentation logins (overwrites if those ids were in bulk slice)
+            writeHeroUser(userDataPath, findRow(fullRoster, JON_ID), "pretzul", "a", adminIds);
+            writeHeroUser(userDataPath, findRow(fullRoster, QUAN_ID), "user123", "a", adminIds);
+            writeHeroUser(userDataPath, findRow(fullRoster, HARUMI_ID), "user456", "a", adminIds);
+        }
 
         ArrayList<ConvSeed> pending = new ArrayList<>();
 
@@ -127,29 +143,31 @@ public class SeedSerializedData {
             pending.add(new ConvSeed(participants, ThreadLocalRandom.current().nextInt(2, 11)));
         }
 
-        // 30 privates: Jon, Quan, Harumi × ten distinct bulk partners
-        Set<String> heroIds = Set.of(JON_ID, QUAN_ID, HARUMI_ID);
-        List<UserInfo> partnerPool = new ArrayList<>();
-        for (UserInfo u : userInfos) {
-            if (u != null && u.getUserId() != null && !heroIds.contains(u.getUserId())) {
-                partnerPool.add(u);
+        if (includeHeroes) {
+            // 30 privates: Jon, Quan, Harumi × ten distinct bulk partners
+            Set<String> heroIds = Set.of(JON_ID, QUAN_ID, HARUMI_ID);
+            List<UserInfo> partnerPool = new ArrayList<>();
+            for (UserInfo u : userInfos) {
+                if (u != null && u.getUserId() != null && !heroIds.contains(u.getUserId())) {
+                    partnerPool.add(u);
+                }
             }
-        }
-        if (partnerPool.size() < 10) {
-            throw new IllegalStateException("Need at least 10 bulk-seeded users besides Jon/Quan/Harumi ids; found "
-                    + partnerPool.size());
-        }
-        Collections.shuffle(partnerPool);
-        List<UserInfo> partners = new ArrayList<>(partnerPool.subList(0, 10));
-        UserInfo jonInfo = heroUserInfo(findRow(fullRoster, JON_ID), adminIds);
-        UserInfo quanInfo = heroUserInfo(findRow(fullRoster, QUAN_ID), adminIds);
-        UserInfo harumiInfo = heroUserInfo(findRow(fullRoster, HARUMI_ID), adminIds);
-        for (UserInfo hero : List.of(jonInfo, quanInfo, harumiInfo)) {
-            for (UserInfo other : partners) {
-                ArrayList<UserInfo> pair = new ArrayList<>(2);
-                pair.add(hero);
-                pair.add(other);
-                pending.add(new ConvSeed(pair, ThreadLocalRandom.current().nextInt(2, 11)));
+            if (partnerPool.size() < 10) {
+                throw new IllegalStateException("Need at least 10 bulk-seeded users besides Jon/Quan/Harumi ids; found "
+                        + partnerPool.size());
+            }
+            Collections.shuffle(partnerPool);
+            List<UserInfo> partners = new ArrayList<>(partnerPool.subList(0, 10));
+            UserInfo jonInfo = heroUserInfo(findRow(fullRoster, JON_ID), adminIds);
+            UserInfo quanInfo = heroUserInfo(findRow(fullRoster, QUAN_ID), adminIds);
+            UserInfo harumiInfo = heroUserInfo(findRow(fullRoster, HARUMI_ID), adminIds);
+            for (UserInfo hero : List.of(jonInfo, quanInfo, harumiInfo)) {
+                for (UserInfo other : partners) {
+                    ArrayList<UserInfo> pair = new ArrayList<>(2);
+                    pair.add(hero);
+                    pair.add(other);
+                    pending.add(new ConvSeed(pair, ThreadLocalRandom.current().nextInt(2, 11)));
+                }
             }
         }
 
@@ -187,7 +205,11 @@ public class SeedSerializedData {
         }
 
         System.out.println("Seed complete.");
-        System.out.println("Users seeded: " + users.size() + " (bulk) + 3 (Jon, Quan, Harumi demo logins)");
+        if (includeHeroes) {
+            System.out.println("Users seeded: " + users.size() + " (bulk) + 3 (Jon, Quan, Harumi demo logins)");
+        } else {
+            System.out.println("Users seeded: " + users.size() + " (bulk only; no premade Jon/Quan/Harumi overrides)");
+        }
         int totalMsgs = 0;
         for (ConvSeed s : pending) {
             totalMsgs += s.messageCount;
