@@ -44,7 +44,6 @@ public class SeedSerializedData {
     private static final String JON_ID = "Q7M2X9K4LP";
     private static final String QUAN_ID = "N4R8T1BZQK";
     private static final String HARUMI_ID = "V3P6L0WQ9D";
-    private static final String JOHN_DOE_NAME = "John Doe";
 
     public static void main(String[] args) throws Exception {
         String dataRoot = args.length > 0 ? args[0] : "data";
@@ -120,12 +119,7 @@ public class SeedSerializedData {
             writeHeroUser(userDataPath, findRow(fullRoster, JON_ID), "jon", "a", adminIds);
             writeHeroUser(userDataPath, findRow(fullRoster, QUAN_ID), "quan", "a", adminIds);
             writeHeroUser(userDataPath, findRow(fullRoster, HARUMI_ID), "harumi", "a", adminIds);
-            // Additional hero account for demo login coverage.
-            writeHeroUser(userDataPath, findRowByName(fullRoster, JOHN_DOE_NAME), "user123", "a", adminIds);
         }
-
-        // Keep John Doe out of synthetic conversation generation so he starts with no history.
-        userInfos.removeIf(u -> u != null && JOHN_DOE_NAME.equals(u.getName()));
 
         ArrayList<ConvSeed> pending = new ArrayList<>();
 
@@ -292,15 +286,6 @@ public class SeedSerializedData {
             }
         }
         throw new IllegalStateException("authorized_users.txt must contain user id " + userId);
-    }
-
-    private static RosterRow findRowByName(List<RosterRow> rows, String name) {
-        for (RosterRow r : rows) {
-            if (name.equals(r.name)) {
-                return r;
-            }
-        }
-        throw new IllegalStateException("authorized_users.txt must contain user name " + name);
     }
 
     private static List<RosterRow> parseRosterRows(List<String> lines) {

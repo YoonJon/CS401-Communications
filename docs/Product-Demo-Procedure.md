@@ -51,8 +51,12 @@ Seeded defaults:
 ## UC-01 Account Creation (single-client, projector = Jon)
 
 - [ ] **Jon** opens register screen.
-- [ ] **Jon** enters valid employee ID + matching name + unique login + password.
-- [ ] **Jon** submits and confirms success.
+- [ ] **Jon** enters John Doe registration data:
+  - employee ID: `J8D3K7P1LX`
+  - real name: `John Doe`
+  - login: `user123`
+  - password: `a`
+- [ ] **Jon** submits and confirms account creation succeeds.
 - [ ] **Jon** corner case: invalid name/employee ID -> rejection.
 - [ ] **Jon** corner case: duplicate login -> rejection.
 
