@@ -9,9 +9,9 @@
 - 03/03/2026 | 4.0 | Added Class Candidate Diagram                                                         | Jon Yoon
 - 03/05/2026 | 4.1 | Modified UC-03                                                                        | Harumi Ueda
 - 04/04/2026 | 5.1 | Added 3.1.3.18 and modified UC-01, 02, 07, and 08                                     | Jon Yoon
-- 04/09/2026 | 5.2 | Modified 2.5; revised 4.1.8; fixed minor spelling mistakes                              | Jon Yoon
+- 04/09/2026 | 5.2 | Modified 2.5; revised 4.1.8; fixed minor spelling mistakes                             | Jon Yoon
 - 04/09/2026 | 5.3 | Modified clientUI class, View components, UC-07, 08, and 11                           | Harumi Ueda
-- 04/28/2026 | 5.4 | Aligned requirements and class/protocol specs with current imple Team
+- 04/28/2026 | 5.4 | Aligned requirements and class/protocol specs with current implementation | Team
 - 04/29/2026 | 5.5 | Modified Section 5.2: synced class/member listings with Java sources (controllers, DataManager, payloads) | Team
 - 04/29/2026 | 5.6 | Modified Modified Section 5.2: documented private/package helper methods (client, server, DataManager, ConnectionHandler) | Team
 
