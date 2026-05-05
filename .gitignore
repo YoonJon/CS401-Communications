@@ -11,14 +11,52 @@ out/
 target/
 
 # =========================
+# Java packaging artifacts
+# =========================
+*.war
+*.ear
+*.nar
+
+# Ignore stray .jar files but keep the bundled server launcher,
+# which is intentionally tracked as a runnable deliverable.
+*.jar
+!utils/server-with-ip-launcher.jar
+
+# JVM crash / profiling output
+hs_err_pid*.log
+replay_pid*.log
+*.hprof
+
+# =========================
 # IDEs
 # =========================
+
+# Eclipse
+.metadata/
+.recommenders/
+.apt_generated/
+.apt_generated_test/
+.factorypath
+.checkstyle
+.springBeans
+local.properties
 
 # IntelliJ IDEA
 .idea/
 *.iml
 *.iws
 *.ipr
+out/
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# NetBeans
+nbproject/private/
+nbbuild/
+nbdist/
+.nb-gradle/
 
 # VS Code / Cursor
 .vscode/
@@ -32,8 +70,26 @@ target/
 # =========================
 # OS files
 # =========================
+
+# macOS
 .DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Windows
 Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
 
 # =========================
 # macOS packaging (e.g. jpackage / manual bundles)
@@ -70,8 +126,9 @@ replay_pid*
 # Temporary files
 # =========================
 *.tmp
+*.bak
 *.swp
-*~
+*.swo
 
 # =========================
 # Local test fixtures
@@ -84,4 +141,3 @@ test_data/
 data/conversation_data/
 data/user_data/
 data/server_data/server_config.txt
-
