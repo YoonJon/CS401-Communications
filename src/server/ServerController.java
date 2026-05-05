@@ -2,7 +2,9 @@ package server;
 
 import java.util.ArrayList;
 import java.util.AbstractMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -174,8 +176,11 @@ public class ServerController {
             case ADMIN_VIEW_CONVERSATION:
                 // Silent admin read — no broadcast, no participant mutation.
                 return dataManager.handleAdminViewConversation(request);
-            case JOIN_CONVERSATION:
-                return dataManager.handleJoinConversation(request);
+            case JOIN_CONVERSATION: {
+                Response response = dataManager.handleJoinConversation(request);
+                broadcastResponse(request, response);
+                return response;
+            }
             case LOGOUT:
                 removeSession(request.getSenderId());
                 // Null is intentional: ConnectionHandler.handleSessionTransition owns LOGOUT
@@ -200,6 +205,9 @@ public class ServerController {
             case ADD_PARTICIPANT:
                 enqueueAddParticipantBroadcast(request, response);
                 break;
+            case JOIN_CONVERSATION:
+                enqueueSilentJoinBroadcast(request, response);
+                break;
             default:
                 break;
         }
@@ -215,11 +223,36 @@ public class ServerController {
         }
     }
 
+    /**
+     * Fans out {@code response} to silent admin observers — user ids linked to {@code conversationId}
+     * in the index but absent from {@code conv.getParticipants()}. {@code excludeId} is the
+     * sender/requester whose direct return path already covers them; pass {@code null} to skip
+     * that filter.
+     */
+    private void enqueueToSilentObservers(long conversationId, Conversation conv, String excludeId, Response response) {
+        if (conv == null) return;
+        Set<String> linked = dataManager.getLinkedUserIds(conversationId);
+        if (linked.isEmpty()) return;
+        Set<String> participantIds = new HashSet<>();
+        for (UserInfo p : conv.getParticipants()) {
+            if (p != null && p.getUserId() != null) participantIds.add(p.getUserId());
+        }
+        for (String id : linked) {
+            if (id == null) continue;
+            if (participantIds.contains(id)) continue; // already covered by participant loop
+            if (excludeId != null && excludeId.equals(id)) continue; // requester gets the direct return
+            if (hasActiveSession(id)) {
+                responseQueue.offer(new AbstractMap.SimpleImmutableEntry<>(id, response));
+            }
+        }
+    }
+
     private void enqueueMessageBroadcast(Request request, Response response) {
         if (!(response.getPayload() instanceof Message)) return;
         Message message = (Message) response.getPayload();
         String senderId = request.getSenderId();
-        for (UserInfo participant : dataManager.getParticipantList(message.getConversationId())) {
+        long conversationId = message.getConversationId();
+        for (UserInfo participant : dataManager.getParticipantList(conversationId)) {
             if (participant == null || participant.getUserId() == null) continue;
             String id = participant.getUserId();
             if (id.equals(senderId)) continue; // sender already gets the response via direct return
@@ -227,6 +260,7 @@ public class ServerController {
                 responseQueue.offer(new AbstractMap.SimpleImmutableEntry<>(id, response));
             }
         }
+        enqueueToSilentObservers(conversationId, dataManager.getConversation(conversationId), senderId, response);
     }
 
     private void enqueueCreateConversationBroadcast(String requesterId, Response response) {
@@ -246,12 +280,50 @@ public class ServerController {
         // getParticipantList returns the roster AFTER the leaver was removed, so every
         // entry here is a remaining participant — no need to skip by leaverId.
         ArrayList<UserInfo> remaining = dataManager.getParticipantList(conversationId);
-        if (remaining.isEmpty()) return;
         Conversation conversation = dataManager.getConversation(conversationId);
         if (conversation == null) return;
         ConversationMetadata metadata = conversation.toMetadata();
         Response metadataResponse = new Response(ResponseType.CONVERSATION_METADATA, metadata);
-        enqueueToActiveParticipants(remaining, metadataResponse);
+        if (!remaining.isEmpty()) {
+            enqueueToActiveParticipants(remaining, metadataResponse);
+        }
+        // Silent admin observers also need the updated roster, even when no real participants remain.
+        enqueueToSilentObservers(conversationId, conversation, leaverId, metadataResponse);
+    }
+
+    private void enqueueSilentJoinBroadcast(Request request, Response response) {
+        if (request == null || response == null) return;
+        if (!(response.getPayload() instanceof Conversation)) return;
+        Conversation conversation = (Conversation) response.getPayload();
+        String joinerId = request.getSenderId();
+        if (joinerId == null) return;
+        ArrayList<UserInfo> participantsSnapshot;
+        ConversationMetadata fullMeta;
+        synchronized (conversation) {
+            for (UserInfo p : conversation.getParticipants()) {
+                if (p != null && joinerId.equals(p.getUserId())) return;
+            }
+            participantsSnapshot = new ArrayList<>(conversation.getParticipants());
+            fullMeta = conversation.toMetadata();
+        }
+        ArrayList<UserInfo> scrubbedHistorical = new ArrayList<>();
+        for (UserInfo u : fullMeta.getHistoricalParticipants()) {
+            if (u != null && joinerId.equals(u.getUserId())) continue;
+            scrubbedHistorical.add(u);
+        }
+        ConversationMetadata scrubbedMeta = new ConversationMetadata(
+                fullMeta.getConversationId(),
+                fullMeta.getParticipants(),
+                scrubbedHistorical,
+                fullMeta.getType(),
+                fullMeta.getLastMessagePreview(),
+                fullMeta.getLastMessageTimestampMillis(),
+                fullMeta.getUnreadCount(),
+                fullMeta.getDisplayName());
+        Response participantResponse = new Response(ResponseType.CONVERSATION_METADATA, scrubbedMeta);
+        Response observerResponse = new Response(ResponseType.CONVERSATION_METADATA, fullMeta);
+        enqueueToActiveParticipants(participantsSnapshot, participantResponse);
+        enqueueToSilentObservers(conversation.getConversationId(), conversation, joinerId, observerResponse);
     }
 
     private void enqueueAddParticipantBroadcast(Request request, Response response) {
@@ -298,6 +370,7 @@ public class ServerController {
             }
         }
         enqueueToActiveParticipants(existingParticipants, metadataResponse);
+        enqueueToSilentObservers(conversation.getConversationId(), conversation, request.getSenderId(), metadataResponse);
 
         // Also broadcast the SYSTEM "X added Y" message so existing members'
         // handleMessageResponse appends it, bumping lastMessageSequenceNumber and moving
