@@ -68,6 +68,52 @@ public class Conversation implements ResponsePayload {
         }
     }
 
+    /**
+     * Records {@code user} in {@link #getHistoricalParticipants()} only — does NOT add to the
+     * active {@link #getParticipants()} roster. Used by the silent admin "join" flow so the
+     * admin's sender id resolves to a name in every client's message renderer without
+     * appearing in the participant list. Idempotent; returns {@code true} only when an
+     * entry was actually appended.
+     */
+    public synchronized boolean addToHistoricalOnly(UserInfo user) {
+        if (user == null || user.getUserId() == null || historicalParticipants == null) {
+            return false;
+        }
+        for (UserInfo u : historicalParticipants) {
+            if (u != null && user.getUserId().equals(u.getUserId())) {
+                return false;
+            }
+        }
+        historicalParticipants.add(user);
+        return true;
+    }
+
+    /**
+     * Merges {@code meta} into this conversation: replaces the active {@link #getParticipants()}
+     * list with the snapshot, and appends any new entries to {@link #getHistoricalParticipants()}
+     * (historical is monotonic — never trim). Used by the client to apply
+     * {@link ConversationMetadata} updates received from the server.
+     */
+    public synchronized void applyMetadata(ConversationMetadata meta) {
+        if (meta == null) return;
+        participants.clear();
+        if (meta.getParticipants() != null) {
+            for (UserInfo u : meta.getParticipants()) {
+                if (u != null) participants.add(u);
+            }
+        }
+        if (historicalParticipants != null && meta.getHistoricalParticipants() != null) {
+            for (UserInfo u : meta.getHistoricalParticipants()) {
+                if (u == null || u.getUserId() == null) continue;
+                boolean exists = false;
+                for (UserInfo h : historicalParticipants) {
+                    if (u.getUserId().equals(h.getUserId())) { exists = true; break; }
+                }
+                if (!exists) historicalParticipants.add(u);
+            }
+        }
+    }
+
     private int indexOfParticipant(String userId) {
         for (int i = 0; i < participants.size(); i++) {
             if (userId.equals(participants.get(i).getUserId())) {

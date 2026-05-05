@@ -380,6 +380,28 @@ public class ClientUI {
         });
     }
 
+    /** Selects the row in the sidebar that matches {@code target}'s conversation id, suppressing
+     *  the selection listener so it does not re-fire setCurrentConversationId. */
+    public void selectConversationInList(Conversation target) {
+        if (target == null) return;
+        SwingUtilities.invokeLater(() -> {
+            JList<Conversation> convList = cards.main.conversationListView.list;
+            long targetId = target.getConversationId();
+            cards.main.conversationListView.suppressSelectionEvents = true;
+            try {
+                for (int i = 0; i < conversationListModel.getSize(); i++) {
+                    if (conversationListModel.getElementAt(i).getConversationId() == targetId) {
+                        convList.setSelectedIndex(i);
+                        convList.ensureIndexIsVisible(i);
+                        break;
+                    }
+                }
+            } finally {
+                cards.main.conversationListView.suppressSelectionEvents = false;
+            }
+        });
+    }
+
     public void updateMessageListModel(Conversation conversation) {
         SwingUtilities.invokeLater(() -> {
             if (conversation == null) {
@@ -842,6 +864,7 @@ public class ClientUI {
                         for (UserInfo p : conv.getHistoricalParticipants()) {
                             if (p.getUserId().equals(msg.getSenderId())) {
                                 senderName = p.getName();
+                                if (p.getUserType() == UserType.ADMIN) senderName += " [ADMIN]";
                                 break;
                             }
                         }
@@ -1712,6 +1735,7 @@ public class ClientUI {
         JTextField searchField;
         DefaultListModel<ConversationMetadata> model = new DefaultListModel<>();
         JList<ConversationMetadata> list = new JList<>(model);
+        JButton joinButton;
         JButton closeButton;
         ViewerPanel viewerPanel;
 
@@ -1898,6 +1922,8 @@ public class ClientUI {
 
         AdminConversationSearchWindow() {
             searchField = makePlaceholderField("Search conversations...", 15);
+            joinButton = new JButton("Join");
+            joinButton.setEnabled(false);
             closeButton = new JButton("Close");
 
             setLayout(new BorderLayout());
@@ -1919,8 +1945,9 @@ public class ClientUI {
             split.setResizeWeight(0.0);
             add(split, BorderLayout.CENTER);
 
-            // Close at the bottom right
+            // Buttons at the bottom right (Join | Close)
             JPanel buttonPane = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+            buttonPane.add(joinButton);
             buttonPane.add(closeButton);
             add(buttonPane, BorderLayout.SOUTH);
 
@@ -1948,13 +1975,43 @@ public class ClientUI {
                 }
             });
 
-            // Selecting a row pulls the full conversation silently — no Join button.
+            // Selecting a row pulls the full conversation silently and enables the Join button.
             list.addListSelectionListener(e -> {
                 if (e.getValueIsAdjusting()) return;
                 ConversationMetadata sel = list.getSelectedValue();
+                joinButton.setEnabled(sel != null);
                 if (sel != null) {
                     controller.adminViewConversation(sel.getConversationId());
                 }
+            });
+
+            // Join: if admin is already an active participant, just open the conversation locally;
+            // otherwise send JOIN_CONVERSATION (silent index-only link on the server).
+            joinButton.addActionListener(e -> {
+                ConversationMetadata sel = list.getSelectedValue();
+                if (sel == null) return;
+                joinButton.setEnabled(false);
+                long convId = sel.getConversationId();
+                UserInfo me = controller.getCurrentUserInfo();
+                String myId = me != null ? me.getUserId() : null;
+                boolean alreadyMember = false;
+                if (myId != null) {
+                    for (UserInfo p : sel.getParticipants()) {
+                        if (p != null && myId.equals(p.getUserId())) { alreadyMember = true; break; }
+                    }
+                    if (!alreadyMember) {
+                        for (UserInfo p : sel.getHistoricalParticipants()) {
+                            if (p != null && myId.equals(p.getUserId())) { alreadyMember = true; break; }
+                        }
+                    }
+                }
+                Window window = SwingUtilities.getWindowAncestor(this);
+                if (alreadyMember) {
+                    controller.openConversationInMainView(convId);
+                } else {
+                    controller.joinConversation(convId);
+                }
+                if (window != null) window.dispose();
             });
 
             // Close button just disposes the dialog; existing windowClosed handler does cleanup.
