@@ -6,6 +6,7 @@
 # Common build directories
 bin/
 build/
+dist/
 out/
 target/
 

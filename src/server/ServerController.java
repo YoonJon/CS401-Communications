@@ -14,6 +14,7 @@ import shared.enums.RegisterStatus;
 import shared.enums.ResponseType;
 import shared.networking.ConnectionHandler;
 import shared.networking.ConnectionListener;
+import shared.networking.DiscoveryResponder;
 import shared.networking.Request;
 import shared.networking.Response;
 import shared.networking.User.UserInfo;
@@ -65,6 +66,17 @@ public class ServerController {
         if (serverController == null) {
             return; // duplicate startup guard already logged
         }
+
+        String advertisedIp = DiscoveryResponder.findAdvertisableIp(bindIPv4);
+        if (advertisedIp != null) {
+            DiscoveryResponder responder = new DiscoveryResponder(advertisedIp, port);
+            responder.start();
+            Runtime.getRuntime().addShutdownHook(
+                    new Thread(responder::close, "DiscoveryResponder-Shutdown"));
+        } else {
+            System.err.println("[ServerController] no LAN IPv4 found — auto-discovery disabled");
+        }
+
         keepAliveUntilInterrupted(serverController);
     }
 

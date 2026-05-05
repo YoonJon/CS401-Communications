@@ -9,6 +9,7 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.util.*;
 import java.util.concurrent.LinkedBlockingDeque;
+import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
 import shared.BuildInfo;
 import shared.enums.*;
@@ -93,8 +94,32 @@ public class ClientController {
      *   java ClientController 192.168.1.10 8080
      */
     public static void main(String[] args) {
-        String host = args.length > 0 ? args[0] : "localhost";
-        int port = args.length > 1 ? Integer.parseInt(args[1]) : 8080;
+        String host;
+        int port;
+
+        if (args.length >= 1) {
+            host = args[0];
+            port = args.length > 1 ? Integer.parseInt(args[1]) : 8080;
+        } else {
+            String discovered = DiscoveryClient.discover();
+            if (discovered != null) {
+                int colon = discovered.indexOf(':');
+                host = discovered.substring(0, colon);
+                port = Integer.parseInt(discovered.substring(colon + 1));
+                System.out.println("[ClientController] discovered server " + host + ":" + port);
+            } else {
+                String entered = JOptionPane.showInputDialog(null,
+                        "Server not found on this network.\nEnter server IP:",
+                        "CS401 Client", JOptionPane.QUESTION_MESSAGE);
+                if (entered == null || entered.trim().isEmpty()) {
+                    System.err.println("[ClientController] no server address provided; exiting.");
+                    return;
+                }
+                host = entered.trim();
+                port = 8080;
+            }
+        }
+
         ClientController controller = new ClientController(host, port);
         Runtime.getRuntime().addShutdownHook(new Thread(controller::close, "ClientController-Shutdown"));
     }
