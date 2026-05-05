@@ -354,6 +354,7 @@ public class DataManager {
 	        	Conversation newConversation = (Conversation) in.readObject();
 	        	conversationsByConversationID.put(newConversation.getConversationId(),newConversation);
 	        	linkParticipantsToConversation(newConversation.getConversationId(), newConversation.getParticipants());
+	        	linkParticipantsToConversation(newConversation.getConversationId(), newConversation.getHistoricalParticipants());
 	        }
         }catch(IOException e) {
         	e.printStackTrace();
@@ -413,21 +414,26 @@ public class DataManager {
      * Blank lines and lines starting with {@code #} are ignored.
      */
     private void loadAuthorizedAdminsCsv(File file) throws IOException {
-        authorizedAdminIds.clear();
+        ArrayList<String> loaded = new ArrayList<>();
+        boolean firstLine = true;
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(file), java.nio.charset.StandardCharsets.UTF_8))) {
             String line;
             while ((line = reader.readLine()) != null) {
+                if (firstLine && !line.isEmpty() && line.charAt(0) == '﻿') {
+                    line = line.substring(1);
+                }
+                firstLine = false;
                 line = line.trim();
                 if (line.isEmpty() || line.startsWith("#")) {
                     continue;
                 }
-                if (!line.isEmpty()) {
-                    if (!authorizedAdminIds.contains(line)) {
-                        authorizedAdminIds.add(line);
-                    }
+                if (!loaded.contains(line)) {
+                    loaded.add(line);
                 }
             }
         }
+        authorizedAdminIds.clear();
+        authorizedAdminIds.addAll(loaded);
     }
 
     /**
@@ -761,8 +767,15 @@ public class DataManager {
     }
 
     public Response handleAdminConversationQuery(Request request) {
+        User caller = usersByUserID.get(request.getSenderId());
+        if (caller == null || caller.getUserType() != UserType.ADMIN) {
+            return new Response(ResponseType.ADMIN_CONVERSATION_RESULT, null);
+        }
         AdminConversationQuery adminConversationQuery = (AdminConversationQuery) request.getPayload();
         String userId = adminConversationQuery.getUserId();
+        if (userId == null || userId.isEmpty()) {
+            return new Response(ResponseType.ADMIN_CONVERSATION_RESULT, new AdminConversationResult(new ArrayList<>()));
+        }
         // Scan historicalParticipants instead of the active conversationIDsByUserID index
         // so orphaned conversations (everyone has left) and conversations the user has
         // since left still surface for the admin viewer.
@@ -783,12 +796,37 @@ public class DataManager {
         return new Response(ResponseType.ADMIN_CONVERSATION_RESULT, new AdminConversationResult(metas));
     }
 
+    /**
+     * Silent admin join: links the caller to the conversation in the index and records them
+     * in {@link Conversation#getHistoricalParticipants()} (so other clients' message renderers
+     * can resolve their name/[ADMIN] tag), but does NOT add them to the active
+     * {@link Conversation#getParticipants()} roster — so other users see no participant-list
+     * change. Idempotent when the caller is already a real active participant.
+     */
     public Response handleJoinConversation(Request request) {
         JoinConversationPayload joinConversationPayload = (JoinConversationPayload) request.getPayload();
         long conversationId = joinConversationPayload.getTargetConversationId();
         String userId = request.getSenderId();
-        linkUserToConversation(userId, conversationId);
-        return new Response(ResponseType.CONVERSATION, conversationsByConversationID.get(conversationId));
+        Conversation conversation = conversationsByConversationID.get(conversationId);
+        if (conversation == null) {
+            return new Response(ResponseType.CONVERSATION, null);
+        }
+        User caller = usersByUserID.get(userId);
+        if (caller == null || caller.getUserType() != UserType.ADMIN) {
+            return new Response(ResponseType.CONVERSATION, null);
+        }
+        synchronized (conversation) {
+            if (containsParticipant(conversation.getParticipants(), userId)
+                    || containsParticipant(conversation.getHistoricalParticipants(), userId)) {
+                return new Response(ResponseType.CONVERSATION, conversation);
+            }
+            linkUserToConversation(userId, conversationId);
+            boolean historicalChanged = conversation.addToHistoricalOnly(caller.toUserInfo());
+            if (historicalChanged) {
+                persistConversation(conversation);
+            }
+        }
+        return new Response(ResponseType.CONVERSATION, conversation);
     }
 
     /**
@@ -819,6 +857,17 @@ public class DataManager {
             return new ArrayList<>();
         }
         return c.getParticipants();
+    }
+
+    /**
+     * Returns all user ids linked to {@code conversationId} in the index. After silent admin
+     * joins this is a superset of {@link Conversation#getParticipants()} by exactly the
+     * silent observers; broadcast paths use it to fan out to those observers without
+     * touching the active roster. Defensive copy.
+     */
+    public Set<String> getLinkedUserIds(long conversationId) {
+        Set<String> ids = userIDsByConversationID.get(conversationId);
+        return ids == null ? Collections.emptySet() : new HashSet<>(ids);
     }
 
     public boolean userExists(String loginName) {

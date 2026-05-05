@@ -5,7 +5,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Embedded {@link #VERSION} and {@link #GIT_REVISION} are updated by {@code scripts/write-build-info.sh}
+ * Embedded {@link #VERSION} and {@link #GIT_REVISION} are updated by {@code utils/write-build-info.sh}
  * (fallback when Git is unavailable at runtime). {@link #formatVersionForLog()} prefers live {@code git}
  * from the process working directory when you run from a checkout.
  */

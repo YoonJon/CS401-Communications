@@ -311,6 +311,7 @@ public class ClientController {
 
     private void handleConversationResponse(Response response) {
         Conversation conv = (Conversation) response.getPayload();
+        if (conv == null) return;
         boolean isNew;
         ArrayList<Conversation> snapshot;
         synchronized (conversations) {
@@ -319,37 +320,59 @@ public class ClientController {
             sortConversationsByLastSequenceNumber(conversations);
             snapshot = new ArrayList<>(conversations);
         }
-        if (gui != null) {
-            gui.updateConversationListModel(snapshot);
-            if (isNew) {
-                // Auto-open the newly created conversation in the center panel.
-                setCurrentConversationId(conv.getConversationId());
-                SwingUtilities.invokeLater(() -> gui.updateMessageListModel(conv));
-                // Follow-up enhancement: call gui.selectConversationInList(conv) when UI support is added.
+        boolean isActiveParticipant = false;
+        if (currentUser != null) {
+            for (UserInfo p : conv.getParticipants()) {
+                if (p != null && currentUser.getUserId().equals(p.getUserId())) {
+                    isActiveParticipant = true;
+                    break;
+                }
             }
+        }
+        final boolean autoOpen = isNew && isActiveParticipant;
+        if (autoOpen) {
+            // Auto-open only when the caller is an actual participant (CREATE / ADD),
+            // never on silent admin JOIN where the admin is in historicalParticipants only.
+            setCurrentConversationId(conv.getConversationId());
+        }
+        if (gui != null) {
+            final ArrayList<Conversation> snap = snapshot;
+            SwingUtilities.invokeLater(() -> {
+                gui.updateConversationListModel(snap);
+                if (autoOpen) {
+                    gui.updateMessageListModel(conv);
+                }
+            });
         }
     }
 
     private void handleConversationMetadataResponse(Response response) {
         ConversationMetadata meta = (ConversationMetadata) response.getPayload();
+        if (meta == null) return;
+        Conversation matched = null;
         ArrayList<Conversation> snapshot;
+        boolean isCurrentConv;
         synchronized (conversations) {
-            boolean found = false;
             for (Conversation c : conversations) {
-                if (c.getConversationId() == meta.getConversationId()) {
-                    found = true;
-                    break;
-                }
+                if (c.getConversationId() == meta.getConversationId()) { matched = c; break; }
             }
-            if (!found) {
+            if (matched == null) {
                 System.err.println("CONVERSATION_METADATA: no matching conversation for id=" + meta.getConversationId());
                 return;
             }
+            matched.applyMetadata(meta);
             snapshot = new ArrayList<>(conversations);
+            isCurrentConv = matched.getConversationId() == currentConversationId;
         }
         if (gui != null) {
+            final Conversation toRefresh = matched;
             final ArrayList<Conversation> snap = snapshot;
-            SwingUtilities.invokeLater(() -> gui.updateConversationListModel(snap));
+            SwingUtilities.invokeLater(() -> {
+                gui.updateConversationListModel(snap);
+                if (isCurrentConv) {
+                    gui.updateMessageListModel(toRefresh);
+                }
+            });
         }
     }
 
@@ -556,6 +579,26 @@ public class ClientController {
         if (!loggedIn || currentUser == null || currentUser.getUserType() != UserType.ADMIN) return;
         enqueueRequest(new Request(RequestType.JOIN_CONVERSATION,
                 new JoinConversationPayload(conversationId), currentUser.getUserId()));
+    }
+
+    /** Opens an already-known conversation in the main chat view. Used by the admin Join
+     *  button when the admin is already an active participant — no JOIN_CONVERSATION needed. */
+    public void openConversationInMainView(long conversationId) {
+        Conversation target = null;
+        synchronized (conversations) {
+            for (Conversation c : conversations) {
+                if (c.getConversationId() == conversationId) { target = c; break; }
+            }
+        }
+        if (target == null) return;
+        setCurrentConversationId(conversationId);
+        if (gui != null) {
+            final Conversation toOpen = target;
+            SwingUtilities.invokeLater(() -> {
+                gui.updateMessageListModel(toOpen);
+                gui.selectConversationInList(toOpen);
+            });
+        }
     }
 
     // -------------------------------------------------------------------------
