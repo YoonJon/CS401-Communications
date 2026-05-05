@@ -724,7 +724,7 @@ class ClientController
 - handleUserCreationResponse(response: Response): void
 ```
 
-`User.UserInfo` (nested class, see **shared.networking.User** below) is the wire snapshot type; it is not declared inside `ClientController`. The client and server `main` methods log a version string from `shared.BuildInfo` (embedded revision; may call `git` when run from a checkout). Request draining, inbound responses, and idle/ping keepalive run on **daemon threads** named `request-drain`, `client-resp`, and `client-inact` (not separate top-level inner classes named `ResponseListener` / `InactivityDetector`).
+`User.UserInfo` (nested class, see **shared.networking.User** below) is the wire snapshot type; it is not declared inside `ClientController`. The client and server `main` methods log a version string from `shared.BuildInfo.formatVersionForLog()`. Request draining, inbound responses, and idle/ping keepalive run on **daemon threads** named `request-drain`, `client-resp`, and `client-inact` (not separate top-level inner classes named `ResponseListener` / `InactivityDetector`).
 
 **Admin workflow:** `adminGetUserConversations` issues `ADMIN_CONVERSATION_QUERY` and refreshes `currentAdminConversationSearch`. The admin UI filters that cache via `getFilteredAdminConversationSearch` (no extra round-trip). `adminViewConversation` issues `ADMIN_VIEW_CONVERSATION` for a read-only full conversation snapshot (`ADMIN_VIEW_CONVERSATION_RESULT`) without adding the admin as a participant. On successful registration, the server may broadcast `USER_CREATION` to other connected clients so directory caches can refresh.
 
@@ -1007,9 +1007,11 @@ class Conversation implements ResponsePayload
 - participants: ArrayList<UserInfo>
 - historicalParticipants: ArrayList<UserInfo>
 - type: ConversationType
-+ Conversation(conversationId: long, participants: ArrayList<UserInfo>)
+- sortSequenceSentinel: long
++ Conversation(conversationId: long, participants: ArrayList<UserInfo>, sortSequenceSentinel: long)
 + toMetadata(): ConversationMetadata
 + getConversationId(): long
++ getSortSequenceSentinel(): long
 + getMessages(): ArrayList<Message>
 + getParticipants(): ArrayList<UserInfo>
 + getHistoricalParticipants(): ArrayList<UserInfo>
