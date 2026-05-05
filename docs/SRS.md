@@ -15,9 +15,9 @@
 - 04/29/2026 | 5.5 | Modified Section 5.2: synced class/member listings with Java sources (controllers, DataManager, payloads) | Team
 - 04/29/2026 | 5.6 | Modified Modified Section 5.2: documented private/package helper methods (client, server, DataManager, ConnectionHandler) | Team
 
-- 05/01/2026 | 5.4 | Added 3.1.2.21; fixed requirement refs, revision note, payloads, UC names, and typos   | Team
-- 05/01/2026 | 5.5 | Client UI/controller model cleanup; admin search behavior note; naming consistency        | Team
-- 05/04/2026 | 5.7 | Section 5.2 synced with `main`: enums, ClientController/ServerController/DataManager, payloads, ClientUI list view | Team
+- 05/01/2026 | 5.7 | Added 3.1.2.21; fixed requirement refs, revision note, payloads, UC names, and typos   | Team
+- 05/01/2026 | 5.8 | Client UI/controller model cleanup; admin search behavior note; naming consistency        | Team
+- 05/04/2026 | 5.9 | Section 5.2 synced with `main`: enums, ClientController/ServerController/DataManager, payloads, ClientUI list view | Team
 
 # Table of Contents
 
