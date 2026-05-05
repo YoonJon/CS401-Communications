@@ -1,6 +1,5 @@
 package server;
 
-import server.DataManager;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -26,6 +25,7 @@ import shared.networking.User;
 import shared.payload.AddToConversationPayload;
 import shared.payload.AdminConversationQuery;
 import shared.payload.AdminConversationResult;
+import shared.payload.AdminViewConversationQuery;
 import shared.payload.Conversation;
 import shared.payload.ConversationMetadata;
 import shared.payload.CreateConversationPayload;
@@ -105,7 +105,8 @@ public class DataManagerTest {
                 u5,Eve
                 """);
 
-        Files.writeString(authorizedIds.resolve("authorized_admins.txt"), "");
+        // u1 is admin so admin query/join paths in smoke tests match production behavior.
+        Files.writeString(authorizedIds.resolve("authorized_admins.txt"), "u1\n");
         Files.writeString(serverData.resolve("server_config.txt"), "");
 
         Files.createDirectories(root.resolve("conversation_data"));
@@ -214,7 +215,7 @@ public class DataManagerTest {
         ArrayList<Message> messages = forked.getMessages();
         assertEquals(1, messages.size(), "forked conversation has exactly one message (SYSTEM)");
         assertEquals("SYSTEM", messages.get(0).getSenderId());
-        assertTrue(messages.get(0).getText().contains("u3"), "system message names the added user");
+        assertTrue(messages.get(0).getText().contains("Carol"), "system message names the added user");
     }
 
     @Test
@@ -243,7 +244,55 @@ public class DataManagerTest {
         assertEquals("SYSTEM", last.getSenderId(), "last message is SYSTEM");
         assertTrue(last.getSequenceNumber() > priorSeq,
                 "SYSTEM seq (" + last.getSequenceNumber() + ") > prior seq (" + priorSeq + ")");
-        assertTrue(last.getText().contains("u4"), "system message names the added user");
+        assertTrue(last.getText().contains("Dan"), "system message names the added user");
+    }
+
+    @Test
+    void handleAdminViewConversation_nonAdminGetsNullPayload() throws IOException {
+        Path root = tempRoot.resolve("admin_view_non_admin");
+        prepareMinimalDataTree(root);
+        Files.writeString(root.resolve("server_data/authorized_ids/authorized_admins.txt"), "u1\n");
+        DataManager mgr = new DataManager(root.toString());
+        try {
+            assertEquals(RegisterStatus.SUCCESS, ((RegisterResult) mgr.handleRegister(new Request(RequestType.REGISTER,
+                    new RegisterCredentials("u1", "alice", "p1", "Alice"), null)).getPayload()).getRegisterStatus());
+            assertEquals(RegisterStatus.SUCCESS, ((RegisterResult) mgr.handleRegister(new Request(RequestType.REGISTER,
+                    new RegisterCredentials("u2", "bob", "p2", "Bob"), null)).getPayload()).getRegisterStatus());
+            long cid = ((Conversation) mgr.handleCreateConversation(new Request(RequestType.CREATE_CONVERSATION,
+                    new CreateConversationPayload(roster(ui("u1", "Alice"), ui("u2", "Bob"))),
+                    "u1")).getPayload()).getConversationId();
+
+            Response denied = mgr.handleAdminViewConversation(new Request(RequestType.ADMIN_VIEW_CONVERSATION,
+                    new AdminViewConversationQuery(cid), "u2"));
+            assertEquals(ResponseType.ADMIN_VIEW_CONVERSATION_RESULT, denied.getType());
+            assertNull(denied.getPayload());
+
+            Response allowed = mgr.handleAdminViewConversation(new Request(RequestType.ADMIN_VIEW_CONVERSATION,
+                    new AdminViewConversationQuery(cid), "u1"));
+            assertEquals(ResponseType.ADMIN_VIEW_CONVERSATION_RESULT, allowed.getType());
+            assertNotNull(allowed.getPayload());
+            assertEquals(cid, ((Conversation) allowed.getPayload()).getConversationId());
+        } finally {
+            mgr.close();
+        }
+    }
+
+    @Test
+    void handleAdminViewConversation_unknownConversationReturnsNullPayload() throws IOException {
+        Path root = tempRoot.resolve("admin_view_missing_conv");
+        prepareMinimalDataTree(root);
+        Files.writeString(root.resolve("server_data/authorized_ids/authorized_admins.txt"), "u1\n");
+        DataManager mgr = new DataManager(root.toString());
+        try {
+            assertEquals(RegisterStatus.SUCCESS, ((RegisterResult) mgr.handleRegister(new Request(RequestType.REGISTER,
+                    new RegisterCredentials("u1", "alice", "p1", "Alice"), null)).getPayload()).getRegisterStatus());
+            Response r = mgr.handleAdminViewConversation(new Request(RequestType.ADMIN_VIEW_CONVERSATION,
+                    new AdminViewConversationQuery(9_999_999L), "u1"));
+            assertEquals(ResponseType.ADMIN_VIEW_CONVERSATION_RESULT, r.getType());
+            assertNull(r.getPayload());
+        } finally {
+            mgr.close();
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -347,10 +396,10 @@ public class DataManagerTest {
         assertTrue(adminIds.contains(convGroup), "admin list contains group");
         assertTrue(adminIds.contains(forked.getConversationId()), "admin list contains fork");
 
-        // --- Join u5 to group
+        // --- Admin u1 silently joins group (u1 is already a member; idempotent join path)
         Response joinResp = dm.handleJoinConversation(new Request(RequestType.JOIN_CONVERSATION,
                 new JoinConversationPayload(convGroup),
-                "u5"));
+                "u1"));
         assertEquals(ResponseType.CONVERSATION, joinResp.getType(), "join");
         assertEquals(Long.valueOf(convGroup), Long.valueOf(((Conversation) joinResp.getPayload()).getConversationId()),
                 "join conv id");

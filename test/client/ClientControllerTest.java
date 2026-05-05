@@ -5,7 +5,6 @@ import org.junit.jupiter.api.Timeout;
 import shared.enums.*;
 import shared.networking.*;
 import shared.networking.User.UserInfo;
-import shared.networking.fixtures.NetworkingSeedData;
 import shared.payload.*;
 
 import javax.swing.SwingUtilities;
@@ -28,13 +27,29 @@ import static org.junit.jupiter.api.Assertions.*;
 @Timeout(value = 10, unit = TimeUnit.SECONDS)
 class ClientControllerTest {
 
+    /** Stable ids/names for headless tests (replaces removed shared fixtures). */
+    private static final String ALICE_ID = "1001";
+    private static final String ALICE_NAME = "Alice";
+    private static final String BOB_ID = "1002";
+    private static final String BOB_NAME = "Bob";
+    private static final String CAROL_ID = "1003";
+    private static final String CAROL_NAME = "Carol";
+
     // =========================================================================
     // Helpers — build test data without a live server
     // =========================================================================
 
-    private static UserInfo alice() { return NetworkingSeedData.aliceInfo(); }
-    private static UserInfo bob()   { return NetworkingSeedData.bobInfo(); }
-    private static UserInfo carol() { return NetworkingSeedData.carolInfo(); }
+    private static UserInfo alice() {
+        return new User(ALICE_ID, ALICE_NAME, "alice_login", "pw", UserType.USER).toUserInfo();
+    }
+
+    private static UserInfo bob() {
+        return new User(BOB_ID, BOB_NAME, "bob_login", "pw", UserType.USER).toUserInfo();
+    }
+
+    private static UserInfo carol() {
+        return new User(CAROL_ID, CAROL_NAME, "carol_login", "pw", UserType.USER).toUserInfo();
+    }
 
     /** Builds a Conversation with a fixed id and the given members. */
     private static Conversation conv(long id, UserInfo... members) {
@@ -74,7 +89,7 @@ class ClientControllerTest {
     }
 
     private static Response messageFor(long convId, String text) {
-        Message m = new Message(text, 1L, new Date(), NetworkingSeedData.ALICE_ID, convId);
+        Message m = new Message(text, 1L, new Date(), ALICE_ID, convId);
         return new Response(ResponseType.MESSAGE, m);
     }
 
@@ -130,8 +145,8 @@ class ClientControllerTest {
         ClientController c = headless();
         c.processResponse(loginSuccessAliceWithConv());
         assertNotNull(c.getCurrentUserInfo());
-        assertEquals(NetworkingSeedData.ALICE_ID,   c.getCurrentUserInfo().getUserId());
-        assertEquals(NetworkingSeedData.ALICE_NAME, c.getCurrentUserInfo().getName());
+        assertEquals(ALICE_ID,   c.getCurrentUserInfo().getUserId());
+        assertEquals(ALICE_NAME, c.getCurrentUserInfo().getName());
     }
 
     @Test
@@ -365,9 +380,9 @@ class ClientControllerTest {
 
     @Test
     void filteredDirectory_matchesByExactUserId() {
-        List<UserInfo> r = headlessWithDirectory().getFilteredDirectory(NetworkingSeedData.ALICE_ID);
+        List<UserInfo> r = headlessWithDirectory().getFilteredDirectory(ALICE_ID);
         assertEquals(1, r.size());
-        assertEquals(NetworkingSeedData.ALICE_ID, r.get(0).getUserId());
+        assertEquals(ALICE_ID, r.get(0).getUserId());
     }
 
     @Test
@@ -375,7 +390,7 @@ class ClientControllerTest {
         // "lic" is a substring of "Alice"
         List<UserInfo> r = headlessWithDirectory().getFilteredDirectory("lic");
         assertEquals(1, r.size());
-        assertEquals(NetworkingSeedData.ALICE_NAME, r.get(0).getName());
+        assertEquals(ALICE_NAME, r.get(0).getName());
     }
 
     @Test
@@ -410,7 +425,7 @@ class ClientControllerTest {
     void filteredConversationList_matchesByParticipantId() {
         ClientController c = headless();
         c.processResponse(loginSuccessAliceWithConv()); // alice id=1001, bob id=1002
-        assertEquals(1, c.getFilteredConversationList(NetworkingSeedData.BOB_ID).size());
+        assertEquals(1, c.getFilteredConversationList(BOB_ID).size());
     }
 
     @Test
