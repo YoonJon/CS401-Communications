@@ -17,6 +17,7 @@
 
 - 05/01/2026 | 5.4 | Added 3.1.2.21; fixed requirement refs, revision note, payloads, UC names, and typos   | Team
 - 05/01/2026 | 5.5 | Client UI/controller model cleanup; admin search behavior note; naming consistency        | Team
+- 05/04/2026 | 5.7 | Section 5.2 synced with `main`: enums, ClientController/ServerController/DataManager, payloads, ClientUI list view | Team
 
 # Table of Contents
 
@@ -493,6 +494,7 @@ enum RequestType
     LEAVE_CONVERSATION,
     JOIN_CONVERSATION,
     ADMIN_CONVERSATION_QUERY,
+    ADMIN_VIEW_CONVERSATION,
     PING
 
 enum ResponseType
@@ -503,6 +505,8 @@ enum ResponseType
     CONVERSATION,
     CONVERSATION_METADATA,
     ADMIN_CONVERSATION_RESULT,
+    ADMIN_VIEW_CONVERSATION_RESULT,
+    USER_CREATION,
     LEAVE_RESULT,
     PONG,
     CONNECTED
@@ -540,8 +544,10 @@ class ClientUI
 
 + ClientUI(controller: ClientController)
 + showLoginView(): void
++ showLoginView(prefilledLoginId: String): void
 + showRegisterView(): void
 + showMainView(): void
++ setLoginInFlight(inFlight: boolean): void
 + showRegisterError(registerStatus: RegisterStatus): void
 + showLoginError(loginStatus: LoginStatus): void
 + getDirectoryViewModel(): DefaultListModel<UserInfo>
@@ -598,24 +604,28 @@ class ClientUI
   + ConversationView()
 
   <<nested>> class DirectoryView extends JPanel
-  - userLabel: JLabel
+  - profileNameLabel: JLabel
+  - profileUserIdLabel: JLabel
+  - pickerBannerLabel: JLabel   // visible in participant-picker mode
   - searchField: JTextField
-  - listModel: DefaultListModel<>
+  - listModel: DefaultListModel<UserInfo>
   - list: JList<>(listModel)
   - logoutButton: JButton
   - createConversationButton: JButton
   - adminButton: JButton
+  - createDialog: JDialog
+  - adminDialog: JDialog
+  - createConversationUserWindow: SelectUserWindow
+  - adminConversationSearchWindow: AdminConversationSearchWindow
 
   + DirectoryView()
 
   <<nested>> class ConversationListView extends JPanel
-  - participantsLabel: JLabel
-  - messageModel: DefaultListModel<>
-  - list: JList<>(messageModel)
-  - addButton: JButton
-  - leaveButton: JButton
-  - text: JTextField
-  - sendButton: JButton
+  - searchField: JTextField
+  - listModel: DefaultListModel<Conversation>
+  - list: JList<Conversation>
+  - suppressSelectionEvents: boolean
+  - <<nested>> ConversationCellRenderer   // list cell labels (DM/Group)
   
   + ConversationListView()
   
@@ -654,18 +664,19 @@ class ClientController
 - responseListenerThread: Thread
 - inactivityDetectorThread: Thread
 - loggedIn: boolean
+- authInFlight: boolean   // volatile; login/register request outstanding
+- lastRegisteredLoginName: String   // volatile; register success → pre-fill login
 - currentUser: UserInfo
-- conversations: ArrayList<Conversation>
+- conversations: List<Conversation>   // synchronized list; ordered by last message sequence
 - currentConversationId: long   // −1 means none selected
 - currentDirectory: ArrayList<UserInfo>
 - currentAdminConversationSearch: ArrayList<ConversationMetadata>
-- lastServerActivityMillis: long
+- lastServerActivityMillis: long   // volatile
 
 + main(args: String[]): void
 + ClientController(hostIp: String, hostPort: int)
 ~ ClientController(hostIp: String, hostPort: int, guiOverride: ClientUI)   // package-private; tests/headless — optional null GUI, conditional thread start
 - close(): void   // shutdown hook; interrupts workers and disconnectSocket
-~ runRequestLoop(): void         // package-private; blocking drain in caller thread (tests / headless)
 ~ processResponse(response: Response): void   // package-private for tests without a socket
 ~ setCurrentDirectoryForTesting(dir: ArrayList<UserInfo>): void   // package-private test seam
 
@@ -676,14 +687,16 @@ class ClientController
 + updateReadMessages(conversationId: long, lastSeenSequenceNumber: long): void
 + searchDirectory(query: String): void
 + searchConversationList(query: String): void
-+ adminConversationSearch(query: String): void          // ADMIN_CONVERSATION_QUERY (search/filter string)
 + createConversation(p: ArrayList<UserInfo>): void
 + addToConversation(p: ArrayList<UserInfo>, conversationId: long): void
 + leaveConversation(conversationId: long): void
-+ adminGetUserConversations(userID: String): void         // same request type; target user id
++ adminGetUserConversations(userID: String): void         // ADMIN_CONVERSATION_QUERY; refreshes cache
++ adminViewConversation(conversationId: long): void       // ADMIN_VIEW_CONVERSATION; read-only full conversation
 + joinConversation(conversationId: long): void
 + getCurrentUserInfo(): UserInfo
 + isLoggedIn(): boolean
++ getCurrentAdminConversationSearch(): ArrayList<ConversationMetadata>
++ clearAdminConversationSearch(): void
 + getFilteredDirectory(query: String): ArrayList<UserInfo>
 + getFilteredConversationList(query: String): ArrayList<Conversation>
 + getFilteredAdminConversationSearch(q: String): ArrayList<ConversationMetadata>
@@ -695,6 +708,7 @@ class ClientController
 - ensureConnected(): void
 - sendRequest(r: Request): void
 - enqueueRequest(r: Request): void
+- sortConversationsByLastSequenceNumber(list: List<Conversation>): void   // private static; client-side ordering
 - startRequestDrainThread(): void   // daemon "request-drain": take queue, ensureConnected, sendRequest
 - startResponseListenerThread(): void   // daemon "client-resp": readObject loop → processResponse
 - startInactivityDetectorThread(): void   // daemon "client-inact": PING cadence + idle logout
@@ -702,14 +716,17 @@ class ClientController
 - handleRegisterResultResponse(response: Response): void
 - handleMessageResponse(response: Response): void
 - handleConversationResponse(response: Response): void
+- handleConversationMetadataResponse(response: Response): void
 - handleLeaveResultResponse(response: Response): void
 - handleReadMessagesUpdatedResponse(response: Response): void
 - handleAdminConversationResultResponse(response: Response): void
+- handleAdminViewConversationResultResponse(response: Response): void
+- handleUserCreationResponse(response: Response): void
 ```
 
-`User.UserInfo` (nested class, see **shared.networking.User** below) is the wire snapshot type; it is not declared inside `ClientController`. Request draining, inbound responses, and idle/ping keepalive run on **daemon threads** named `request-drain`, `client-resp`, and `client-inact` (not separate top-level inner classes named `ResponseListener` / `InactivityDetector`).
+`User.UserInfo` (nested class, see **shared.networking.User** below) is the wire snapshot type; it is not declared inside `ClientController`. The client and server `main` methods log a version string from `shared.BuildInfo` (embedded revision; may call `git` when run from a checkout). Request draining, inbound responses, and idle/ping keepalive run on **daemon threads** named `request-drain`, `client-resp`, and `client-inact` (not separate top-level inner classes named `ResponseListener` / `InactivityDetector`).
 
-**Admin conversation search:** `adminGetUserConversations` issues a server request (`ADMIN_CONVERSATION_QUERY`) and refreshes the cached admin result set (`currentAdminConversationSearch`). `adminConversationSearch` filters that cache locally for the admin UI without an additional server round-trip.
+**Admin workflow:** `adminGetUserConversations` issues `ADMIN_CONVERSATION_QUERY` and refreshes `currentAdminConversationSearch`. The admin UI filters that cache via `getFilteredAdminConversationSearch` (no extra round-trip). `adminViewConversation` issues `ADMIN_VIEW_CONVERSATION` for a read-only full conversation snapshot (`ADMIN_VIEW_CONVERSATION_RESULT`) without adding the admin as a participant. On successful registration, the server may broadcast `USER_CREATION` to other connected clients so directory caches can refresh.
 
 ### Server-side Classes
 
@@ -725,8 +742,7 @@ class ServerController
 + main(args: String[]): void
 - keepAliveUntilInterrupted(serverController: ServerController): void   // static; blocks on latch until shutdown hook runs close()
 + close(): void
-+ ServerController(dataRootPath: String, port: int)
-~ ServerController(dataRootPath: String, port: int, startBroadcaster: boolean)   // package-private; tests may set startBroadcaster=false
++ ServerController(bindIPv4: String, port: int, dataRootPath: String)
 + processRequest(request: Request): Response
 + hasActiveSession(userId: String): boolean
 + removeSession(userId: String): void
@@ -736,8 +752,9 @@ class ServerController
 - broadcastResponse(request: Request, response: Response): void   // routes MESSAGE / CREATE_CONVERSATION / ADD_PARTICIPANT fan-out
 - enqueueToActiveParticipants(participants: ArrayList<UserInfo>, response: Response): void   // offer to responseQueue for online user ids
 - enqueueMessageBroadcast(request: Request, response: Response): void
-- enqueueCreateConversationBroadcast(response: Response): void
-- enqueueAddParticipantBroadcast(request: Request, response: Response): void   // metadata to existing members; full conversation to newly added
+- enqueueCreateConversationBroadcast(requesterId: String, response: Response): void
+- enqueueAddParticipantBroadcast(request: Request, response: Response): void   // metadata to existing members; full conversation to newly added; PRIVATE-fork may fan out full Conversation
+- enqueueLeaveConversationBroadcast(conversationId: long, leaverId: String): void   // CONVERSATION_METADATA to remaining participants
 - startConnectionListenerThread(): void   // daemon "server-listener" → connectionListener.listen()
 - startBroadcasterThread(): void   // daemon "server-broadcast": drain responseQueue → handler.sendResponse
 
@@ -768,7 +785,9 @@ class DataManager
 + handleAddToConversation(request: Request): Response
 + handleLeaveConversation(request: Request): Response
 + handleAdminConversationQuery(request: Request): Response
++ handleAdminViewConversation(request: Request): Response
 + handleJoinConversation(request: Request): Response
++ getConversation(conversationId: long): Conversation
 + getParticipantList(conversationId: long): ArrayList<UserInfo>
 + userExists(loginName: String): boolean
 + getUserIdByLoginName(loginName: String): String
@@ -838,10 +857,11 @@ class User   // shared.networking.User — server-persisted account
 class ConnectionListener
 
 - threadPool: ExecutorService
+- hostAddress: String   // bind address (e.g. 0.0.0.0 or localhost)
 - hostPort: int
 - serverController: ServerController
 
-+ ConnectionListener(hostPort: int, serverController: ServerController)
++ ConnectionListener(hostAddress: String, hostPort: int, serverController: ServerController)
 + listen(): void
 + close(): void
 
@@ -971,6 +991,11 @@ class AdminConversationQuery implements RequestPayload
 - userId: String
 + AdminConversationQuery(userId: String)
 + getUserId(): String
+
+class AdminViewConversationQuery implements RequestPayload
+- conversationId: long
++ AdminViewConversationQuery(conversationId: long)
++ getConversationId(): long
 ```
 
 #### Response Payloads
@@ -1030,8 +1055,16 @@ class ReadMessagesUpdated implements ResponsePayload
 
 class RegisterResult implements ResponsePayload
 - result: RegisterStatus
+- userInfo: UserInfo   // non-null on SUCCESS (optional directory broadcast)
 + RegisterResult(r: RegisterStatus)
++ RegisterResult(r: RegisterStatus, userInfo: UserInfo)
 + getRegisterStatus(): RegisterStatus
++ getUserInfo(): UserInfo
+
+class UserCreationPayload implements ResponsePayload
+- userInfo: UserInfo
++ UserCreationPayload(userInfo: UserInfo)
++ getUserInfo(): UserInfo
 
 class LoginResult implements ResponsePayload
 - result: LoginStatus
