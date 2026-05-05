@@ -28,6 +28,8 @@ import shared.payload.UserCreationPayload;
 import shared.enums.LoginStatus;
 
 public class ServerController {
+    private static volatile ServerController instance;
+
     private Map<String, ConnectionHandler> activeSessions;
     private DataManager dataManager;
     private ConnectionListener connectionListener;
@@ -59,8 +61,30 @@ public class ServerController {
         if (bindIPv4 == null || bindIPv4.isBlank()) {
             bindIPv4 = args.length == 1 ? "localhost" : (args.length > 2 ? args[2] : "0.0.0.0");
         }
-        ServerController serverController = new ServerController(bindIPv4, port, dataRootPath);
+        ServerController serverController = getInstance(bindIPv4, port, dataRootPath);
+        if (serverController == null) {
+            return; // duplicate startup guard already logged
+        }
         keepAliveUntilInterrupted(serverController);
+    }
+
+    protected ServerController(String bindIPv4, int port, String dataRootPath) {
+        System.out.println("[ServerController] version " + BuildInfo.formatVersionForLog());
+        this.activeSessions = new ConcurrentHashMap<>();
+        this.dataManager = new DataManager(dataRootPath);
+        this.connectionListener = new ConnectionListener(bindIPv4, port, this);
+        this.responseQueue = new LinkedBlockingQueue<>();
+        startBroadcasterThread();
+        startConnectionListenerThread();
+    }
+
+    public static synchronized ServerController getInstance(String bindIPv4, int port, String dataRootPath) {
+        if (instance != null) {
+            System.out.println("[ServerController] instance already running; ignoring duplicate startup.");
+            return null;
+        }
+        instance = new ServerController(bindIPv4, port, dataRootPath);
+        return instance;
     }
 
     private static void keepAliveUntilInterrupted(ServerController serverController) {
@@ -75,16 +99,6 @@ public class ServerController {
             Thread.currentThread().interrupt();
             serverController.close();
         }
-    }
-
-    public ServerController(String bindIPv4, int port, String dataRootPath) {
-        System.out.println("[ServerController] version " + BuildInfo.formatVersionForLog());
-        this.activeSessions = new ConcurrentHashMap<>();
-        this.dataManager = new DataManager(dataRootPath);
-        this.connectionListener = new ConnectionListener(bindIPv4, port, this);
-        this.responseQueue = new LinkedBlockingQueue<>();
-        startBroadcasterThread();
-        startConnectionListenerThread();
     }
 
     public void close() {
@@ -105,6 +119,9 @@ public class ServerController {
             if (handler != null) {
                 handler.close();
             }
+        }
+        if (instance == this) {
+            instance = null;
         }
     }
 

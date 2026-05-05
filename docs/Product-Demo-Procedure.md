@@ -26,7 +26,7 @@ Use this as a literal step-by-step script during the live demo.
 ## Server startup
 
 - [ ] **Jon** (Terminal 1): run the provided server `.jar` that includes the IP finder utility.
-- [ ] When the jar prompts for runmode, enter `2` (withHeroes) for the product demo (premade Jon/Quan/Harumi accounts).
+- [ ] Use the default demo seeding mode: **withHeroes** (premade Jon/Quan/Harumi accounts).
 - [ ] Capture the IPv4 printed by the utility (this is the host IP clients will use).
 - [ ] Confirm the server process is running and listening on port `8080`.
 
@@ -40,9 +40,9 @@ Use this as a literal step-by-step script during the live demo.
 ## Demo identities
 
 Seeded defaults:
-- Jon: `pretzul` / `a`
-- Quan: `user123` / `a`
-- Harumi: `user456` / `a`
+- Jon: `jon` / `a`
+- Quan: `quan` / `a`
+- Harumi: `harumi` / `a`
 
 - [ ] Confirm Jon account has Admin button (if not, swap roles so the admin user becomes the single-client presenter).
 
@@ -51,8 +51,12 @@ Seeded defaults:
 ## UC-01 Account Creation (single-client, projector = Jon)
 
 - [ ] **Jon** opens register screen.
-- [ ] **Jon** enters valid employee ID + matching name + unique login + password.
-- [ ] **Jon** submits and confirms success.
+- [ ] **Jon** enters John Doe registration data:
+  - employee ID: `J8D3K7P1LX`
+  - real name: `John Doe`
+  - login: `user123`
+  - password: `a`
+- [ ] **Jon** submits and confirms account creation succeeds.
 - [ ] **Jon** corner case: invalid name/employee ID -> rejection.
 - [ ] **Jon** corner case: duplicate login -> rejection.
 
@@ -147,8 +151,12 @@ Seeded defaults:
 
 - [ ] **Jon (admin)** clicks Admin button.
 - [ ] **Jon** searches by user ID/name.
-- [ ] **Jon** selects one conversation and opens full snapshot.
-- [ ] **Jon** states this is read-only admin view.
+- [ ] **Jon** selects one conversation and opens the admin view.
+- [ ] **Jon** clicks **Join** to join that conversation as admin.
+- [ ] **Jon** confirms the joined conversation now appears in Jon's main conversation list.
+- [ ] **Jon -> Harumi** in the joined conversation: `Admin Jon joined this conversation for monitoring.`
+- [ ] **Harumi** confirms Jon's admin message appears in the same conversation.
+- [ ] **Jon** confirms the conversation remains accessible through the Admin search flow as well.
 
 ---
 
@@ -160,7 +168,7 @@ Seeded defaults:
 - [ ] Directory and conversation search shown.
 - [ ] Private + group creation shown.
 - [ ] Add participant + leave shown.
-- [ ] Admin read-only view shown.
+- [ ] Admin join + view flow shown.
 - [ ] Logout/re-login shown.
 
 ## Server shutdown

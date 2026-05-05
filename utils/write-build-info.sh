@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Updates embedded VERSION and GIT_REVISION in src/shared/BuildInfo.java from the Git checkout
-# at scripts/write-build-info.sh run time (fallback values when runtime Git is unavailable).
+# at utils/write-build-info.sh run time (fallback values when runtime Git is unavailable).
 # VERSION = git rev-list --count HEAD; GIT_REVISION = short hash plus -dirty when needed.
 # Run before javac, or wire into a compile alias / git pre-commit hook.
 set -euo pipefail

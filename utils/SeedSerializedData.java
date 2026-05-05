@@ -115,10 +115,10 @@ public class SeedSerializedData {
         }
 
         if (includeHeroes) {
-            // Jon / Quan / Harumi — same test presentation logins (overwrites if those ids were in bulk slice)
-            writeHeroUser(userDataPath, findRow(fullRoster, JON_ID), "pretzul", "a", adminIds);
-            writeHeroUser(userDataPath, findRow(fullRoster, QUAN_ID), "user123", "a", adminIds);
-            writeHeroUser(userDataPath, findRow(fullRoster, HARUMI_ID), "user456", "a", adminIds);
+            // Jon / Quan / Harumi — stable demo logins (overwrites if those ids were in bulk slice)
+            writeHeroUser(userDataPath, findRow(fullRoster, JON_ID), "jon", "a", adminIds);
+            writeHeroUser(userDataPath, findRow(fullRoster, QUAN_ID), "quan", "a", adminIds);
+            writeHeroUser(userDataPath, findRow(fullRoster, HARUMI_ID), "harumi", "a", adminIds);
         }
 
         ArrayList<ConvSeed> pending = new ArrayList<>();
