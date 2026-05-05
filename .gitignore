@@ -17,6 +17,11 @@ target/
 *.ear
 *.nar
 
+# Ignore stray .jar files but keep the bundled server launcher,
+# which is intentionally tracked as a runnable deliverable.
+*.jar
+!utils/server-with-ip-launcher.jar
+
 # JVM crash / profiling output
 hs_err_pid*.log
 replay_pid*.log
