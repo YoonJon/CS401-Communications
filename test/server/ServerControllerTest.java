@@ -29,6 +29,7 @@ import shared.networking.Request;
 import shared.networking.Response;
 import shared.networking.User;
 import shared.payload.AdminConversationQuery;
+import shared.payload.AdminViewConversationQuery;
 import shared.payload.AddToConversationPayload;
 import shared.payload.Conversation;
 import shared.payload.ConversationMetadata;
@@ -196,6 +197,19 @@ class ServerControllerTest {
                 new Request(RequestType.JOIN_CONVERSATION, new JoinConversationPayload(1L), "u1"));
         assertEquals(ResponseType.CONVERSATION, response.getType());
         assertEquals(RequestType.JOIN_CONVERSATION, stub.lastCalled);
+    }
+
+    @Test
+    void adminViewConversationDispatches() throws Exception {
+        StubDataManager stub = new StubDataManager(testDataRoot().toString());
+        stub.responses.put(RequestType.ADMIN_VIEW_CONVERSATION,
+                new Response(ResponseType.ADMIN_VIEW_CONVERSATION_RESULT, null));
+        server = buildServerWithStub(stub);
+
+        Response response = server.processRequest(
+                new Request(RequestType.ADMIN_VIEW_CONVERSATION, new AdminViewConversationQuery(42L), "u1"));
+        assertEquals(ResponseType.ADMIN_VIEW_CONVERSATION_RESULT, response.getType());
+        assertEquals(RequestType.ADMIN_VIEW_CONVERSATION, stub.lastCalled);
     }
 
     @Test
@@ -464,6 +478,7 @@ class ServerControllerTest {
         @Override public Response handleAddToConversation(Request request) { return hit(RequestType.ADD_PARTICIPANT); }
         @Override public Response handleLeaveConversation(Request request) { return hit(RequestType.LEAVE_CONVERSATION); }
         @Override public Response handleAdminConversationQuery(Request request) { return hit(RequestType.ADMIN_CONVERSATION_QUERY); }
+        @Override public Response handleAdminViewConversation(Request request) { return hit(RequestType.ADMIN_VIEW_CONVERSATION); }
         @Override public Response handleJoinConversation(Request request) { return hit(RequestType.JOIN_CONVERSATION); }
         @Override public ArrayList<User.UserInfo> getParticipantList(long conversationId) {
             ArrayList<User.UserInfo> participants = participantsByConversationId.get(conversationId);

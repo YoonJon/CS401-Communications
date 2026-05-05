@@ -164,9 +164,7 @@ Expected content format:
 - Blank lines and lines beginning with `#` are ignored
 
 ## Testing
-Tests are located under `test/` and use JUnit.
-
-If you are running in Eclipse, use **Run As > JUnit Test** on specific test classes or the test package.
+Tests are located under `test/` and use JUnit 5.
 
 ## Troubleshooting
 - **Client cannot connect**: make sure server is running first and host/port match.
