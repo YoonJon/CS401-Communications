@@ -11,14 +11,47 @@ out/
 target/
 
 # =========================
+# Java packaging artifacts
+# =========================
+*.war
+*.ear
+*.nar
+
+# JVM crash / profiling output
+hs_err_pid*.log
+replay_pid*.log
+*.hprof
+
+# =========================
 # IDEs
 # =========================
+
+# Eclipse
+.metadata/
+.recommenders/
+.apt_generated/
+.apt_generated_test/
+.factorypath
+.checkstyle
+.springBeans
+local.properties
 
 # IntelliJ IDEA
 .idea/
 *.iml
 *.iws
 *.ipr
+out/
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# NetBeans
+nbproject/private/
+nbbuild/
+nbdist/
+.nb-gradle/
 
 # =========================
 # Logs
@@ -28,21 +61,41 @@ target/
 # =========================
 # OS files
 # =========================
-.DS_Store
-Thumbs.db
 
-# =========================
-# Java packaging artifacts
-# =========================
-*.war
-*.ear
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
 
 # =========================
 # Temporary files
 # =========================
 *.tmp
+*.bak
 *.swp
-*~
+*.swo
 
 # =========================
 # Local test fixtures
@@ -56,4 +109,3 @@ test/junit-platform-console-standalone.jar
 data/conversation_data/
 data/user_data/
 data/server_data/server_config.txt
-
