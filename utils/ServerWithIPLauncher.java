@@ -36,7 +36,7 @@ public class ServerWithIPLauncher {
         }
 
         if (seedMode == null) {
-            // Interactive selection for demos; accepts 1/2/3 or bottomOnly/withHeroes/empty tokens.
+            // Interactive selection when --mode is not provided; accepts 1/2/3 or bottomOnly/withHeroes/empty.
             System.out.println("Select seeding runmode:");
             System.out.println("  1) bottomOnly   (seed only bottom-N users)");
             System.out.println("  2) withHeroes   (seed bottom-N users + premade Jon/Quan/Harumi accounts)");

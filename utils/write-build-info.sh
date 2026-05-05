@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Updates embedded VERSION and GIT_REVISION in src/shared/BuildInfo.java from the Git checkout
+# Updates embedded VERSION and GIT_REVISION in utils/shared/BuildInfo.java from the Git checkout
 # at utils/write-build-info.sh run time (fallback values when runtime Git is unavailable).
 # VERSION = git rev-list --count HEAD; GIT_REVISION = short hash plus -dirty when needed.
 # Run before javac, or wire into a compile alias / git pre-commit hook.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-OUT="$ROOT/src/shared/BuildInfo.java"
+OUT="$ROOT/utils/shared/BuildInfo.java"
 
 if git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   COUNT="$(git -C "$ROOT" rev-list --count HEAD)"
@@ -23,7 +23,7 @@ fi
 REV="${SHORT}${DIRTY}"
 
 if [[ ! -f "$OUT" ]]; then
-  echo "ERROR: $OUT not found — create shared/BuildInfo.java first." >&2
+  echo "ERROR: $OUT not found — create BuildInfo.java first." >&2
   exit 1
 fi
 

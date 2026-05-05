@@ -3,7 +3,7 @@
 # DiscoveryResponder code embedded. Run this whenever discovery code changes
 # or the launcher itself changes — otherwise the bundled jar will go stale.
 #
-# Usage: scripts/build-server-launcher-jar.sh
+# Usage: utils/build-server-launcher-jar.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
