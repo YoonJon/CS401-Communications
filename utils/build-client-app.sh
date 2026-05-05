@@ -4,8 +4,8 @@
 # Contents/Resources/ and launches it through a tiny shell stub.
 #
 # Usage:
-#   scripts/build-client-app.sh           # build the bundle
-#   scripts/build-client-app.sh --sign    # also ad-hoc codesign it
+#   utils/build-client-app.sh           # build the bundle
+#   utils/build-client-app.sh --sign    # also ad-hoc codesign it
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -17,7 +17,7 @@ for arg in "$@"; do
     if [[ "$arg" == "--sign" ]]; then SIGN=1; fi
 done
 
-"$ROOT/scripts/build-client-jar.sh"
+"$ROOT/utils/build-client-jar.sh"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -31,7 +31,7 @@ exec /usr/bin/java -jar "$DIR/Client.jar"
 EOF
 chmod 755 "$APP/Contents/MacOS/launch"
 
-cat > "$APP/Contents/Info.plist" <<'EOF'
+cat > "$APP/Contents/MacOS/Info.plist" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

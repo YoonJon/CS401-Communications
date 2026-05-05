@@ -2,7 +2,7 @@
 # Builds dist/Client.jar — a runnable JAR for the CS401 client with
 # Main-Class=client.ClientController.
 #
-# Usage: scripts/build-client-jar.sh
+# Usage: utils/build-client-jar.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -19,7 +19,7 @@ mkdir -p "$OUT" "$DIST"
 # so we drive javac directly over src/.
 SOURCES="$(mktemp)"
 trap 'rm -f "$SOURCES"' EXIT
-find "$ROOT/src" -name '*.java' > "$SOURCES"
+find "$ROOT/src" "$ROOT/utils/shared" -name '*.java' > "$SOURCES"
 javac -d "$OUT" @"$SOURCES"
 
 # Package only the client + shared trees. server.* and the default-package

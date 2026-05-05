@@ -685,8 +685,6 @@ class ClientController
 + logout(): void
 + sendMessage(conversationId: long, m: String): void
 + updateReadMessages(conversationId: long, lastSeenSequenceNumber: long): void
-+ searchDirectory(query: String): void
-+ searchConversationList(query: String): void
 + createConversation(p: ArrayList<UserInfo>): void
 + addToConversation(p: ArrayList<UserInfo>, conversationId: long): void
 + leaveConversation(conversationId: long): void

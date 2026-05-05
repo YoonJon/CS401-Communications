@@ -23,7 +23,7 @@ import java.util.concurrent.ThreadLocalRandom;
 /**
  * Seeds serialized .user and .conversation files under a DataManager-compatible data root.
  * Includes bulk bottom-N users, standard private/group threads, plus Jon / Quan / Harumi with
- * fixed demo logins and thirty extra private threads (ten partners each from the bulk roster).
+ * fixed seeded logins and thirty extra private threads (ten partners each from the bulk roster).
  * Conversation ids grow over a simulated timeline with irregular gaps (like a long-running server).
  * Message sequence numbers increase monotonically in chronological order with small random gaps; timestamps
  * are spread across months with uneven spacing between messages.
@@ -136,7 +136,7 @@ public class SeedSerializedData {
         }
 
         if (includeHeroes) {
-            // Jon / Quan / Harumi — stable demo logins (overwrites if those ids were in bulk slice)
+            // Jon / Quan / Harumi — fixed seeded logins (overwrites if those ids were in bulk slice)
             writeHeroUser(userDataPath, findRow(fullRoster, JON_ID), "jon", "a", adminIds);
             writeHeroUser(userDataPath, findRow(fullRoster, QUAN_ID), "quan", "a", adminIds);
             writeHeroUser(userDataPath, findRow(fullRoster, HARUMI_ID), "harumi", "a", adminIds);
@@ -227,7 +227,7 @@ public class SeedSerializedData {
 
         System.out.println("Seed complete.");
         if (includeHeroes) {
-            System.out.println("Users seeded: " + users.size() + " (bulk) + 3 (Jon, Quan, Harumi demo logins)");
+            System.out.println("Users seeded: " + users.size() + " (bulk) + 3 (Jon, Quan, Harumi hero logins)");
         } else {
             System.out.println("Users seeded: " + users.size() + " (bulk only; no premade Jon/Quan/Harumi overrides)");
         }

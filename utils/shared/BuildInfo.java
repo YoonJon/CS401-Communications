@@ -14,8 +14,8 @@ public final class BuildInfo {
 
     private BuildInfo() {}
 
-    public static final int VERSION = 200;
-    public static final String GIT_REVISION = "d81421b-dirty";
+    public static final int VERSION = 204;
+    public static final String GIT_REVISION = "3a2a628-dirty";
 
     /** Same shape as the embedded log segment: {@code "<count> (<hash>[-dirty])"}. */
     public static String formatVersionForLog() {
