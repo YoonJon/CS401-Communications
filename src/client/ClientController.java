@@ -630,18 +630,6 @@ public class ClientController {
     // UI/local filtering + read-only accessors.
     // -------------------------------------------------------------------------
 
-    /** Filters local directory and refreshes the directory list model in the GUI. */
-    public void searchDirectory(String query) {
-        if (gui == null) return;
-        gui.updateDirectoryModel(getFilteredDirectory(query));
-    }
-
-    /** Filters local conversation list and refreshes the conversation list model in the GUI. */
-    public void searchConversationList(String query) {
-        if (gui == null) return;
-        gui.updateConversationListModel(getFilteredConversationList(query));
-    }
-
     public UserInfo getCurrentUserInfo() { return currentUser; }
     public boolean isLoggedIn()           { return loggedIn; }
 

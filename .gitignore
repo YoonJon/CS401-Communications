@@ -58,6 +58,10 @@ nbbuild/
 nbdist/
 .nb-gradle/
 
+# VS Code / Cursor
+.vscode/
+.cursor/
+
 # =========================
 # Logs
 # =========================
@@ -87,12 +91,36 @@ ehthumbs.db
 Desktop.ini
 $RECYCLE.BIN/
 
-# Linux
-*~
-.fuse_hidden*
-.directory
-.Trash-*
-.nfs*
+# =========================
+# macOS packaging (e.g. jpackage / manual bundles)
+# =========================
+*.dmg
+
+# =========================
+# Local secrets / environment (keep .env.example if you add one)
+# =========================
+.env
+.env.*
+!.env.example
+
+# =========================
+# JVM crash / diagnostic dumps
+# =========================
+hs_err_pid*
+replay_pid*
+
+# =========================
+# Merge / editor backup artifacts
+# =========================
+*.orig
+*.rej
+
+# =========================
+# Java packaging artifacts
+# =========================
+*.jar
+*.war
+*.ear
 
 # =========================
 # Temporary files
@@ -106,7 +134,6 @@ $RECYCLE.BIN/
 # Local test fixtures
 # =========================
 test_data/
-test/junit-platform-console-standalone.jar
 
 # =========================
 # Runtime server data

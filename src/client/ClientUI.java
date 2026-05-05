@@ -38,7 +38,7 @@ public class ClientUI {
     public ClientUI(ClientController controller) {
         this.controller = controller;
 
-        // Fix 3: wrap ALL frame setup in invokeLater so it runs on the EDT.
+        // Wrap all frame setup in invokeLater so it runs on the EDT.
         SwingUtilities.invokeLater(() -> {
             try {
                 UIManager.setLookAndFeel("javax.swing.plaf.nimbus.NimbusLookAndFeel");
@@ -46,7 +46,7 @@ public class ClientUI {
                 // If Nimbus is unavailable, keep current LAF and continue.
             }
 
-            // Temporary dark-mode test theme (global UI defaults).
+            // Dark theme (global UI defaults).
             UIManager.put("control", new Color(43, 43, 43));
             UIManager.put("info", new Color(60, 63, 65));
             UIManager.put("nimbusBase", new Color(60, 63, 65));
@@ -81,7 +81,7 @@ public class ClientUI {
             frame = new JFrame();
             frame.setTitle(BASE_TITLE);
             frame.setIconImage(createAppIcon());
-            // Fix 2a: enforce minimum window size
+            // enforce minimum window size
             frame.setMinimumSize(new java.awt.Dimension(900, 600));
             cards = new ScreenCards();
             directoryModel = cards.main.directoryView.getListModel();
@@ -142,7 +142,7 @@ public class ClientUI {
     /** Pre-fill login id (e.g. with the just-registered loginName) before showing the screen. */
     public void showLoginView(String prefilledLoginId) {
         SwingUtilities.invokeLater(() -> {
-            // Fix 5: dispose any open dialogs before switching to login
+            // dispose any open dialogs before switching to login
             DirectoryView dv = cards.main.directoryView;
             ConversationView cv = cards.main.conversationView;
             if (dv.createDialog != null && dv.createDialog.isVisible()) dv.createDialog.dispose();
@@ -179,7 +179,7 @@ public class ClientUI {
             boolean isAdmin = currentUser != null && currentUser.getUserType() == UserType.ADMIN;
             cards.main.directoryView.adminButton.setVisible(isAdmin);
             // Refresh directory list from the latest controller-side cache on main-view entry.
-            // Fix 6: exclude the logged-in user from the directory picker list
+            // exclude the logged-in user from the directory picker list
             String myId = (currentUser != null) ? currentUser.getUserId() : null;
             directoryModel.clear();
             for (UserInfo userInfo : controller.getFilteredDirectory("")) {
@@ -204,7 +204,7 @@ public class ClientUI {
                 idL.setForeground(Color.GRAY);
             }
             cards.layout.show(cards, "main");
-            // Fix 2b: repack and re-center after switching to main card
+            // repack and re-center after switching to main card
             frame.pack();
             frame.setLocationRelativeTo(null);
         });
@@ -354,7 +354,7 @@ public class ClientUI {
 
     public void updateConversationListModel(ArrayList<Conversation> conversations) {
         SwingUtilities.invokeLater(() -> {
-            // Fix 7: preserve selection across model rebuild
+            // preserve selection across model rebuild
             JList<Conversation> convList = cards.main.conversationListView.list;
             cards.main.conversationListView.suppressSelectionEvents = true;
             Conversation selected = convList.getSelectedValue();
@@ -423,7 +423,7 @@ public class ClientUI {
     public void appendMessageToConversationView(Message message) {
         SwingUtilities.invokeLater(() -> {
             conversationMessageModel.addElement(message);
-            // Fix 9: auto-scroll to newest message
+            // auto-scroll to newest message
             SwingUtilities.invokeLater(() -> {
                 int last = cards.main.conversationView.list.getModel().getSize() - 1;
                 if (last >= 0) cards.main.conversationView.list.ensureIndexIsVisible(last);
@@ -660,7 +660,7 @@ public class ClientUI {
                 if (java.util.Arrays.equals(pwd1, pwd2)) {
                     controller.register(userId.getText(), name.getText(), loginName.getText(), password.getPassword());
                 } else {
-                    // Fix 4: use frame as parent instead of null
+                    // use frame as parent instead of null
                     JOptionPane.showMessageDialog(frame, "Passwords don't match. Type them again.", "Error", JOptionPane.ERROR_MESSAGE);
                 }
                 java.util.Arrays.fill(pwd1, '0');
@@ -809,7 +809,7 @@ public class ClientUI {
         JDialog addDialog;
         SelectUserWindow addUserWindow;
 
-        // Fix 8: placeholder label shown when no conversation is selected
+        // placeholder label shown when no conversation is selected
         private final JLabel placeholderLabel = new JLabel("Select a conversation to start chatting", SwingConstants.CENTER);
 
         // Use JTextArea-based bubbles for deterministic wrapping.
@@ -981,7 +981,7 @@ public class ClientUI {
             text = new JTextField(15);
             text.setEnabled(false);
             sendButton = new JButton("Send");
-            // Fix 10: gate buttons — disabled until a conversation is selected
+            // gate buttons — disabled until a conversation is selected
             addButton.setEnabled(false);
             leaveButton.setEnabled(false);
             sendButton.setEnabled(false);
@@ -1007,7 +1007,7 @@ public class ClientUI {
 
             add(infoPane, BorderLayout.NORTH);
 
-            // Fix 6: install the reusable cell renderer
+            // install the reusable cell renderer
             list.setCellRenderer(new MessageCellRenderer());
 
             // Re-invalidate cached row heights whenever either the list or
@@ -1022,7 +1022,7 @@ public class ClientUI {
             };
             list.addComponentListener(wrapResizeAdapter);
 
-            // Fix 8: create a layered center panel with the placeholder on top when no conversation
+            // create a layered center panel with the placeholder on top when no conversation
             JPanel centerPanel = new JPanel(new BorderLayout());
             messageScrollPane = new JScrollPane(list);
             messageScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
@@ -1090,7 +1090,7 @@ public class ClientUI {
 
             // add action to leave button
             leaveButton.addActionListener(e -> {
-            	// Fix 4: use frame as parent instead of null
+            	// use frame as parent instead of null
             	int result = JOptionPane.showConfirmDialog(frame, "Are you sure to leave this conversation?", "Confirm to Leave", JOptionPane.YES_NO_OPTION);
             	if(result == JOptionPane.YES_OPTION) {
             		controller.leaveConversation(controller.getCurrentConversationId());
@@ -1168,7 +1168,7 @@ public class ClientUI {
         }
 
         public void setListModel(Conversation currConv, long lastReadAtOpen) {
-            // Fix 3: exclude self, show up to 3 names, append "+N more" if needed
+            // exclude self, show up to 3 names, append "+N more" if needed
             UserInfo me = controller.getCurrentUserInfo();
             String myId = (me != null) ? me.getUserId() : null;
             ArrayList<UserInfo> others = new ArrayList<>();
@@ -1197,13 +1197,13 @@ public class ClientUI {
                 }
                 refreshWrapLayout();
                 text.setEnabled(true);
-                // Fix 10: enable buttons when a conversation is selected
+                // enable buttons when a conversation is selected
                 addButton.setEnabled(true);
                 leaveButton.setEnabled(true);
                 sendButton.setEnabled(!text.getText().trim().isEmpty());
-                // Fix 8: hide placeholder once a conversation is loaded
+                // hide placeholder once a conversation is loaded
                 placeholderLabel.setVisible(false);
-                // Fix 9: auto-scroll to newest message after loading
+                // auto-scroll to newest message after loading
                 SwingUtilities.invokeLater(() -> {
                     int last = list.getModel().getSize() - 1;
                     if (last >= 0) list.ensureIndexIsVisible(last);
@@ -1221,11 +1221,11 @@ public class ClientUI {
                 conversationMessageListModel.clear();
                 refreshWrapLayout();
                 text.setEnabled(false);
-                // Fix 10: disable buttons when no conversation is active
+                // disable buttons when no conversation is active
                 addButton.setEnabled(false);
                 leaveButton.setEnabled(false);
                 sendButton.setEnabled(false);
-                // Fix 8: show placeholder again
+                // show placeholder again
                 placeholderLabel.setVisible(true);
             });
         }
@@ -1263,7 +1263,7 @@ public class ClientUI {
     class DirectoryView extends JPanel {
         JLabel profileUserIdLabel;
         JLabel profileNameLabel;
-        // Fix 5: banner shown when directory is in picker mode
+        // banner shown when directory is in picker mode
         JLabel pickerBannerLabel;
         JTextField searchField;
         DefaultListModel<UserInfo> listModel = new DefaultListModel<>();
@@ -1281,7 +1281,7 @@ public class ClientUI {
         	profileUserIdLabel = new JLabel();
         	profileNameLabel = new JLabel();
 
-            // Fix 5: picker mode banner — hidden by default
+            // picker mode banner — hidden by default
             pickerBannerLabel = new JLabel("Selecting participants — click to add", SwingConstants.CENTER);
             pickerBannerLabel.setForeground(new Color(0, 100, 180));
             pickerBannerLabel.setFont(pickerBannerLabel.getFont().deriveFont(Font.BOLD));
@@ -1327,7 +1327,7 @@ public class ClientUI {
             gridConst.gridheight = 2;
             userPane.add(logoutButton, gridConst);
 
-            // Fix 5: wrap userPane and pickerBannerLabel in a combined north panel
+            // wrap userPane and pickerBannerLabel in a combined north panel
             JPanel northPanel = new JPanel(new BorderLayout());
             northPanel.add(userPane, BorderLayout.NORTH);
             northPanel.add(pickerBannerLabel, BorderLayout.SOUTH);
@@ -1355,7 +1355,7 @@ public class ClientUI {
                 private void filter() {
                     String text = searchField.getText().toUpperCase();
                     listModel.clear();
-                    // Fix 6: exclude the logged-in user from the directory list
+                    // exclude the logged-in user from the directory list
                     UserInfo me = controller.getCurrentUserInfo();
                     String myId = (me != null) ? me.getUserId() : null;
                     for(UserInfo item: controller.getFilteredDirectory(text)) {
@@ -1469,7 +1469,7 @@ public class ClientUI {
                 }
                 selecting = selectedValue;
 
-                // Fix 5: show picker banner when a dialog is open (picker mode active)
+                // show picker banner when a dialog is open (picker mode active)
                 refreshPickerBanner();
 
                 // if the another window is not visible, shows the button
@@ -1499,7 +1499,7 @@ public class ClientUI {
             }
         }
 
-        // Fix 1: setListModel now also calls list.setModel() so the JList reflects the new model
+        // setListModel now also calls list.setModel() so the JList reflects the new model
         public void setListModel(DefaultListModel<UserInfo> model) {
         	this.listModel = model;
         	list.setModel(model);
@@ -1533,7 +1533,7 @@ public class ClientUI {
         JList<Conversation>	list = new JList<>(listModel);
         boolean suppressSelectionEvents = false;
 
-        // Fix 2: custom renderer that shows a friendly display name
+        // custom renderer that shows a friendly display name
         private final class ConversationCellRenderer extends DefaultListCellRenderer {
             @Override
             public Component getListCellRendererComponent(
@@ -1581,7 +1581,7 @@ public class ClientUI {
             setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
             add(searchField, BorderLayout.NORTH);
 
-            // Fix 2: install the custom cell renderer
+            // install the custom cell renderer
             list.setCellRenderer(new ConversationCellRenderer());
 
             // list is located on the middle of the window.
@@ -1622,7 +1622,7 @@ public class ClientUI {
             });
         }
 
-        // Fix 1: setListModel now also calls list.setModel() so the JList reflects the new model
+        // setListModel now also calls list.setModel() so the JList reflects the new model
         public void setListModel(DefaultListModel<Conversation> model) {
         	this.listModel = model;
         	list.setModel(model);
@@ -1674,7 +1674,7 @@ public class ClientUI {
 
         	// add action to OK button
             okButton.addActionListener(e -> {
-                // Fix 7: warn and do not proceed if no participants are selected
+                // warn and do not proceed if no participants are selected
                 if (model.isEmpty()) {
                     JOptionPane.showMessageDialog(frame, "Please select at least one participant.",
                             "No participants selected", JOptionPane.WARNING_MESSAGE);
