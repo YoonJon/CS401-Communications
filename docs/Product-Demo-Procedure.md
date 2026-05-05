@@ -17,11 +17,9 @@ Use this as a literal step-by-step script during the live demo.
 
 ## Terminal mapping
 
-- [ ] Open 4 terminals at repo root.
+- [ ] Open 1 terminal at repo root.
 - [ ] Terminal 1 = **Server**
-- [ ] Terminal 2 = **Jon**
-- [ ] Terminal 3 = **Quan**
-- [ ] Terminal 4 = **Harumi**
+- [ ] Client apps are launched from the clickable desktop app (not terminal commands).
 
 ## Server startup
 
@@ -32,9 +30,9 @@ Use this as a literal step-by-step script during the live demo.
 
 ## Client startup
 
-- [ ] **Jon** (Terminal 2): `java -cp out client.ClientController <SERVER_IP>`
-- [ ] **Quan** (Terminal 3): `java -cp out client.ClientController <SERVER_IP>`
-- [ ] **Harumi** (Terminal 4): `java -cp out client.ClientController <SERVER_IP>`
+- [ ] Launch the client app by clicking it three times (one instance each for **Jon**, **Quan**, and **Harumi**).
+- [ ] In each client instance, use the IP discovery prompt to connect to the server.
+- [ ] Enter the IPv4 printed by the server launcher and keep port `8080` unless a different port was explicitly configured.
 - [ ] Confirm all three show login screen.
 
 ## Demo identities
