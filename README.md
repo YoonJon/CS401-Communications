@@ -29,10 +29,11 @@ javac -d out @sources.txt
 
 Server (terminal 1):
 ```bash
-java -cp out server.ServerController                       # localhost:8080
-java -cp out server.ServerController data 8080 0.0.0.0     # accept LAN clients
+java -cp out server.ServerController                       # binds 0.0.0.0:8080 (LAN-accessible)
+java -cp out server.ServerController data                  # binds localhost:8080 (loopback only)
+java -cp out server.ServerController data 8080 0.0.0.0     # explicit
 ```
-Args: `[dataRootPath] [port] [ipv4]` — defaults `data`, `8080`, `localhost`.
+Args: `[dataRootPath] [port] [ipv4]` — defaults `data`, `8080`. The `ipv4` default depends on arg count: `0.0.0.0` with 0 or 2 args, `localhost` with 1 arg, otherwise the value you pass. Override anytime with `-Dserver.bind.ip=...`.
 
 Client (terminal 2):
 ```bash
